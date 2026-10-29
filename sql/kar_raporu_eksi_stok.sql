@@ -1,0 +1,1 @@
+-- kar_raporu: eksi stoka dusen satislar sonraki alis maliyetiyle eslesir (Supabase'e uygulandi, 29.10.2026)
