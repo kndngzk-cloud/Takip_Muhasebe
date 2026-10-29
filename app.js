@@ -350,7 +350,7 @@ function viewLogin() {
   const draw = () => {
     $('#app').innerHTML = `
     <div class="login"><form class="box" id="lf">
-      <img class="logo" src="icons/icon-192.png" alt="">
+      <img class="logo" src="icons/icon-192-v4.png" alt="">
       <h1>${esc(CFG.appName)}</h1>
       <p class="sub">${mode === 'login' ? 'Devam etmek için giriş yapın' : 'İlk kurulum: hesabınızı oluşturun'}</p>
       ${mode === 'signup' ? `<div class="field"><label>Adınız</label><input class="input" name="ad" required autocomplete="name"></div>` : ''}

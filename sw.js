@@ -1,7 +1,7 @@
 // Uygulama kabugunu onbellege alir: ikon ve dosyalar hizli acilir.
 // Veriler (Supabase istekleri) asla onbellege alinmaz; her zaman canli gelir.
-const CACHE = 'ssc-v14';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
+const CACHE = 'ssc-v15';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192-v4.png', 'icons/icon-512-v4.png', 'icons/apple-touch-icon-v4.png', 'icons/favicon-32-v4.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
