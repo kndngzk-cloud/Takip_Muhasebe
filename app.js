@@ -1703,7 +1703,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.17</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.18</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -2283,7 +2283,7 @@ async function viewCinDetay(id) {
         ${c.aciklama ? `<span class="k">Açıklama</span><span>${esc(c.aciklama)}</span>` : ''}
       </div>
     </div>
-    <div class="card"><h2>Aşamalar <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· tarihi değiştirmek için aşamaya dokunun</span></h2>
+    <div class="card"><h2>Aşamalar <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ileri bir aşamaya dokunarak doğrudan oraya geçebilir, geçmiş aşamanın tarihini düzeltebilirsiniz</span></h2>
       <div class="steps" id="steps">${CIN_ASAMA.map((a, i) => {
         const dt = c[ASAMA_TARIH[a]], th = ASAMA_TAHMIN[a] ? c[ASAMA_TAHMIN[a]] : null;
         const done = !iptal && i <= idx;
@@ -2326,7 +2326,11 @@ async function viewCinDetay(id) {
   $('#pm-add')?.addEventListener('click', (e) => { e.preventDefault(); planForm(null, ctxM); });
   $('#b-vergi')?.addEventListener('click', () => vergiHesapla(c, kal, plan, kur));
   $('#b-trg')?.addEventListener('click', () => trGiderleri(c, kal, mas.length));
-  $$('#steps .step').forEach((el) => el.onclick = () => { if (!iptal) asamaTarihleri(c, el.dataset.a); });
+  $$('#steps .step').forEach((el) => el.onclick = () => {
+    if (iptal) return;
+    const a = el.dataset.a;
+    if (CIN_ASAMA.indexOf(a) > idx) asamaIlerlet(c, a, kal, kur); else asamaTarihleri(c, a);
+  });
   $('#b-ileri')?.addEventListener('click', () => asamaIlerlet(c, sonraki, kal, kur));
   $('#b-iptal')?.addEventListener('click', async () => {
     if (!await confirmBox(`${cinNo(c.no)} iptal edilsin mi?`, 'Sipariş iptal edilir, ödeme planı takvimden kalkar. Bağlı müşteri siparişleri ayrıca iptal edilmelidir.', 'İptal et', true)) return;
@@ -2346,9 +2350,10 @@ async function viewCinDetay(id) {
 function asamaIlerlet(c, sonraki, kal, kur) {
   const teslim = sonraki === 'Teslim Alındı', dvz = c.para_birimi !== 'TRY';
   const adet = kal.reduce((a, k) => a + num(k.miktar), 0);
+  const atlanan = CIN_ASAMA.slice(CIN_ASAMA.indexOf(c.durum) + 1, CIN_ASAMA.indexOf(sonraki));
   modal({
     title: teslim ? `${cinNo(c.no)} teslim al` : `${cinNo(c.no)} · ${ASAMA_KISA[sonraki]}`,
-    body: `${teslim ? `<p class="small muted" style="margin-top:0">${kal.length} kalem, toplam <b>${fmtN(adet)}</b> adet depo stoğuna giriş yapılacak. Maliyet = fabrika fiyatı × kur + maliyete dahil vergi/masraflar.</p>` : ''}
+    body: `${atlanan.length ? `<p class="small muted" style="margin-top:0">Aradaki aşamalar (${atlanan.map((x) => ASAMA_KISA[x]).join(', ')}) da aynı tarihle tamamlanmış sayılır; sonra aşamaya dokunup tarihlerini düzeltebilirsiniz.</p>` : ''}${teslim ? `<p class="small muted" style="margin-top:0">${kal.length} kalem, toplam <b>${fmtN(adet)}</b> adet depo stoğuna giriş yapılacak. Maliyet = fabrika fiyatı × kur + maliyete dahil vergi/masraflar.</p>` : ''}
       <div class="grid2"><div class="field"><label>${ASAMA_KISA[sonraki]} tarihi</label><input class="input" type="date" id="as-t" value="${today()}"></div>
       ${teslim && dvz ? `<div class="field"><label>Maliyet kuru (1 ${c.para_birimi} = ? ₺)</label><input class="input" id="as-k" inputmode="decimal" value="${c.kur ? fmtN(c.kur) : kur ? fmtN(Math.round(kur * 10000) / 10000) : sonKur(c.para_birimi) ? fmtN(sonKur(c.para_birimi)) : ''}"><div class="hint">${!c.kur && kur ? 'Ödenen taksitlerin ortalama kuru önerildi' : 'Gümrük kuru ya da ödeme kuru'}</div></div>` : ''}</div>
       ${sonraki === 'Yüklendi' ? `<div class="grid2"><div class="field"><label>Konteyner no</label><input class="input" id="as-kon" value="${esc(c.konteyner_no || '')}"></div><div class="field"><label>Takip / B/L no</label><input class="input" id="as-tak" value="${esc(c.takip_no || '')}"></div></div>
@@ -2360,6 +2365,7 @@ function asamaIlerlet(c, sonraki, kal, kur) {
       $('#as-ok', m.el).onclick = async (e) => {
         const v = (s) => ($(s, m.el) ? $(s, m.el).value.trim() || null : undefined);
         const patch = { durum: sonraki, [ASAMA_TARIH[sonraki]]: v('#as-t') || today() };
+        atlanan.forEach((x) => { if (!c[ASAMA_TARIH[x]]) patch[ASAMA_TARIH[x]] = patch[ASAMA_TARIH[sonraki]]; });
         if (teslim && dvz) { const k = parseNum($('#as-k', m.el).value); if (!(k > 0)) return toast('Kur girin', 'err'); patch.kur = k; kurHatirla(c.para_birimi, k); }
         [['#as-kon', 'konteyner_no'], ['#as-tak', 'takip_no'], ['#as-tv', 'tahmini_varis'], ['#as-tu', 'tahmini_uretim'], ['#as-ty', 'tahmini_yukleme']].forEach(([s, k]) => { const x = v(s); if (x !== undefined) patch[k] = x; });
         try {
