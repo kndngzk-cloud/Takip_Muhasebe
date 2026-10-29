@@ -15,6 +15,34 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
 const fmt2 = (v) => num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const PB = { TRY: '₺', USD: '$', EUR: '€', GBP: '£' };
+const PB_AD = { TRY: 'TL', USD: 'USD $', EUR: 'EUR €', GBP: 'GBP £' };
+const fmtPB = (v, pb) => (!pb || pb === 'TRY' ? fmtTL(v) : num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + PB[pb]);
+const sonKur = (pb) => { try { return JSON.parse(localStorage.getItem('ssc_kur') || '{}')[pb] || ''; } catch { return ''; } };
+const kurHatirla = (pb, k) => { try { const o = JSON.parse(localStorage.getItem('ssc_kur') || '{}'); o[pb] = k; localStorage.setItem('ssc_kur', JSON.stringify(o)); } catch {} };
+/* Para birimi + kur alanlari. pb TRY iken kur kapali (1). */
+function dovizHtml(id, pb = 'TRY', kur = '') {
+  return `<div class="grid2">
+    <div class="field"><label>Para birimi</label><select class="input" id="${id}-pb">${Object.keys(PB).map((k) => `<option value="${k}" ${k === pb ? 'selected' : ''}>${PB_AD[k]}</option>`).join('')}</select></div>
+    <div class="field"><label id="${id}-kl">Kur (1 ${pb === 'TRY' ? 'birim' : pb} = ? ₺)</label><input class="input" id="${id}-kur" inputmode="decimal" value="${pb === 'TRY' ? '' : (kur === '' ? '' : fmtN(kur))}" placeholder="${pb === 'TRY' ? 'TL için gerekmez' : 'örn. 41,25'}" ${pb === 'TRY' ? 'disabled' : ''}></div>
+  </div>`;
+}
+/* get(): {pb, kur} ; kur TRY icin 1, gecersizse NaN */
+function bindDoviz(root, id, onChange = () => {}) {
+  const sel = $(`#${id}-pb`, root), inp = $(`#${id}-kur`, root), lab = $(`#${id}-kl`, root);
+  const get = () => { const pb = sel.value; return { pb, kur: pb === 'TRY' ? 1 : parseNum(inp.value) }; };
+  let onceki = get();
+  sel.onchange = () => {
+    const pb = sel.value;
+    inp.disabled = pb === 'TRY'; inp.placeholder = pb === 'TRY' ? 'TL için gerekmez' : 'örn. 41,25';
+    inp.value = pb === 'TRY' ? '' : (sonKur(pb) ? fmtN(sonKur(pb)) : '');
+    lab.textContent = `Kur (1 ${pb === 'TRY' ? 'birim' : pb} = ? ₺)`;
+    const yeni = get(); onChange(yeni, onceki); onceki = yeni;
+    if (pb !== 'TRY' && !inp.value) inp.focus();
+  };
+  inp.oninput = () => { const yeni = get(); onChange(yeni, onceki); onceki = yeni; };
+  return { get, check() { const d = get(); if (d.pb !== 'TRY' && !(d.kur > 0)) { toast(`${d.pb} için kur girin`, 'err'); inp.focus(); return null; } if (d.pb !== 'TRY') kurHatirla(d.pb, d.kur); return d; } };
+}
 const fmtTL = (v) => num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₺';
 const fmtN = (v) => num(v).toLocaleString('tr-TR', { maximumFractionDigits: 3 });
 const fmtD = (iso) => { if (!iso) return '–'; const [y, m, d] = String(iso).slice(0, 10).split('-'); return `${d}.${m}.${y}`; };
@@ -435,13 +463,14 @@ async function viewSiparisDetay(id) {
         <span class="k">Sevk tarihi</span><span>${fmtD(s.sevk_tarihi)}</span>
         <span class="k">Gönderim</span><span>${esc(s.gonderim_sekli || '–')}</span>
         <span class="k">Sevk şehri</span><span>${esc(s.sevk_sehri || '–')}</span>
+        ${s.para_birimi && s.para_birimi !== 'TRY' ? `<span class="k">Para birimi</span><span><b>${s.para_birimi}</b> · kur ${fmtN(s.kur)} ₺ · döviz toplamı <b>${fmtPB(num(s.genel_toplam) / num(s.kur), s.para_birimi)}</b></span>` : ''}
         <span class="k">Kâr yöntemi</span><span><span class="seg" id="d-yon" style="display:inline-flex;padding:2px"><button type="button" data-v="FIFO" style="padding:4px 12px">FIFO</button><button type="button" data-v="LIFO" style="padding:4px 12px">LIFO</button></span></span>
         ${s.aciklama ? `<span class="k">Açıklama</span><span>${esc(s.aciklama)}</span>` : ''}
       </div>
     </div>
     <div class="list"><div class="table-wrap"><table class="tbl">
       <thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim fiyat</th><th class="r">Tutar</th></tr></thead>
-      <tbody>${kal.map((k) => `<tr><td>${esc(k.urunler?.ad)}<div class="tiny">${esc(k.urunler?.kod)}</div></td><td class="r">${fmtN(k.miktar)} ${esc(k.urunler?.birim || '')}</td><td class="r">${fmtTL(k.birim_fiyat)}</td><td class="r">${fmtTL(k.tutar)}</td></tr>`).join('')}</tbody>
+      <tbody>${kal.map((k) => `<tr><td>${esc(k.urunler?.ad)}<div class="tiny">${esc(k.urunler?.kod)}</div></td><td class="r">${fmtN(k.miktar)} ${esc(k.urunler?.birim || '')}</td><td class="r">${fmtTL(k.birim_fiyat)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(k.doviz_fiyat, s.para_birimi)}</div>` : ''}</td><td class="r">${fmtTL(k.tutar)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(num(k.doviz_fiyat) * num(k.miktar), s.para_birimi)}</div>` : ''}</td></tr>`).join('')}</tbody>
       <tfoot>
         <tr><td colspan="3" class="r">Ara toplam</td><td class="r">${fmtTL(s.ara_toplam)}</td></tr>
         ${s.fatura_tipi === 'R' ? `<tr><td colspan="3" class="r">KDV (%${fmtN(num(s.kdv_orani) * 100)})</td><td class="r">${fmtTL(s.kdv_tutari)}</td></tr>` : ''}
@@ -577,6 +606,7 @@ function fisCanvas(s, kal) {
   if (s.fatura_tipi === 'R') tr(`KDV (%${fmtN(num(s.kdv_orani) * 100)})`, fmtTL(s.kdv_tutari));
   c.strokeStyle = '#16213a'; c.lineWidth = 3; c.beginPath(); c.moveTo(620, y - 22); c.lineTo(W - pad, y - 22); c.stroke(); y += 12;
   tr('GENEL TOPLAM', fmtTL(s.genel_toplam), true);
+  if (s.para_birimi && s.para_birimi !== 'TRY') tr(`${s.para_birimi} karşılığı (kur ${fmtN(s.kur)})`, fmtPB(num(s.genel_toplam) / num(s.kur), s.para_birimi));
   if (s.aciklama) { y += 10; c.fillStyle = '#5b6578'; c.font = F(500, 26); c.fillText('Not: ' + s.aciklama, pad, y); y += 40; }
   const out = document.createElement('canvas'); out.width = W; out.height = Math.min(H, y + 40);
   out.getContext('2d').drawImage(cv, 0, 0);
@@ -588,14 +618,14 @@ async function viewSiparisDuzenle(id) { return viewSiparisYeni(null, id); }
 async function viewSiparisYeni(cariId, editId = null) {
   topbar(editId ? 'Siparişi Düzenle' : 'Yeni Sipariş', { back: true });
   const [ayar, urunler, cariler] = await Promise.all([cache.ayarlar(), cache.urunler(true), cache.cariler()]);
-  const f = { yon: ayar.maliyet_yontemi || 'FIFO', cari: null, tip: 'R', gonderim: '', tarih: today(), kdv: num(ayar.kdv_orani) * 100, aciklama: '', sevk: false, fiyatKaydet: true, lines: [], mf: {}, orig: {} };
+  const f = { pb: 'TRY', kur: 1, yon: ayar.maliyet_yontemi || 'FIFO', cari: null, tip: 'R', gonderim: '', tarih: today(), kdv: num(ayar.kdv_orani) * 100, aciklama: '', sevk: false, fiyatKaydet: true, lines: [], mf: {}, orig: {} };
   let es = null, ekal = [];
   if (editId) {
     [[es], ekal] = await Promise.all([api.get('v_siparisler', `select=*&id=eq.${editId}`), api.get('siparis_kalemleri', `select=*&siparis_id=eq.${editId}&order=id.asc`)]);
     if (!es) { $('#view').innerHTML = '<div class="card empty">Sipariş bulunamadı</div>'; return; }
     if (es.durum === 'İptal') { $('#view').innerHTML = '<div class="card empty">İptal edilmiş sipariş düzenlenemez</div>'; return; }
     topbar(`Fiş ${es.fis_no} · düzenle`, { back: true });
-    Object.assign(f, { yon: es.maliyet_yontemi || f.yon, tip: es.fatura_tipi, tarih: es.tarih, kdv: es.fatura_tipi === 'R' ? num(es.kdv_orani) * 100 : f.kdv, aciklama: es.aciklama || '' });
+    Object.assign(f, { pb: es.para_birimi || 'TRY', kur: num(es.kur) || 1, yon: es.maliyet_yontemi || f.yon, tip: es.fatura_tipi, tarih: es.tarih, kdv: es.fatura_tipi === 'R' ? num(es.kdv_orani) * 100 : f.kdv, aciklama: es.aciklama || '' });
     ekal.forEach((k) => { f.orig[k.urun_id] = (f.orig[k.urun_id] || 0) + num(k.miktar); });
   }
   const avail = (u) => num(u.sevk_sonrasi_stok) + (f.orig[u.id] || 0);
@@ -609,6 +639,7 @@ async function viewSiparisYeni(cariId, editId = null) {
         <div class="field"><label>Fatura tipi</label><div class="seg" id="f-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
         <div class="field" id="kdv-f"><label>KDV oranı (%)</label><input class="input" id="f-kdv" inputmode="decimal" value="${fmtN(f.kdv)}"></div>
       </div>
+      ${dovizHtml('f-dv', f.pb, f.pb === 'TRY' ? '' : f.kur)}
       <div class="grid2">
         <div class="field"><label>Gönderim şekli</label><select class="input" id="f-gon"><option value="">Seçin…</option>${(ayar.gonderim_sekilleri || []).map((g) => `<option>${esc(g)}</option>`).join('')}</select></div>
         <div class="field"><label>Sipariş tarihi</label><input class="input" type="date" id="f-tarih" value="${f.tarih}"></div>
@@ -631,6 +662,18 @@ async function viewSiparisYeni(cariId, editId = null) {
   $('#f-tip').onclick = (e) => { const b = e.target.closest('button'); if (b) setTip(b.dataset.v); };
   const setYon = (v) => { f.yon = v; $$('#f-yon button').forEach((b) => b.classList.toggle('on', b.dataset.v === v)); };
   setYon(f.yon); $('#f-yon').onclick = (e) => { const b = e.target.closest('button'); if (b) setYon(b.dataset.v); };
+  const dvz = bindDoviz($('#view'), 'f-dv', (yeni, eski) => {
+    if (yeni.pb !== eski.pb) {
+      // birim degisti: satir fiyatlarini TL uzerinden yeni birime cevir
+      f.lines.forEach((l) => {
+        if (!l.urun || l.fiyat === '') return;
+        if (!l.manuel) { f.pb = yeni.pb; f.kur = yeni.kur; l.fiyat = priceFor(l.urun); return; }
+        const tl = num(l.fiyat) * (eski.pb === 'TRY' ? 1 : (eski.kur > 0 ? eski.kur : NaN));
+        l.fiyat = yeni.pb === 'TRY' ? Math.round(tl * 100) / 100 : (yeni.kur > 0 && !isNaN(tl) ? Math.round((tl / yeni.kur) * 100) / 100 : l.fiyat);
+      });
+      f.pb = yeni.pb; f.kur = yeni.kur; drawLines();
+    } else { f.pb = yeni.pb; f.kur = yeni.kur; drawTotals(); }
+  });
 
   const setCari = async (c) => {
     f.cari = c;
@@ -639,13 +682,21 @@ async function viewSiparisYeni(cariId, editId = null) {
     if (c.tip === 'Perakende') { $('#f-mf').checked = false; if (!$('#f-gon').value && ayar.perakende_gonderimler?.[0]) $('#f-gon').value = ayar.perakende_gonderimler[0]; }
     else $('#f-mf').checked = true;
     try {
-      const mf = await api.get('musteri_fiyatlari', `select=urun_id,fiyat&cari_id=eq.${c.id}`);
-      f.mf = Object.fromEntries(mf.map((x) => [x.urun_id, num(x.fiyat)]));
+      const mf = await api.get('musteri_fiyatlari', `select=urun_id,fiyat,para_birimi&cari_id=eq.${c.id}`);
+      f.mf = Object.fromEntries(mf.map((x) => [x.urun_id, { fiyat: num(x.fiyat), pb: x.para_birimi || 'TRY' }]));
       f.lines.forEach((l) => { if (l.urun && !l.manuel) l.fiyat = priceFor(l.urun); });
       drawLines();
     } catch (e) { fail(e); }
   };
-  const priceFor = (u) => (f.mf[u.id] !== undefined ? f.mf[u.id] : num(u.satis_fiyati));
+  /* Secili para biriminde fiyat: ayni birimde musteri fiyati varsa o, yoksa TL fiyat / kur */
+  const priceFor = (u) => {
+    const m = f.mf[u.id];
+    if (m && m.pb === f.pb) return m.fiyat;
+    let tl = m ? (m.pb === 'TRY' ? m.fiyat : (num(sonKur(m.pb)) > 0 ? m.fiyat * num(sonKur(m.pb)) : null)) : null;
+    if (tl === null) tl = num(u.satis_fiyati);
+    return f.pb === 'TRY' ? tl : (f.kur > 0 ? Math.round((tl / f.kur) * 100) / 100 : '');
+  };
+  const mfTxt = (u) => (f.mf[u.id] ? fmtPB(f.mf[u.id].fiyat, f.mf[u.id].pb) : '');
 
   if (!editId) picker($('#f-cari'), {
     items: () => cariler.filter((c) => c.aktif), label: (c) => c.unvan,
@@ -662,18 +713,18 @@ async function viewSiparisYeni(cariId, editId = null) {
         <div class="picker" style="display:flex;gap:6px"><input class="input l-urun" placeholder="Ürün ara…" value="${esc(u?.ad || '')}" autocomplete="off"><button class="icon-btn l-del" title="Kaldır">${icon('trash')}</button></div>
         <div class="lr">
           <div class="field"><label>Miktar</label><input class="input l-mik" inputmode="decimal" value="${l.miktar === '' ? '' : fmtN(l.miktar)}"></div>
-          <div class="field"><label>Birim fiyat</label><input class="input l-fiy" inputmode="decimal" value="${l.fiyat === '' ? '' : fmtN(l.fiyat)}"></div>
+          <div class="field"><label>Birim fiyat ${PB[f.pb]}</label><input class="input l-fiy" inputmode="decimal" value="${l.fiyat === '' ? '' : fmtN(l.fiyat)}"></div>
           <div class="field"><label>Tutar</label><input class="input l-tut" readonly value="${fmt2(num(l.miktar) * num(l.fiyat))}" style="background:var(--surface-2)"></div>
         </div>
         ${u ? `<div class="info"><span>Real: <b>${fmtN(u.real_stok)}</b></span><span>${f.orig[u.id] ? 'Kullanılabilir' : 'Sevk sonrası'}: <b class="${stokUyari ? 'pos' : ''}">${fmtN(avail(u))}</b> ${esc(u.birim)}</span>
-          ${f.mf[u.id] !== undefined ? `<span class="badge b-green">Müşteri fiyatı ${fmtTL(f.mf[u.id])}</span>` : `<span class="tiny">Liste fiyatı ${fmtTL(u.satis_fiyati)}</span>`}
+          ${f.mf[u.id] ? `<span class="badge b-green">Müşteri fiyatı ${mfTxt(u)}</span>` : `<span class="tiny">Liste fiyatı ${fmtTL(u.satis_fiyati)}</span>`}
           <span class="badge b-orange l-warn ${stokUyari ? '' : 'hidden'}">Stok yetersiz</span></div>` : ''}
       </div>`;
     }).join('');
     $$('#lines .line').forEach((el) => {
       const i = +el.dataset.i, l = f.lines[i];
       picker($('.l-urun', el), {
-        items: aktifUrun, label: (u) => u.ad, sub: (u) => `${esc(u.kod)} · sevk sonrası ${fmtN(u.sevk_sonrasi_stok)} ${esc(u.birim)}${f.mf[u.id] !== undefined ? ' · müşteri fiyatı ' + fmtTL(f.mf[u.id]) : ''}`,
+        items: aktifUrun, label: (u) => u.ad, sub: (u) => `${esc(u.kod)} · sevk sonrası ${fmtN(u.sevk_sonrasi_stok)} ${esc(u.birim)}${f.mf[u.id] ? ' · müşteri fiyatı ' + mfTxt(u) : ''}`,
         onPick: (u) => { l.urun = u; l.manuel = false; l.fiyat = priceFor(u); if (l.miktar === '') l.miktar = 1; if (i === f.lines.length - 1) f.lines.push({ urun: null, miktar: '', fiyat: '' }); drawLines(); setTimeout(() => $(`.line[data-i="${i}"] .l-mik`)?.select(), 30); },
         addText: 'Yeni ürün ekle',
         onAdd: (v) => urunForm(null, { ad: v }, async (u) => { cache.dirty('urunler'); const all = await cache.urunler(); urunler.splice(0, urunler.length, ...all); l.urun = all.find((x) => x.id === u.id); l.fiyat = priceFor(l.urun); l.miktar = 1; drawLines(); })
@@ -690,19 +741,24 @@ async function viewSiparisYeni(cariId, editId = null) {
     drawTotals();
   };
   const drawTotals = () => {
-    const ara = f.lines.reduce((a, l) => a + Math.round(num(l.miktar) * num(l.fiyat) * 100) / 100, 0);
+    const kur = f.pb === 'TRY' ? 1 : f.kur;
+    const araD = f.lines.reduce((a, l) => a + num(l.miktar) * num(l.fiyat), 0);
+    const ara = f.lines.reduce((a, l) => a + Math.round(num(l.miktar) * Math.round(num(l.fiyat) * kur * 100) / 100 * 100) / 100, 0);
     const kdvO = f.tip === 'R' ? (parseNum($('#f-kdv')?.value) || 0) / 100 : 0;
     const kdv = Math.round(ara * kdvO * 100) / 100;
-    $('#totals').innerHTML = `<div class="tr"><span class="muted">Ara toplam</span><span>${fmtTL(ara)}</span></div>
+    const dv = f.pb !== 'TRY';
+    $('#totals').innerHTML = `${dv ? `<div class="tr"><span class="muted">Döviz toplamı (KDV hariç)</span><span>${fmtPB(araD, f.pb)}</span></div>` : ''}
+      <div class="tr"><span class="muted">Ara toplam${dv ? ' (TL)' : ''}</span><span>${f.pb !== 'TRY' && !(f.kur > 0) ? '<span class="tiny" style="color:var(--red)">kur girin</span>' : fmtTL(ara)}</span></div>
       ${f.tip === 'R' ? `<div class="tr"><span class="muted">KDV (%${fmtN(kdvO * 100)})</span><span>${fmtTL(kdv)}</span></div>` : '<div class="tr"><span class="muted">KDV</span><span class="tiny">GR — KDV eklenmez</span></div>'}
       <div class="tr big"><span>Genel toplam</span><span>${fmtTL(ara + kdv)}</span></div>
+      ${dv ? `<div class="tiny">${fmtPB(araD * (1 + kdvO), f.pb)} × ${fmtN(f.kur)} = ${fmtTL(ara + kdv)} cariye TL olarak işlenir</div>` : ''}
       ${f.cari?.tip === 'Perakende' ? '<div class="tiny">Perakende cari: aynı tutarda tahsilat otomatik girilir, bakiye sıfır kalır.</div>' : ''}`;
   };
   $('#f-kdv').oninput = drawTotals;
   $('#add-line').onclick = () => { if (f.lines[f.lines.length - 1]?.urun) f.lines.push({ urun: null, miktar: '', fiyat: '' }); drawLines(); setTimeout(() => $$('#lines .l-urun').pop()?.focus(), 30); };
 
   if (editId) {
-    ekal.forEach((k) => { const u = urunler.find((x) => x.id === k.urun_id); if (u) f.lines.push({ urun: u, miktar: num(k.miktar), fiyat: num(k.birim_fiyat), manuel: true }); });
+    ekal.forEach((k) => { const u = urunler.find((x) => x.id === k.urun_id); if (u) f.lines.push({ urun: u, miktar: num(k.miktar), fiyat: f.pb !== 'TRY' && k.doviz_fiyat !== null ? num(k.doviz_fiyat) : num(k.birim_fiyat), manuel: true }); });
     const g = $('#f-gon'); if (es.gonderim_sekli && ![...g.options].some((o) => o.value === es.gonderim_sekli)) g.insertAdjacentHTML('beforeend', `<option>${esc(es.gonderim_sekli)}</option>`);
     g.value = es.gonderim_sekli || ''; $('#f-acik').value = f.aciklama;
   }
@@ -719,21 +775,24 @@ async function viewSiparisYeni(cariId, editId = null) {
     if (bad) return toast(`${bad.urun.ad}: miktar ve fiyatı kontrol edin`, 'err');
     const kdvO = (parseNum($('#f-kdv').value) || 0) / 100;
     if (f.tip === 'R' && (kdvO < 0 || kdvO >= 1)) return toast('KDV oranı 0 ile 99 arasında olmalı', 'err');
+    const dv = dvz.check(); if (!dv) return;
+    const tlF = (l) => Math.round(num(l.fiyat) * dv.kur * 100) / 100;
     const eksik = lines.filter((l) => num(l.miktar) > avail(l.urun));
     if (eksik.length && !await confirmBox('Stok yetersiz', `Şu ürünlerde yeterli stok yok:<br>${eksik.map((l) => `• ${esc(l.urun.ad)} (kullanılabilir ${fmtN(avail(l.urun))}, istenen ${fmtN(l.miktar)})`).join('<br>')}<br><br>Yine de kaydedilsin mi?`, 'Kaydet')) return;
     const sevk = !editId && $('#f-sevk').checked;
     try {
       const r = await busy(e.currentTarget, async () => {
         const ortak = {
-          p_kalemler: lines.map((l) => ({ urun_id: l.urun.id, miktar: num(l.miktar), birim_fiyat: num(l.fiyat) })),
+          p_kalemler: lines.map((l) => ({ urun_id: l.urun.id, miktar: num(l.miktar), birim_fiyat: tlF(l) })),
           p_fatura_tipi: f.tip, p_gonderim_sekli: $('#f-gon').value || null, p_tarih: $('#f-tarih').value || today(),
           p_kdv_orani: f.tip === 'R' ? kdvO : 0, p_aciklama: $('#f-acik').value || null, p_sevk_sehri: null, p_maliyet_yontemi: f.yon
         };
         const res = editId ? await api.rpc('siparis_guncelle', { p_siparis_id: +editId, ...ortak }) : await api.rpc('siparis_kaydet', { p_cari_id: f.cari.id, ...ortak });
+        if (dv.pb !== 'TRY' || (editId && es.para_birimi !== 'TRY')) await api.rpc('siparis_doviz', { p_siparis_id: res.id, p_para_birimi: dv.pb, p_kur: dv.kur, p_fiyatlar: lines.map((l) => num(l.fiyat)) });
         if (sevk) await api.rpc('siparis_sevk', { p_siparis_id: res.id, p_sevk_tarihi: $('#f-tarih').value || today() });
         if ($('#f-mf').checked) {
-          const ups = lines.filter((l) => f.mf[l.urun.id] === undefined ? num(l.fiyat) !== num(l.urun.satis_fiyati) : num(l.fiyat) !== f.mf[l.urun.id])
-            .map((l) => ({ cari_id: f.cari.id, urun_id: l.urun.id, fiyat: num(l.fiyat), tarih: today() }));
+          const ups = lines.filter((l) => { const m = f.mf[l.urun.id]; return !m ? !(dv.pb === 'TRY' && num(l.fiyat) === num(l.urun.satis_fiyati)) : (m.pb !== dv.pb || num(l.fiyat) !== m.fiyat); })
+            .map((l) => ({ cari_id: f.cari.id, urun_id: l.urun.id, fiyat: num(l.fiyat), para_birimi: dv.pb, tarih: today() }));
           const uniq = Object.values(Object.fromEntries(ups.map((x) => [x.urun_id, x])));
           if (uniq.length) await api.insert('musteri_fiyatlari', uniq, { upsert: true, onConflict: 'cari_id,urun_id' });
         }
@@ -837,7 +896,7 @@ function hareketTable(har, showUrun) {
       <td class="r ${h.tur === 'Giriş' ? '' : 'pos'}"><b>${h.tur === 'Giriş' ? '+' : '−'}${fmtN(h.miktar)}</b></td>
       <td class="r" ${h.tur === 'Giriş' ? 'data-l="Maliyet"' : ''}>${h.tur === 'Giriş'
         ? (isAdmin() ? `<input class="input mal-in" data-id="${h.id}" inputmode="decimal" style="width:110px;padding:6px 8px;text-align:right;font-size:14px" placeholder="girin" value="${h.birim_maliyet !== null ? fmtN(h.birim_maliyet) : ''}">` : (h.birim_maliyet !== null ? fmtTL(h.birim_maliyet) : '–'))
-        : ''}</td>
+        : ''}${h.para_birimi && h.para_birimi !== 'TRY' && h.doviz_maliyet !== null ? `<div class="tiny">${fmtPB(h.doviz_maliyet, h.para_birimi)} × ${fmtN(h.kur)}</div>` : ''}</td>
       <td class="small w">${h.siparisler ? `<a href="#/siparis/${h.siparis_id}">Fiş ${h.siparisler.fis_no}</a> · ${esc(h.siparisler.cariler?.unvan || '')}` : esc([h.tedarikci, h.belge_no, h.aciklama].filter(Boolean).join(' · ') || '')}</td>
       ${isAdmin() ? `<td class="push">${!h.siparis_id ? `<button class="icon-btn h-del" data-id="${h.id}" title="Sil">${icon('trash')}</button>` : ''}</td>` : ''}
     </tr>`).join('')}</tbody></table></div>`;
@@ -890,6 +949,7 @@ async function viewMalAlisi(urunId) {
   const tedarikciler = [...new Set(gecmis.map((x) => x.tedarikci).filter(Boolean))];
   const lines = [];
   let tip = 'R';
+  let adv = null;
   const bos = () => ({ urun: null, miktar: '', maliyet: '' });
   if (urunId) { const u = urunler.find((x) => x.id === +urunId); if (u) lines.push({ urun: u, miktar: '', maliyet: '' }); }
   lines.push(bos());
@@ -903,6 +963,7 @@ async function viewMalAlisi(urunId) {
         <div class="field"><label>Fatura tipi</label><div class="seg" id="a-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
         <div class="field" id="a-kdvf"><label>KDV oranı (%)</label><input class="input" id="a-kdv" inputmode="decimal" value="${fmtN(num(ayar.kdv_orani) * 100)}"></div>
       </div>
+      ${dovizHtml('a-dv')}
       <div class="field"><label>Tedarikçi</label><input class="input" id="a-ted" list="ted-list" placeholder="İsteğe bağlı"><datalist id="ted-list">${tedarikciler.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
       <div class="field" style="margin-bottom:0"><label>Açıklama</label><input class="input" id="a-ac" placeholder="İsteğe bağlı"></div>
     </div>
@@ -919,7 +980,7 @@ async function viewMalAlisi(urunId) {
         <div class="picker" style="display:flex;gap:6px"><input class="input a-urun" placeholder="${i + 1}. ürün ara…" value="${esc(u?.ad || '')}" autocomplete="off"><button class="icon-btn a-del" title="Kaldır">${icon('trash')}</button></div>
         <div class="lr">
           <div class="field"><label>Miktar</label><input class="input a-mik" inputmode="decimal" value="${l.miktar === '' ? '' : fmtN(l.miktar)}"></div>
-          <div class="field"><label>Alış fiyatı ₺</label><input class="input a-mal" inputmode="decimal" placeholder="${u && u.son_alis_fiyati !== null ? fmtN(u.son_alis_fiyati) : 'sonra da girilebilir'}" value="${l.maliyet === '' ? '' : fmtN(l.maliyet)}"></div>
+          <div class="field"><label>Alış fiyatı <span class="a-pbs">${PB[adv ? adv.get().pb : 'TRY']}</span></label><input class="input a-mal" inputmode="decimal" placeholder="${u && u.son_alis_fiyati !== null ? fmtN(u.son_alis_fiyati) : 'sonra da girilebilir'}" value="${l.maliyet === '' ? '' : fmtN(l.maliyet)}"></div>
           <div class="field"><label>Tutar</label><input class="input a-tut" readonly value="${l.maliyet === '' ? '–' : fmt2(num(l.miktar) * num(l.maliyet))}" style="background:var(--surface-2)"></div>
         </div>
         ${u ? `<div class="info"><span>Real stok: <b>${fmtN(u.real_stok)}</b> ${esc(u.birim)}</span>${u.son_alis_fiyati !== null ? `<span>Son alış: <b>${fmtTL(u.son_alis_fiyati)}</b></span>` : ''}<span class="a-sonra">${num(l.miktar) > 0 ? `Giriş sonrası: <b>${fmtN(num(u.real_stok) + num(l.miktar))}</b>` : ''}</span></div>` : ''}
@@ -956,14 +1017,18 @@ async function viewMalAlisi(urunId) {
     const top = dolu.reduce((a, l) => a + (l.maliyet === '' ? 0 : Math.round(num(l.miktar) * num(l.maliyet) * 100) / 100), 0);
     const eksik = dolu.filter((l) => l.maliyet === '').length;
     const kdvO = tip === 'R' ? (parseNum($('#a-kdv')?.value) || 0) / 100 : 0;
+    const d = adv ? adv.get() : { pb: 'TRY', kur: 1 };
     const kdv = Math.round(top * kdvO * 100) / 100;
+    const tlx = (v) => (d.pb === 'TRY' ? fmtTL(v) : `${fmtPB(v, d.pb)}${d.kur > 0 ? ` <span class="tiny">≈ ${fmtTL(v * d.kur)}</span>` : ''}`);
     $('#a-tot').innerHTML = `<div class="tr"><span class="muted">Kalem sayısı</span><span>${dolu.length}</span></div>
       <div class="tr"><span class="muted">Toplam miktar</span><span>${fmtN(dolu.reduce((a, l) => a + num(l.miktar), 0))}</span></div>
-      <div class="tr"><span class="muted">Ara toplam (KDV hariç)</span><span>${fmtTL(top)}</span></div>
-      ${tip === 'R' ? `<div class="tr"><span class="muted">KDV (%${fmtN(kdvO * 100)})</span><span>${fmtTL(kdv)}</span></div>` : '<div class="tr"><span class="muted">KDV</span><span class="tiny">GR — KDV yok</span></div>'}
-      <div class="tr big"><span>Fiş toplamı</span><span>${fmtTL(top + kdv)}</span></div>
+      <div class="tr"><span class="muted">Ara toplam (KDV hariç)</span><span>${tlx(top)}</span></div>
+      ${tip === 'R' ? `<div class="tr"><span class="muted">KDV (%${fmtN(kdvO * 100)})</span><span>${tlx(kdv)}</span></div>` : '<div class="tr"><span class="muted">KDV</span><span class="tiny">GR — KDV yok</span></div>'}
+      <div class="tr big"><span>Fiş toplamı</span><span>${tlx(top + kdv)}</span></div>
+      ${d.pb !== 'TRY' ? `<div class="tiny">Stoğa ve kâr hesabına kur ile çevrilmiş TL maliyet işlenir${d.kur > 0 ? '' : ' — <b style="color:var(--red)">kur girin</b>'}.</div>` : ''}
       ${eksik ? `<div class="tiny">${eksik} kalemde alış fiyatı boş; sonra Stok → Hareketler'den girebilirsiniz.</div>` : ''}`;
   };
+  adv = bindDoviz($('#view'), 'a-dv', (y) => { $$('.a-pbs').forEach((x) => { x.textContent = PB[y.pb]; }); tot(); });
   const setTip = (t) => { tip = t; $$('#a-tip button').forEach((b) => b.classList.toggle('on', b.dataset.v === t)); $('#a-kdvf').style.opacity = t === 'R' ? 1 : 0.35; $('#a-kdv').disabled = t !== 'R'; tot(); };
   $('#a-tip').onclick = (e) => { const b = e.target.closest('button'); if (b) setTip(b.dataset.v); };
   $('#a-kdv').oninput = () => tot();
@@ -980,9 +1045,10 @@ async function viewMalAlisi(urunId) {
     if (badM) return toast(`${badM.urun.ad}: alış fiyatı geçersiz`, 'err');
     const kdvO = tip === 'R' ? (parseNum($('#a-kdv').value) || 0) / 100 : 0;
     if (kdvO < 0 || kdvO >= 1) return toast('KDV oranı 0 ile 99 arasında olmalı', 'err');
-    const ortak = { tarih: $('#a-t').value || today(), tur: 'Giriş', islem: 'Alış', fatura_tipi: tip, kdv_orani: kdvO, tedarikci: $('#a-ted').value.trim() || null, belge_no: $('#a-bel').value.trim() || null, aciklama: $('#a-ac').value.trim() || null };
+    const d = adv.check(); if (!d) return;
+    const ortak = { tarih: $('#a-t').value || today(), tur: 'Giriş', islem: 'Alış', fatura_tipi: tip, kdv_orani: kdvO, para_birimi: d.pb, kur: d.kur, tedarikci: $('#a-ted').value.trim() || null, belge_no: $('#a-bel').value.trim() || null, aciklama: $('#a-ac').value.trim() || null };
     try {
-      await busy(e.currentTarget, () => api.insert('stok_hareketleri', dolu.map((l) => ({ ...ortak, urun_id: l.urun.id, miktar: num(l.miktar), birim_maliyet: l.maliyet === '' ? null : num(l.maliyet) }))));
+      await busy(e.currentTarget, () => api.insert('stok_hareketleri', dolu.map((l) => ({ ...ortak, urun_id: l.urun.id, miktar: num(l.miktar), birim_maliyet: l.maliyet === '' ? null : Math.round(num(l.maliyet) * d.kur * 10000) / 10000, doviz_maliyet: l.maliyet === '' || d.pb === 'TRY' ? null : num(l.maliyet) }))));
       cache.dirty('urunler');
       toast(`${tip} alış fişi kaydedildi · ${dolu.length} kalem`, 'ok');
       go('#/stok/hareketler');
@@ -1137,10 +1203,11 @@ async function viewCariDetay(id) {
     <div class="list" id="eks"></div>
     <div class="section-title">Müşteriye özel fiyatlar <a href="#" id="mf-add">+ Fiyat ekle</a></div>
     <div class="list">${mf.length ? `<div class="table-wrap"><table class="tbl stack"><thead><tr><th>Ürün</th><th class="r">Müşteri fiyatı</th><th class="r">Liste fiyatı</th><th>Koşul</th><th>Tarih</th><th></th></tr></thead>
-      <tbody>${mf.map((x) => `<tr><td class="w"><b>${esc(x.urunler?.ad)}</b></td><td class="r" data-l="Fiyat"><b>${fmtTL(x.fiyat)}</b></td><td class="r tiny" data-l="Liste">${fmtTL(x.urunler?.satis_fiyati)}</td><td class="small">${esc(x.odeme_kosulu || '')}</td><td class="num small">${fmtD(x.tarih)}</td>
+      <tbody>${mf.map((x) => `<tr><td class="w"><b>${esc(x.urunler?.ad)}</b></td><td class="r" data-l="Fiyat"><b>${fmtPB(x.fiyat, x.para_birimi)}</b></td><td class="r tiny" data-l="Liste">${fmtTL(x.urunler?.satis_fiyati)}</td><td class="small">${esc(x.odeme_kosulu || '')}</td><td class="num small">${fmtD(x.tarih)}</td>
         <td class="push" style="white-space:nowrap"><button class="icon-btn mf-ed" data-id="${x.id}">${icon('edit')}</button>${isAdmin() ? `<button class="icon-btn mf-del" data-id="${x.id}">${icon('trash')}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">Bu müşteri için özel fiyat yok. Siparişte girdiğiniz fiyatlar burada otomatik birikir.</div>'}</div>`;
 
+  const dvzNot = (h) => (h.para_birimi && h.para_birimi !== 'TRY' && h.doviz_tutar !== null ? `<div class="tiny">${fmtPB(h.doviz_tutar, h.para_birimi)} × ${fmtN(h.kur)}</div>` : '');
   const drawEks = () => {
     const rows = eks.filter((h) => ui.tip === 'Tümü' || h.fatura_tipi === ui.tip);
     const yb = (h) => (ui.tip === 'Tümü' ? h.yuruyen_bakiye : h.yuruyen_bakiye_tip);
@@ -1151,7 +1218,7 @@ async function viewCariDetay(id) {
         <td>${esc(h.islem)} ${tipBadge(h.fatura_tipi)}${h.odeme_sekli ? `<div class="tiny">${esc(h.odeme_sekli)}</div>` : ''}${h.aciklama ? `<div class="tiny">${esc(h.aciklama)}</div>` : ''}</td>
         <td class="small">${h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">${esc(h.belge_no || '')}</a>` : esc(h.belge_no || '')}</td>
         <td class="r small" ${num(h.matrah) ? 'data-l="Matrah"' : ''}>${num(h.matrah) ? fmtTL(h.matrah) : ''}</td><td class="r small" ${num(h.kdv_tutari) ? 'data-l="KDV"' : ''}>${num(h.kdv_tutari) ? fmtTL(h.kdv_tutari) : ''}</td>
-        <td class="r" ${num(h.borc) ? 'data-l="Borç"' : ''}>${num(h.borc) ? fmtTL(h.borc) : ''}</td><td class="r" ${num(h.alacak) ? 'data-l="Alacak"' : ''}>${num(h.alacak) ? fmtTL(h.alacak) : ''}</td>
+        <td class="r" ${num(h.borc) ? 'data-l="Borç"' : ''}>${num(h.borc) ? fmtTL(h.borc) + dvzNot(h) : ''}</td><td class="r" ${num(h.alacak) ? 'data-l="Alacak"' : ''}>${num(h.alacak) ? fmtTL(h.alacak) + dvzNot(h) : ''}</td>
         <td class="r push" data-l="Bakiye"><b class="${balCls(yb(h))}">${fmtTL(yb(h))}</b></td>
         ${isAdmin() ? `<td>${!h.otomatik ? `<button class="icon-btn ch-del" data-id="${h.id}">${icon('trash')}</button>` : ''}</td>` : ''}
       </tr>`).join('')}</tbody>
@@ -1231,7 +1298,8 @@ function tahsilat(c = null) {
     body: `${cariSecField(c)}
       ${c ? `<p class="small muted" style="margin-top:-4px">Bakiye: R <b>${fmtTL(c.bakiye_r)}</b> · GR <b>${fmtTL(c.bakiye_gr)}</b></p>` : ''}
       <div class="field"><label>Hangi hesaba?</label><div class="seg" id="t-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
-      <div class="grid2"><div class="field"><label>Tutar (₺)</label><input class="input" id="t-tut" inputmode="decimal"></div>
+      ${dovizHtml('t-dv')}
+      <div class="grid2"><div class="field"><label>Tutar (<span id="t-pbs">₺</span>)</label><input class="input" id="t-tut" inputmode="decimal"><div class="hint" id="t-tl"></div></div>
         <div class="field"><label>Tarih</label><input class="input" type="date" id="t-t" value="${today()}"></div></div>
       <div class="grid2"><div class="field"><label>Ödeme şekli</label><select class="input" id="t-os"><option>Nakit</option><option>Havale / EFT</option><option>Kredi kartı</option><option>Çek</option><option>Senet</option><option>Diğer</option></select></div>
         <div class="field"><label>Belge no</label><input class="input" id="t-bel"></div></div>
@@ -1241,13 +1309,18 @@ function tahsilat(c = null) {
       let tip = c && num(c.bakiye_gr) > num(c.bakiye_r) ? 'GR' : 'R';
       const st = () => $$('#t-tip button', m.el).forEach((b) => b.classList.toggle('on', b.dataset.v === tip));
       st(); $('#t-tip', m.el).onclick = (e) => { const b = e.target.closest('button'); if (b) { tip = b.dataset.v; st(); } };
+      const tdv = bindDoviz(m.el, 't-dv', () => tlGoster());
+      const tlGoster = () => { const d = tdv.get(); $('#t-pbs', m.el).textContent = PB[d.pb]; const t = parseNum($('#t-tut', m.el).value); $('#t-tl', m.el).innerHTML = d.pb !== 'TRY' && t > 0 && d.kur > 0 ? `= <b>${fmtTL(t * d.kur)}</b> cariye işlenir` : ''; };
+      $('#t-tut', m.el).oninput = tlGoster;
       $('#t-ok', m.el).onclick = async (e) => {
         if (!sel) return toast('Cari seçin', 'err');
         const t = parseNum($('#t-tut', m.el).value);
         if (!(t > 0)) return toast('Tutar girin', 'err');
+        const d = tdv.check(); if (!d) return;
+        const tl = Math.round(t * d.kur * 100) / 100;
         try {
-          await busy(e.currentTarget, () => api.insert('cari_hareketler', [{ tarih: $('#t-t', m.el).value || today(), cari_id: sel.id, islem: 'Tahsilat', fatura_tipi: tip, alacak: t, odeme_sekli: $('#t-os', m.el).value, belge_no: $('#t-bel', m.el).value || null, aciklama: $('#t-ac', m.el).value || null }]));
-          m.close(); cache.dirty('cariler'); toast(`${sel.unvan}: ${fmtTL(t)} tahsilat (${tip})`, 'ok'); render();
+          await busy(e.currentTarget, () => api.insert('cari_hareketler', [{ tarih: $('#t-t', m.el).value || today(), cari_id: sel.id, islem: 'Tahsilat', fatura_tipi: tip, alacak: tl, para_birimi: d.pb, kur: d.kur, doviz_tutar: d.pb === 'TRY' ? null : t, odeme_sekli: $('#t-os', m.el).value, belge_no: $('#t-bel', m.el).value || null, aciklama: $('#t-ac', m.el).value || null }]));
+          m.close(); cache.dirty('cariler'); toast(`${sel.unvan}: ${d.pb !== 'TRY' ? fmtPB(t, d.pb) + ' = ' : ''}${fmtTL(tl)} tahsilat (${tip})`, 'ok'); render();
         } catch (err) { fail(err); }
       };
       try { await bindCariSec(m, c, (x) => { sel = x; tip = num(x.bakiye_gr) > num(x.bakiye_r) ? 'GR' : 'R'; st(); }); } catch (e) { fail(e); }
@@ -1263,7 +1336,8 @@ function acilisBakiye(c = null) {
       <div class="field"><label>Kayıt türü</label><div class="seg" id="a-is"><button type="button" data-v="Açılış">Açılış bakiyesi</button><button type="button" data-v="Düzeltme">Düzeltme</button></div></div>
       <div class="field"><label>Hesap</label><div class="seg" id="a-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
       <div class="field"><label>Yön</label><div class="seg" id="a-yon"><button type="button" data-v="borc">Müşteri bize borçlu</button><button type="button" data-v="alacak">Biz müşteriye borçluyuz</button></div></div>
-      <div class="grid2"><div class="field"><label>Tutar (₺)</label><input class="input" id="a-tut" inputmode="decimal"></div>
+      ${dovizHtml('ab-dv')}
+      <div class="grid2"><div class="field"><label>Tutar (<span id="ab-pbs">₺</span>)</label><input class="input" id="a-tut" inputmode="decimal"><div class="hint" id="ab-tl"></div></div>
         <div class="field"><label>Tarih</label><input class="input" type="date" id="a-t" value="${today()}"></div></div>
       <div class="field"><label>Açıklama</label><input class="input" id="a-ac" placeholder="Örn. 29.10.2026 itibarıyla devreden bakiye"></div>
       <p class="tiny">R ve GR bakiyesi olan müşteri için iki ayrı kayıt girin.</p>`,
@@ -1272,12 +1346,17 @@ function acilisBakiye(c = null) {
       const v = { is: 'Açılış', tip: 'R', yon: 'borc' };
       const seg = (id, k) => { const st = () => $$(`#${id} button`, m.el).forEach((b) => b.classList.toggle('on', b.dataset.v === v[k])); st(); $(`#${id}`, m.el).onclick = (e) => { const b = e.target.closest('button'); if (b) { v[k] = b.dataset.v; st(); } }; };
       seg('a-is', 'is'); seg('a-tip', 'tip'); seg('a-yon', 'yon');
+      const adv2 = bindDoviz(m.el, 'ab-dv', () => tlG());
+      const tlG = () => { const d = adv2.get(); $('#ab-pbs', m.el).textContent = PB[d.pb]; const t = parseNum($('#a-tut', m.el).value); $('#ab-tl', m.el).innerHTML = d.pb !== 'TRY' && t > 0 && d.kur > 0 ? `= <b>${fmtTL(t * d.kur)}</b> cariye işlenir` : ''; };
+      $('#a-tut', m.el).oninput = tlG;
       $('#a-ok', m.el).onclick = async (e) => {
         if (!sel) return toast('Cari seçin', 'err');
-        const t = parseNum($('#a-tut', m.el).value);
-        if (!(t > 0)) return toast('Tutar girin', 'err');
+        const t0 = parseNum($('#a-tut', m.el).value);
+        if (!(t0 > 0)) return toast('Tutar girin', 'err');
+        const d = adv2.check(); if (!d) return;
+        const t = Math.round(t0 * d.kur * 100) / 100;
         try {
-          await busy(e.currentTarget, () => api.insert('cari_hareketler', [{ tarih: $('#a-t', m.el).value || today(), cari_id: sel.id, islem: v.is, fatura_tipi: v.tip,
+          await busy(e.currentTarget, () => api.insert('cari_hareketler', [{ tarih: $('#a-t', m.el).value || today(), cari_id: sel.id, islem: v.is, fatura_tipi: v.tip, para_birimi: d.pb, kur: d.kur, doviz_tutar: d.pb === 'TRY' ? null : t0,
             borc: v.yon === 'borc' ? t : 0, alacak: v.yon === 'alacak' ? t : 0, aciklama: $('#a-ac', m.el).value || (v.is === 'Açılış' ? 'Açılış bakiyesi' : null) }]));
           m.close(); cache.dirty('cariler'); toast('Kaydedildi', 'ok'); render();
         } catch (err) { fail(err); }
@@ -1293,7 +1372,8 @@ async function musteriFiyat(c, x = null) {
   modal({
     title: x ? 'Müşteri fiyatını düzenle' : 'Müşteri fiyatı ekle',
     body: `<div class="field picker"><label>Ürün</label><input class="input" id="f-u" autocomplete="off" placeholder="Ürün ara…" value="${esc(sel?.ad || '')}" ${x ? 'readonly' : ''}></div>
-      <div class="grid2"><div class="field"><label>Fiyat (₺, KDV hariç)</label><input class="input" id="f-fy" inputmode="decimal" value="${x ? fmtN(x.fiyat) : ''}"></div>
+      <div class="grid3"><div class="field"><label>Fiyat (KDV hariç)</label><input class="input" id="f-fy" inputmode="decimal" value="${x ? fmtN(x.fiyat) : ''}"></div>
+        <div class="field"><label>Para birimi</label><select class="input" id="f-pb">${Object.keys(PB).map((k) => `<option value="${k}" ${k === (x?.para_birimi || 'TRY') ? 'selected' : ''}>${PB_AD[k]}</option>`).join('')}</select></div>
         <div class="field"><label>Tarih</label><input class="input" type="date" id="f-t" value="${today()}"></div></div>
       <div class="field"><label>Ödeme koşulu / not</label><input class="input" id="f-k" value="${esc(x?.odeme_kosulu || '')}" placeholder="Örn. 90 gün çek, nakliye hariç"></div>`,
     foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="f-ok">Kaydet</button>`,
@@ -1304,7 +1384,7 @@ async function musteriFiyat(c, x = null) {
         const fy = parseNum($('#f-fy', m.el).value);
         if (isNaN(fy) || fy < 0) return toast('Fiyat girin', 'err');
         try {
-          await busy(e.currentTarget, () => api.insert('musteri_fiyatlari', [{ cari_id: c.id, urun_id: sel.id, fiyat: fy, tarih: $('#f-t', m.el).value || today(), odeme_kosulu: $('#f-k', m.el).value || null }], { upsert: true, onConflict: 'cari_id,urun_id' }));
+          await busy(e.currentTarget, () => api.insert('musteri_fiyatlari', [{ cari_id: c.id, urun_id: sel.id, fiyat: fy, para_birimi: $('#f-pb', m.el).value, tarih: $('#f-t', m.el).value || today(), odeme_kosulu: $('#f-k', m.el).value || null }], { upsert: true, onConflict: 'cari_id,urun_id' }));
           m.close(); toast('Fiyat kaydedildi', 'ok'); render();
         } catch (err) { fail(err); }
       };
@@ -1429,7 +1509,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.5</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.6</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -1453,11 +1533,11 @@ async function yedekAl() {
   const T = [
     ['Urunler', 'v_stok', 'select=kod,ad,kategori,birim,satis_fiyati,min_stok,toplam_giris,toplam_cikis,real_stok,bekleyen_siparis,sevk_sonrasi_stok,son_alis_fiyati,durum,aktif&order=kod'],
     ['Cariler', 'v_cariler', 'select=kod,unvan,tip,yetkili,telefon,eposta,sehir,adres,vergi_no,bakiye_r,bakiye_gr,bakiye,aktif,notlar&order=kod'],
-    ['Siparisler', 'v_siparisler', 'select=fis_no,tarih,cari_kod,cari_unvan,fatura_tipi,maliyet_yontemi,gonderim_sekli,sevk_sehri,durum,sevk_tarihi,kdv_orani,ara_toplam,kdv_tutari,genel_toplam,aciklama&order=fis_no'],
-    ['Siparis Kalemleri', 'siparis_kalemleri', 'select=siparisler(fis_no),urunler(kod,ad),miktar,birim_fiyat,tutar&order=id'],
-    ['Stok Hareketleri', 'stok_hareketleri', 'select=tarih,urunler(kod,ad),tur,islem,fatura_tipi,kdv_orani,miktar,birim_maliyet,tedarikci,belge_no,aciklama,siparisler(fis_no)&order=tarih,id'],
-    ['Cari Hareketler', 'v_cari_ekstre', 'select=tarih,cari_kod,cari_unvan,islem,fatura_tipi,belge_no,matrah,kdv_tutari,borc,alacak,odeme_sekli,aciklama,yuruyen_bakiye&order=cari_kod,tarih,id'],
-    ['Musteri Fiyatlari', 'musteri_fiyatlari', 'select=cariler(kod,unvan),urunler(kod,ad),fiyat,odeme_kosulu,tarih&order=id']
+    ['Siparisler', 'v_siparisler', 'select=fis_no,tarih,cari_kod,cari_unvan,fatura_tipi,para_birimi,kur,maliyet_yontemi,gonderim_sekli,sevk_sehri,durum,sevk_tarihi,kdv_orani,ara_toplam,kdv_tutari,genel_toplam,aciklama&order=fis_no'],
+    ['Siparis Kalemleri', 'siparis_kalemleri', 'select=siparisler(fis_no),urunler(kod,ad),miktar,birim_fiyat,doviz_fiyat,tutar&order=id'],
+    ['Stok Hareketleri', 'stok_hareketleri', 'select=tarih,urunler(kod,ad),tur,islem,fatura_tipi,kdv_orani,para_birimi,kur,doviz_maliyet,miktar,birim_maliyet,tedarikci,belge_no,aciklama,siparisler(fis_no)&order=tarih,id'],
+    ['Cari Hareketler', 'v_cari_ekstre', 'select=tarih,cari_kod,cari_unvan,islem,fatura_tipi,belge_no,matrah,kdv_tutari,borc,alacak,para_birimi,kur,doviz_tutar,odeme_sekli,aciklama,yuruyen_bakiye&order=cari_kod,tarih,id'],
+    ['Musteri Fiyatlari', 'musteri_fiyatlari', 'select=cariler(kod,unvan),urunler(kod,ad),fiyat,para_birimi,odeme_kosulu,tarih&order=id']
   ];
   const flat = (o, p = '') => Object.entries(o).reduce((a, [k, v]) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.assign(a, flat(v, p + k + '_')) : ((a[p + k] = v), a)), {});
   const sheets = [];
