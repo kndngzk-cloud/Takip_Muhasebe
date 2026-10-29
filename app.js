@@ -1703,7 +1703,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.18</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v${APP_V}</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -2295,6 +2295,8 @@ async function viewCinDetay(id) {
       ${sonraki ? `<button class="btn green" id="b-ileri">${icon(sonraki === 'Teslim Alındı' ? 'inbox' : 'ship')}${sonraki === 'Teslim Alındı' ? 'Teslim al (depoya giriş)' : `→ ${ASAMA_KISA[sonraki]}`}</button>` : ''}
       ${teslim && isAdmin() ? `<button class="btn" id="b-geri">Teslimi geri al</button>` : ''}
       ${!iptal && !teslim ? `<button class="btn red" id="b-iptal">${icon('x')}İptal et</button>` : ''}
+      ${iptal ? `<button class="btn" id="b-geriac">İptali geri al</button>` : ''}
+      ${iptal && isAdmin() ? `<button class="btn red" id="b-sil">${icon('trash')}Kalıcı olarak sil</button>` : ''}
     </div>
     <div class="section-title">Ürünler</div>
     <div class="list"><div class="table-wrap"><table class="tbl stack">
@@ -2335,6 +2337,13 @@ async function viewCinDetay(id) {
   $('#b-iptal')?.addEventListener('click', async () => {
     if (!await confirmBox(`${cinNo(c.no)} iptal edilsin mi?`, 'Sipariş iptal edilir, ödeme planı takvimden kalkar. Bağlı müşteri siparişleri ayrıca iptal edilmelidir.', 'İptal et', true)) return;
     try { await api.update('cin_siparisler', `id=eq.${c.id}`, { durum: 'İptal' }); cache.dirty('urunler'); toast('İptal edildi', 'ok'); render(); } catch (e) { fail(e); }
+  });
+  $('#b-geriac')?.addEventListener('click', async () => {
+    try { await api.update('cin_siparisler', `id=eq.${c.id}`, { durum: 'Sipariş Verildi' }); cache.dirty('urunler'); toast('İptal geri alındı; aşamayı tekrar işaretleyebilirsiniz', 'ok'); render(); } catch (e) { fail(e); }
+  });
+  $('#b-sil')?.addEventListener('click', async () => {
+    if (!await confirmBox(`${cinNo(c.no)} kalıcı olarak silinsin mi?`, 'Sipariş; ürünleri, fabrika ödeme planı, vergi ve masraf kayıtlarıyla birlikte silinir. Bu işlem geri alınamaz. Bağlı müşteri siparişleri silinmez, sadece bağlantıları kalkar.', 'Sil', true)) return;
+    try { await api.del('cin_siparisler', `id=eq.${c.id}`); cache.dirty('urunler'); toast(`${cinNo(c.no)} silindi`, 'ok'); go('#/cin'); } catch (e) { fail(e); }
   });
   $('#b-geri')?.addEventListener('click', async () => {
     if (!await confirmBox('Teslim geri alınsın mı?', 'Bu siparişle depoya giren stok girişleri silinir ve sipariş “Limanda” aşamasına döner.', 'Geri al', true)) return;
@@ -2519,7 +2528,7 @@ function gumrukHtml(g) {
   g = g || {}; const R0 = state.ayarlar?.ithalat || {};
   const inp = (id, v, ph) => `<input class="input" id="${id}" inputmode="decimal" value="${v !== undefined && v !== null && v !== '' ? fmtN(v) : ''}" placeholder="${ph !== undefined && ph !== null && ph !== '' ? fmtN(ph) : ''}">`;
   const goz = !!g.gozetim || (g.gozetim === undefined && !!g.kg);
-  return `<details class="gum" ${g.gtip || g.gv != null || goz ? 'open' : ''}><summary>İthalat / gümrük bilgileri</summary>
+  return `<details class="gum" open><summary>İthalat / gümrük bilgileri</summary>
     <div class="field"><label>GTİP</label><input class="input" id="g-gtip" value="${esc(g.gtip || '')}"></div>
     <div class="field"><label>Gözetim</label><div class="seg" id="g-goz"><button type="button" data-v="1">Gözetim var</button><button type="button" data-v="0">Gözetim yok</button></div></div>
     <div id="g-gozd" style="${goz ? '' : 'display:none'}"><div class="field"><label>Gözetim değeri ($ / kg)</label>${inp('g-gusd', g.gozetim_usd_kg, R0.gozetim_usd_kg)}<div class="hint">Ağırlık siparişe göre değiştiği için her ithalat siparişinde ürün satırına girilir.</div></div></div>
@@ -2596,8 +2605,16 @@ async function vergiHesapla(c, kal, plan, kur0) {
         <div class="field" id="vh-gf"><label>Kaç gün sonra</label><input class="input" id="vh-g" inputmode="numeric" value="${e0 ? e0.gun_sonra : 50}"></div>
         <div class="field" id="vh-df" style="display:none"><label>Tarih</label><input class="input" type="date" id="vh-d" value="${e0?.vade_tarihi || ''}"></div>
       </div>
-      ${kal.some((k) => gozetimli(k.urunler)) ? `<div class="section-title" style="margin:6px 0 8px">Gözetim ağırlıkları (bu sipariş)</div>
-      <div class="grid3">${kal.filter((k) => gozetimli(k.urunler)).map((k) => `<div class="field"><label>${esc(k.urunler?.ad)} · kg / adet</label><input class="input vh-kg" data-k="${k.id}" inputmode="decimal" value="${k.gozetim_kg !== null && k.gozetim_kg !== undefined ? fmtN(k.gozetim_kg) : ''}" placeholder="girin"></div>`).join('')}</div>` : ''}
+      ${!plan.some((p) => ['Navlun', 'Sigorta'].includes(p.kategori)) ? `<label class="check" style="margin-top:-4px"><input type="checkbox" id="vh-nsk" checked> Navlun ve sigortayı bu siparişe masraf olarak da ekle (ürün maliyetine değere göre dağıtılır)</label>` : ''}
+      <div class="section-title" style="margin:6px 0 8px">Ürünlerin gümrük bilgileri <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· oranlar ürün kartına, ağırlık bu siparişe kaydedilir</span></div>
+      <div class="table-wrap"><table class="tbl stack vh-urun"><thead><tr><th>Ürün</th><th>Gözetim</th><th class="r">Gözetim kg / adet</th><th class="r">GV %</th><th class="r">İGV %</th></tr></thead><tbody>
+      ${kal.map((k) => { const g = k.urunler?.gumruk || {}; const fv = (v) => (v !== null && v !== undefined && v !== '' ? fmtN(v) : ''); return `<tr data-k="${k.id}">
+        <td class="w"><b>${esc(k.urunler?.ad)}</b></td>
+        <td data-l="Gözetim"><select class="input vh-goz" style="padding:6px 8px;font-size:14px"><option value="1" ${gozetimli(k.urunler) ? 'selected' : ''}>Var</option><option value="0" ${gozetimli(k.urunler) ? '' : 'selected'}>Yok</option></select></td>
+        <td class="r" data-l="kg / adet"><input class="input vh-kg" inputmode="decimal" style="width:90px;padding:6px 8px;text-align:right" value="${fv(k.gozetim_kg)}" placeholder="kg"></td>
+        <td class="r" data-l="GV %"><input class="input vh-gv" inputmode="decimal" style="width:80px;padding:6px 8px;text-align:right" value="${fv(g.gv)}" placeholder="%"></td>
+        <td class="r" data-l="İGV %"><input class="input vh-igv" inputmode="decimal" style="width:80px;padding:6px 8px;text-align:right" value="${fv(g.igv)}" placeholder="%"></td></tr>`; }).join('')}
+      </tbody></table></div>
       <div id="vh-out"></div>`,
     foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="vh-ok">Maliyete işle ve takvime ekle</button>`,
     onMount: (m) => {
@@ -2606,13 +2623,20 @@ async function vergiHesapla(c, kal, plan, kur0) {
       const hesap = () => {
         E('#vh-df').style.display = E('#vh-tk').value === 'Tarih' ? '' : 'none';
         E('#vh-gf').style.display = E('#vh-tk').value === 'Tarih' ? 'none' : '';
-        const kgMap = {}; $$('.vh-kg', m.el).forEach((i) => { const v = parseNum(i.value); kgMap[i.dataset.k] = isNaN(v) ? null : v; });
+        const kgMap = {}, gMap = {};
+        $$('.vh-urun tr[data-k]', m.el).forEach((tr) => {
+          const n = (c) => { const v = parseNum($(c, tr).value); return isNaN(v) ? null : v; };
+          const goz = $('.vh-goz', tr).value === '1';
+          $('.vh-kg', tr).disabled = !goz;
+          kgMap[tr.dataset.k] = goz ? n('.vh-kg') : null;
+          gMap[tr.dataset.k] = { gozetim: goz, gv: n('.vh-gv'), igv: n('.vh-igv') };
+        });
         const ctx = { R, kg: kgMap, fob, navlun: parseNum(E('#vh-n').value) || 0, sigorta: parseNum(E('#vh-s').value) || 0, kdv: parseNum(E('#vh-kdv').value) || 0, kur: parseNum(E('#vh-k').value) };
         if (!(ctx.kur > 0)) { E('#vh-out').innerHTML = '<p class="small" style="color:var(--red)">Gümrük kurunu girin.</p>'; son = null; return; }
-        const rs = kal.map((k) => ({ k, r: vergiKalem(k, ctx) }));
+        const rs = kal.map((k) => ({ k, r: vergiKalem({ ...k, urunler: { ...k.urunler, gumruk: { ...(k.urunler?.gumruk || {}), ...gMap[k.id] } } }, ctx) }));
         const T = (f) => rs.reduce((a, { r }) => a + f(r) * r.Q, 0);
         const gv = T((r) => r.gv) * ctx.kur, igv = T((r) => r.igv) * ctx.kur, kdv = T((r) => r.kdv) * ctx.kur, ind = T((r) => r.indirilemez) * ctx.kur;
-        son = { ctx, rs, gv, igv, kdv, ind };
+        son = { ctx, rs, gv, igv, kdv, ind, gMap };
         const eksik = rs.filter(({ r }) => r.eksik).map(({ k, r }) => `${k.urunler?.ad} (${r.eksik})`);
         E('#vh-out').innerHTML = `
           ${eksik.length ? `<p class="small" style="color:var(--orange)">Eksik gümrük bilgisi: ${eksik.map(esc).join(', ')}. Vergi eksik çıkar; ürün kartındaki “İthalat / gümrük bilgileri”nden girin.</p>` : ''}
@@ -2632,7 +2656,8 @@ async function vergiHesapla(c, kal, plan, kur0) {
           </div>`;
       };
       ['#vh-k', '#vh-n', '#vh-s', '#vh-kdv'].forEach((s) => { E(s).oninput = hesap; });
-      $$('.vh-kg', m.el).forEach((i) => { i.oninput = hesap; });
+      $$('.vh-urun input', m.el).forEach((i) => { i.oninput = hesap; });
+      $$('.vh-urun select', m.el).forEach((i) => { i.onchange = hesap; });
       E('#vh-tk').onchange = hesap;
       hesap();
       E('#vh-ok').onclick = async (e) => {
@@ -2649,8 +2674,19 @@ async function vergiHesapla(c, kal, plan, kur0) {
         ];
         try {
           await busy(e.currentTarget, async () => {
+            const kayitli = new Set();
+            for (const { k } of rs) {
+              if (kayitli.has(k.urun_id)) continue; kayitli.add(k.urun_id);
+              const eskiG = k.urunler?.gumruk || {}; const yeni = { ...eskiG, ...son.gMap[k.id] }; delete yeni.sifon; delete yeni.kg;
+              if (JSON.stringify(eskiG) !== JSON.stringify(yeni)) await api.update('urunler', `id=eq.${k.urun_id}`, { gumruk: yeni });
+            }
             for (const { k, r } of rs) {
               await api.update('cin_kalemler', `id=eq.${k.id}`, { ...(r.gozVar ? { gozetim_kg: r.kg || null } : {}), vergi_tl: r.vergiTL, vergi_detay: { gozetim_kg: r.kg || null,  kur: ctx.kur, navlun: ctx.navlun, sigorta: ctx.sigorta, kdv: ctx.kdv, cif: r.cif, gozetim: r.gozetim, kiymet: r.kiymet, gv: r.gv, igv: r.igv, kdv_tutar: r.kdv, indirilemez: r.indirilemez, tarih: today() } });
+            }
+            if (E('#vh-nsk')?.checked) {
+              const ek = [['Navlun', ctx.navlun], ['Sigorta', ctx.sigorta]].filter(([, v]) => v > 0)
+                .map(([kat, v], i) => ({ yon: 'Ödeme', kategori: kat, cin_siparis_id: c.id, aciklama: null, tetik: 'Yüklendi', gun_sonra: 0, tutar: Math.round(v * 100) / 100, para_birimi: c.para_birimi, maliyete_dahil: true, dagitim: 'Değer', sira: 50 + i }));
+              if (ek.length) await api.insert('odeme_plani', ek);
             }
             for (const row of satirlar) {
               const ex = eski.find((p) => p.kategori === row.kategori);
@@ -2926,6 +2962,25 @@ function nakitDurum(n, durum) {
 /* ------------------------------------------------------------------ */
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
+/* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
+const APP_V = '1.19';
+async function surumKontrol() {
+  try {
+    const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const v = (await r.text()).trim();
+    if (!v || v === APP_V) return;
+    let son = null; try { son = sessionStorage.getItem('ssc_yenilendi'); } catch {}
+    if (son === v) return;
+    if ($('#modal-root').children.length) { toast('Yeni sürüm hazır; pencereyi kapatıp sayfayı yenileyin'); return; }
+    try { sessionStorage.setItem('ssc_yenilendi', v); } catch {}
+    location.reload();
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') surumKontrol(); });
+setInterval(surumKontrol, 5 * 60 * 1000);
+setTimeout(surumKontrol, 3000);
+
 Object.assign(window, { go, render, malAlisi, tahsilat, acilisBakiye, urunForm, cariForm, stokDuzelt, fabrikaForm });
 api.load();
 render();
