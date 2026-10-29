@@ -1703,7 +1703,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.15</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.16</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -2710,12 +2710,13 @@ function nakitRow(n) {
     <div class="main-col"><div class="t"><span class="badge ${n.tur === 'Platform' ? 'b-purple' : 'b-blue'}" style="margin-right:6px">${esc(n.tur)}</span>${baslik}</div>
       <div class="st">${alt.filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${n.durum !== 'Bekliyor' ? nakitBadge(n.durum) : ''}${n.cari_hareket_id ? '<span class="badge">cariye işlendi</span>' : ''}</div></div>
     <div class="end"><div class="amt">${fmtPB(n.tutar, n.para_birimi)}</div>
-      <div class="tiny ${gec ? 'pos' : ''}">${n.durum === 'Tahsil edildi' ? `✓ ${fmtD(n.tahsil_tarihi)}` : n.durum === 'Ciro edildi' ? `ciro: ${esc(n.ciro_edilen || '')}` : `${gec ? 'GECİKTİ · ' : ''}vade ${fmtD(n.vade)}`}</div></div>
+      <div class="tiny ${gec ? 'pos' : ''}">${n.durum === 'Tahsil edildi' ? `✓ ${fmtD(n.tahsil_tarihi)}` : n.durum === 'Ciro edildi' ? `ciro: ${esc(n.ciro_edilen || '')}` : `${gec ? 'GECİKTİ · ' : ''}vade ${fmtD(n.vade)}`}</div>
+      ${n.durum === 'Bekliyor' ? `<button class="btn sm orange" data-nok="${n.id}" style="margin-top:6px">${n.tur === 'Platform' ? 'Yattı' : 'Tahsil edildi'}</button>` : ''}</div>
   </div>`;
 }
 function bindNakitRows(root, rows) {
   if (!root) return;
-  $$('[data-nid]', root).forEach((el) => el.addEventListener('click', () => { const n = rows.find((x) => x.id === +el.dataset.nid); if (n) nakitForm(n); }));
+  $$('[data-nid]', root).forEach((el) => el.addEventListener('click', (e) => { const n = rows.find((x) => x.id === +el.dataset.nid); if (!n) return; if (e.target.closest('[data-nok]')) nakitDurum(n, 'Tahsil edildi'); else nakitForm(n); }));
 }
 
 /* Kasa: eldeki para (TL, dolar…) aciklamalariyla; nakit akisinin baslangici */
