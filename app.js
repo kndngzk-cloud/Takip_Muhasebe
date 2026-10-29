@@ -739,7 +739,7 @@ function hareketTable(har, showUrun) {
     <tbody>${har.map((h) => `<tr>
       <td class="num">${fmtD(h.tarih)}</td>
       ${showUrun ? `<td class="w"><a href="#/urun/${h.urun_id}"><b>${esc(h.urunler?.ad)}</b></a></td>` : ''}
-      <td>${islemBadge(h)}</td>
+      <td>${islemBadge(h)}${h.fatura_tipi ? ' ' + tipBadge(h.fatura_tipi) : ''}</td>
       <td class="r ${h.tur === 'Giriş' ? '' : 'pos'}"><b>${h.tur === 'Giriş' ? '+' : '−'}${fmtN(h.miktar)}</b></td>
       <td class="r" ${h.tur === 'Giriş' ? 'data-l="Maliyet"' : ''}>${h.tur === 'Giriş'
         ? (isAdmin() ? `<input class="input mal-in" data-id="${h.id}" inputmode="decimal" style="width:110px;padding:6px 8px;text-align:right;font-size:14px" placeholder="girin" value="${h.birim_maliyet !== null ? fmtN(h.birim_maliyet) : ''}">` : (h.birim_maliyet !== null ? fmtTL(h.birim_maliyet) : '–'))
@@ -767,12 +767,12 @@ async function viewStokHareketleri() {
   const data = await api.get('stok_hareketleri', 'select=*,urunler(ad,kod),siparisler(fis_no,cariler(unvan))&order=tarih.desc,id.desc&limit=3000');
   $('#view').innerHTML = `
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Ürün, fiş, tedarikçi ara…" value="${esc(ui.q)}"></div></div>
-    <div class="chips" id="c1">${['Tümü', 'Girişler', 'Maliyeti eksik', 'Sevkler', 'Sayım / fire'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}</div>
+    <div class="chips" id="c1">${['Tümü', 'Girişler', 'R alışlar', 'GR alışlar', 'Maliyeti eksik', 'Sevkler', 'Sayım / fire'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}</div>
     <p class="tiny" style="margin:0 4px 10px">Alış maliyetini girişlerin “Birim maliyet” kutusuna yazın; kâr raporu bu maliyetlerle FIFO/LIFO hesaplanır.</p>
     <div class="list" id="lst"></div>`;
   const draw = () => {
     const q = norm(ui.q);
-    const f = data.filter((h) => (ui.f === 'Tümü' || (ui.f === 'Girişler' && h.tur === 'Giriş') || (ui.f === 'Maliyeti eksik' && h.tur === 'Giriş' && h.birim_maliyet === null)
+    const f = data.filter((h) => (ui.f === 'Tümü' || (ui.f === 'Girişler' && h.tur === 'Giriş') || (ui.f === 'R alışlar' && h.islem === 'Alış' && h.fatura_tipi === 'R') || (ui.f === 'GR alışlar' && h.islem === 'Alış' && h.fatura_tipi === 'GR') || (ui.f === 'Maliyeti eksik' && h.tur === 'Giriş' && h.birim_maliyet === null)
       || (ui.f === 'Sevkler' && h.islem === 'Sevk') || (ui.f === 'Sayım / fire' && ['Sayım', 'Fire'].includes(h.islem)))
       && (!q || norm(`${h.urunler?.ad} ${h.urunler?.kod} ${h.siparisler?.fis_no || ''} ${h.siparisler?.cariler?.unvan || ''} ${h.tedarikci || ''} ${h.belge_no || ''} ${h.aciklama || ''}`).includes(q)));
     $('#lst').innerHTML = hareketTable(f.slice(0, 500), true) + (f.length > 500 ? '<div class="empty">İlk 500 hareket gösteriliyor</div>' : '');
@@ -788,12 +788,14 @@ function malAlisi(urun = null) { go(urun ? `#/alis/yeni?urun=${urun.id}` : '#/al
 
 async function viewMalAlisi(urunId) {
   topbar('Mal Alışı', { back: true });
-  const [urunler, gecmis] = await Promise.all([
+  const [ayar, urunler, gecmis] = await Promise.all([
+    cache.ayarlar(),
     cache.urunler(),
     api.get('stok_hareketleri', 'select=tedarikci&islem=eq.' + encodeURIComponent('Alış') + '&tedarikci=not.is.null&order=id.desc&limit=2000').catch(() => [])
   ]);
   const tedarikciler = [...new Set(gecmis.map((x) => x.tedarikci).filter(Boolean))];
   const lines = [];
+  let tip = 'R';
   const bos = () => ({ urun: null, miktar: '', maliyet: '' });
   if (urunId) { const u = urunler.find((x) => x.id === +urunId); if (u) lines.push({ urun: u, miktar: '', maliyet: '' }); }
   lines.push(bos());
@@ -803,10 +805,14 @@ async function viewMalAlisi(urunId) {
         <div class="field"><label>Tarih</label><input class="input" type="date" id="a-t" value="${today()}"></div>
         <div class="field"><label>Belge / fatura no</label><input class="input" id="a-bel" placeholder="İsteğe bağlı"></div>
       </div>
+      <div class="grid2">
+        <div class="field"><label>Fatura tipi</label><div class="seg" id="a-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
+        <div class="field" id="a-kdvf"><label>KDV oranı (%)</label><input class="input" id="a-kdv" inputmode="decimal" value="${fmtN(num(ayar.kdv_orani) * 100)}"></div>
+      </div>
       <div class="field"><label>Tedarikçi</label><input class="input" id="a-ted" list="ted-list" placeholder="İsteğe bağlı"><datalist id="ted-list">${tedarikciler.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
       <div class="field" style="margin-bottom:0"><label>Açıklama</label><input class="input" id="a-ac" placeholder="İsteğe bağlı"></div>
     </div>
-    <div class="section-title">Ürünler <span class="tiny" style="text-transform:none;letter-spacing:0">Ürün seçince altına yeni satır açılır</span></div>
+    <div class="section-title">Ürünler <span class="tiny" style="text-transform:none;letter-spacing:0">Ürün seçince altına yeni satır açılır · fiyatlar KDV hariç</span></div>
     <div class="lines" id="a-lines"></div>
     <button class="btn block" id="a-add" style="margin-bottom:14px">${icon('plus')}Satır ekle</button>
     <div class="card"><div class="totals" id="a-tot"></div></div>
@@ -819,7 +825,7 @@ async function viewMalAlisi(urunId) {
         <div class="picker" style="display:flex;gap:6px"><input class="input a-urun" placeholder="${i + 1}. ürün ara…" value="${esc(u?.ad || '')}" autocomplete="off"><button class="icon-btn a-del" title="Kaldır">${icon('trash')}</button></div>
         <div class="lr">
           <div class="field"><label>Miktar</label><input class="input a-mik" inputmode="decimal" value="${l.miktar === '' ? '' : fmtN(l.miktar)}"></div>
-          <div class="field"><label>Birim alış (₺)</label><input class="input a-mal" inputmode="decimal" placeholder="${u && u.son_alis_fiyati !== null ? fmtN(u.son_alis_fiyati) : 'sonra da girilebilir'}" value="${l.maliyet === '' ? '' : fmtN(l.maliyet)}"></div>
+          <div class="field"><label>Alış fiyatı ₺</label><input class="input a-mal" inputmode="decimal" placeholder="${u && u.son_alis_fiyati !== null ? fmtN(u.son_alis_fiyati) : 'sonra da girilebilir'}" value="${l.maliyet === '' ? '' : fmtN(l.maliyet)}"></div>
           <div class="field"><label>Tutar</label><input class="input a-tut" readonly value="${l.maliyet === '' ? '–' : fmt2(num(l.miktar) * num(l.maliyet))}" style="background:var(--surface-2)"></div>
         </div>
         ${u ? `<div class="info"><span>Real stok: <b>${fmtN(u.real_stok)}</b> ${esc(u.birim)}</span>${u.son_alis_fiyati !== null ? `<span>Son alış: <b>${fmtTL(u.son_alis_fiyati)}</b></span>` : ''}<span class="a-sonra">${num(l.miktar) > 0 ? `Giriş sonrası: <b>${fmtN(num(u.real_stok) + num(l.miktar))}</b>` : ''}</span></div>` : ''}
@@ -855,13 +861,21 @@ async function viewMalAlisi(urunId) {
     const dolu = lines.filter((l) => l.urun);
     const top = dolu.reduce((a, l) => a + (l.maliyet === '' ? 0 : Math.round(num(l.miktar) * num(l.maliyet) * 100) / 100), 0);
     const eksik = dolu.filter((l) => l.maliyet === '').length;
+    const kdvO = tip === 'R' ? (parseNum($('#a-kdv')?.value) || 0) / 100 : 0;
+    const kdv = Math.round(top * kdvO * 100) / 100;
     $('#a-tot').innerHTML = `<div class="tr"><span class="muted">Kalem sayısı</span><span>${dolu.length}</span></div>
       <div class="tr"><span class="muted">Toplam miktar</span><span>${fmtN(dolu.reduce((a, l) => a + num(l.miktar), 0))}</span></div>
-      <div class="tr big"><span>Fiş toplamı (KDV hariç)</span><span>${fmtTL(top)}</span></div>
+      <div class="tr"><span class="muted">Ara toplam (KDV hariç)</span><span>${fmtTL(top)}</span></div>
+      ${tip === 'R' ? `<div class="tr"><span class="muted">KDV (%${fmtN(kdvO * 100)})</span><span>${fmtTL(kdv)}</span></div>` : '<div class="tr"><span class="muted">KDV</span><span class="tiny">GR — KDV yok</span></div>'}
+      <div class="tr big"><span>Fiş toplamı</span><span>${fmtTL(top + kdv)}</span></div>
       ${eksik ? `<div class="tiny">${eksik} kalemde alış fiyatı boş; sonra Stok → Hareketler'den girebilirsiniz.</div>` : ''}`;
   };
+  const setTip = (t) => { tip = t; $$('#a-tip button').forEach((b) => b.classList.toggle('on', b.dataset.v === t)); $('#a-kdvf').style.opacity = t === 'R' ? 1 : 0.35; $('#a-kdv').disabled = t !== 'R'; tot(); };
+  $('#a-tip').onclick = (e) => { const b = e.target.closest('button'); if (b) setTip(b.dataset.v); };
+  $('#a-kdv').oninput = () => tot();
   $('#a-add').onclick = () => { if (lines[lines.length - 1].urun) lines.push(bos()); draw(lines.length - 1, '.a-urun'); };
   draw(urunId ? 0 : null, urunId ? '.a-mik' : '.a-urun');
+  setTip('R');
 
   $('#a-save').onclick = async (e) => {
     const dolu = lines.filter((l) => l.urun);
@@ -870,11 +884,13 @@ async function viewMalAlisi(urunId) {
     if (bad) return toast(`${bad.urun.ad}: miktar girin`, 'err');
     const badM = dolu.find((l) => l.maliyet !== '' && num(l.maliyet) < 0);
     if (badM) return toast(`${badM.urun.ad}: alış fiyatı geçersiz`, 'err');
-    const ortak = { tarih: $('#a-t').value || today(), tur: 'Giriş', islem: 'Alış', tedarikci: $('#a-ted').value.trim() || null, belge_no: $('#a-bel').value.trim() || null, aciklama: $('#a-ac').value.trim() || null };
+    const kdvO = tip === 'R' ? (parseNum($('#a-kdv').value) || 0) / 100 : 0;
+    if (kdvO < 0 || kdvO >= 1) return toast('KDV oranı 0 ile 99 arasında olmalı', 'err');
+    const ortak = { tarih: $('#a-t').value || today(), tur: 'Giriş', islem: 'Alış', fatura_tipi: tip, kdv_orani: kdvO, tedarikci: $('#a-ted').value.trim() || null, belge_no: $('#a-bel').value.trim() || null, aciklama: $('#a-ac').value.trim() || null };
     try {
       await busy(e.currentTarget, () => api.insert('stok_hareketleri', dolu.map((l) => ({ ...ortak, urun_id: l.urun.id, miktar: num(l.miktar), birim_maliyet: l.maliyet === '' ? null : num(l.maliyet) }))));
       cache.dirty('urunler');
-      toast(`Alış fişi kaydedildi · ${dolu.length} kalem`, 'ok');
+      toast(`${tip} alış fişi kaydedildi · ${dolu.length} kalem`, 'ok');
       go('#/stok/hareketler');
     } catch (err) { fail(err); }
   };
@@ -1319,7 +1335,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.2</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.3</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -1345,7 +1361,7 @@ async function yedekAl() {
     ['Cariler', 'v_cariler', 'select=kod,unvan,tip,yetkili,telefon,eposta,sehir,adres,vergi_no,bakiye_r,bakiye_gr,bakiye,aktif,notlar&order=kod'],
     ['Siparisler', 'v_siparisler', 'select=fis_no,tarih,cari_kod,cari_unvan,fatura_tipi,maliyet_yontemi,gonderim_sekli,sevk_sehri,durum,sevk_tarihi,kdv_orani,ara_toplam,kdv_tutari,genel_toplam,aciklama&order=fis_no'],
     ['Siparis Kalemleri', 'siparis_kalemleri', 'select=siparisler(fis_no),urunler(kod,ad),miktar,birim_fiyat,tutar&order=id'],
-    ['Stok Hareketleri', 'stok_hareketleri', 'select=tarih,urunler(kod,ad),tur,islem,miktar,birim_maliyet,tedarikci,belge_no,aciklama,siparisler(fis_no)&order=tarih,id'],
+    ['Stok Hareketleri', 'stok_hareketleri', 'select=tarih,urunler(kod,ad),tur,islem,fatura_tipi,kdv_orani,miktar,birim_maliyet,tedarikci,belge_no,aciklama,siparisler(fis_no)&order=tarih,id'],
     ['Cari Hareketler', 'v_cari_ekstre', 'select=tarih,cari_kod,cari_unvan,islem,fatura_tipi,belge_no,matrah,kdv_tutari,borc,alacak,odeme_sekli,aciklama,yuruyen_bakiye&order=cari_kod,tarih,id'],
     ['Musteri Fiyatlari', 'musteri_fiyatlari', 'select=cariler(kod,unvan),urunler(kod,ad),fiyat,odeme_kosulu,tarih&order=id']
   ];
