@@ -293,3 +293,4 @@ grant execute on function private.tg_cin_senkron() to authenticated;
 -- cin_kalemler.vergi_tl/vergi_detay, odeme_plani.kaynak + yeni kategoriler, cin_maliyet vergi_tl dahil),
 -- v_stok_gumruk (v_stok + gumruk), v_odeme_takvimi_kaynak (gorunume kaynak kolonu)
 -- nakit_girisleri (cek, senet, platform) + v_nakit_girisleri + ayarlar.platformlar uygulandi
+-- kasa tablosu uygulandi

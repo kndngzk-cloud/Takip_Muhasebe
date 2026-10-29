@@ -1191,7 +1191,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
         <div class="field"><label>Minimum stok</label><input class="input" id="u-min" inputmode="decimal" value="${fmtN(d.min_stok)}"><div class="hint">Altına düşünce KRİTİK görünür</div></div></div>
       <div class="field"><label>Not</label><input class="input" id="u-not" value="${esc(d.notlar || '')}"></div>
       ${u ? `<label class="check"><input type="checkbox" id="u-akt" ${d.aktif ? 'checked' : ''}> Aktif (pasif ürünler listelerde görünmez)</label>` : ''}
-      ${gumrukHtml(d.gumruk, d.kategori)}`,
+      ${gumrukHtml(d.gumruk)}`,
     foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="u-ok">Kaydet</button>`,
     onMount: (m) => {
       gumrukBind(m.el);
@@ -1685,8 +1685,8 @@ async function viewAyarlar() {
     </div>
     <div class="card">
       <h2>İthalat vergi varsayılanları</h2>
-      <p class="small muted" style="margin-top:0">Ürün kartında boş bırakılan gümrük bilgileri için bu değerler kullanılır. Hesap ürünün kategorisine göre yapılır: <b>EVİYE</b> gözetimli, <b>TESTERE</b> kendi oranlarıyla, diğerleri CIF üzerinden.</p>
-      <div class="grid3">${[['kdv', 'İthalat KDV %'], ['gv', 'Eviye GV %'], ['igv', 'Eviye İGV %'], ['gozetim_usd_kg', 'Eviye gözetim $/kg'], ['sifon_fob', 'Sifon FOB payı $'], ['sifon_kg', 'Sifon kg'], ['sifon_gozetim_usd_kg', 'Sifon gözetim $/kg'], ['sifon_gv', 'Sifon GV %'], ['sifon_igv', 'Sifon İGV %'], ['testere_gv', 'Testere GV %'], ['testere_igv', 'Testere İGV %'], ['diger_gv', 'Diğer ürünler GV %'], ['diger_igv', 'Diğer ürünler İGV %']].map(([k, l]) => `<div class="field"><label>${l}</label><input class="input s-it" data-k="${k}" inputmode="decimal" value="${a.ithalat?.[k] !== undefined ? fmtN(a.ithalat[k]) : ''}" ${ad ? '' : 'disabled'}></div>`).join('')}</div>
+      <p class="small muted" style="margin-top:0">Gümrük vergisi oranları ve gözetim bilgisi her ürünün kartında girilir. Ürün kartında KDV ya da gözetim $/kg boş bırakılırsa bu değerler kullanılır.</p>
+      <div class="grid2">${[['kdv', 'İthalat KDV %'], ['gozetim_usd_kg', 'Gözetim değeri $/kg']].map(([k, l]) => `<div class="field"><label>${l}</label><input class="input s-it" data-k="${k}" inputmode="decimal" value="${a.ithalat?.[k] !== undefined ? fmtN(a.ithalat[k]) : ''}" ${ad ? '' : 'disabled'}></div>`).join('')}</div>
       ${ad ? '<button class="btn primary" id="s-it-ok">Varsayılanları kaydet</button>' : ''}
     </div>
     <div class="card">
@@ -1703,7 +1703,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.14</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.15</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -1767,6 +1767,7 @@ async function yedekAl() {
     ['Fabrikalar', 'v_fabrikalar', 'select=ad,sehir,iletisim,siparis_toplam,odenen,bakiye,aktif_siparis,aktif,notlar&order=ad'],
     ['Ithalat Siparisleri', 'v_cin_siparisler', 'select=no,tarih,fabrika_ad,durum,para_birimi,kur,toplam,toplam_miktar,fabrika_odenen,fabrika_kalan,masraf_tl,nakliye_sekli,liman,konteyner_no,takip_no,tahmini_uretim,tahmini_yukleme,tahmini_varis,uretim_bitis,yukleme_tarihi,varis_tarihi,teslim_tarihi,aciklama&order=no'],
     ['Ithalat Kalemleri', 'cin_kalemler', 'select=cin_siparisler(no),urunler(kod,ad),miktar,birim_fiyat,vergi_tl&order=id'],
+    ['Kasa', 'kasa', 'select=ad,para_birimi,tutar,kur,aciklama,guncelleme&order=sira,id'],
     ['Cek ve Platform', 'v_nakit_girisleri', 'select=tur,kaynak,belge_no,cari_kod,cari_unvan,kesideci,alis_tarihi,vade,tutar,para_birimi,kur,durum,tahsil_tarihi,ciro_edilen,aciklama&order=vade'],
     ['Odeme Plani', 'v_odeme_takvimi', 'select=yon,kategori,cin_no,fabrika_ad,fis_no,cari_unvan,aciklama,tetik,gun_sonra,yuzde,tutar_hesap,para_birimi,vade,vade_kesin,maliyete_dahil,odendi,odeme_tarihi,odenen_kur&order=id']
   ];
@@ -2237,7 +2238,7 @@ async function viewCinDetay(id) {
   topbar('İthalat Siparişi', { back: true });
   const [[c], kal, plan, msip, mal] = await Promise.all([
     api.get('v_cin_siparisler', `select=*&id=eq.${id}`),
-    api.get('cin_kalemler', `select=*,urunler(ad,kod,birim,gumruk,kategori)&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
+    api.get('cin_kalemler', `select=*,urunler(ad,kod,birim,gumruk)&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
     api.get('v_odeme_takvimi', `select=*&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
     api.get('v_siparisler', `select=*&cin_siparis_id=eq.${id}&order=fis_no.asc`),
     api.rpc('cin_maliyet', { p_id: +id }).catch(() => [])
@@ -2398,10 +2399,12 @@ function asamaTarihleri(c, a) {
 async function viewOdemeTakvimi() {
   topbar('Ödemeler', { back: !wideScr() });
   const ui = state.ui.odeme ||= { f: 'Tümü', odenen: false, q: '' };
-  const [plan, nakit] = await Promise.all([
+  const [plan, nakit, kasa] = await Promise.all([
     api.get('v_odeme_takvimi', ui.odenen ? 'select=*&odendi=is.true&order=odeme_tarihi.desc&limit=500' : 'select=*&odendi=is.false&order=vade.asc.nullslast,id.asc&limit=5000'),
-    api.get('v_nakit_girisleri', ui.odenen ? `select=*&durum=neq.Bekliyor&order=vade.desc&limit=500` : `select=*&durum=eq.Bekliyor&order=vade.asc&limit=5000`).catch(() => [])
+    api.get('v_nakit_girisleri', ui.odenen ? `select=*&durum=neq.Bekliyor&order=vade.desc&limit=500` : `select=*&durum=eq.Bekliyor&order=vade.asc&limit=5000`).catch(() => []),
+    api.get('kasa', 'select=*&order=sira.asc,id.asc').catch(() => [])
   ]);
+  const kasaTop = kasa.reduce((a, k) => a + kasaTL(k), 0);
   const data = [...plan, ...nakit.map(nakitKalem)].sort((x, y) => String(x.vade || '9999').localeCompare(String(y.vade || '9999')));
   const bugun = today(), hafta = addDays(bugun, 7), ay = addDays(bugun, 30);
   const acik = ui.odenen ? [] : data;
@@ -2422,7 +2425,8 @@ async function viewOdemeTakvimi() {
       <div class="kpi orange"><div class="l">Gecikmiş</div><div class="v num">${gec.length}</div><div class="s">${fmtTL(top(gec))}</div></div>
     </div>
     <div class="tiny" style="margin:-4px 4px 12px">Portföyde <b>${cekler.length}</b> çek / senet (${fmtTL(top(cekler.map(nakitKalem)))}) · platformlardan beklenen <b>${fmtTL(top(plats.map(nakitKalem)))}</b></div>
-    ${nakitAkisi(acik)}`}
+    ${kasaKart(kasa)}
+    ${nakitAkisi(acik, kasaTop)}`}
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Cari, fabrika, çek no, platform, açıklama ara…" value="${esc(ui.q)}"></div></div>
     <div class="chips" id="c1">${Object.keys(FILT).map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}<span style="width:8px"></span><button class="chip ${ui.odenen ? 'on' : ''}" id="c-od">${ui.odenen ? '✓ Kapananlar' : 'Ödenmiş / tahsil edilmişleri göster'}</button></div>
     <div id="lst"></div>`;
@@ -2448,6 +2452,7 @@ async function viewOdemeTakvimi() {
     ui.f = b.dataset.f; $$('#c1 .chip[data-f]').forEach((c) => c.classList.toggle('on', c === b)); draw();
   };
   $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
+  bindKasa($('#view'), kasa);
   $('#yo').onclick = () => planForm(null, { yon: 'Ödeme', masraf: true, genel: true, pb: 'TRY', tetikler: ['Tarih'] });
   $('#n-cek').onclick = () => nakitForm(null, 'Çek');
   $('#n-pl').onclick = () => nakitForm(null, 'Platform');
@@ -2498,85 +2503,58 @@ function fabrikaForm(f = null, preset = null, onSaved = null) {
 }
 
 /* ---------- Urun karti: ithalat / gumruk bilgileri ----------
-   Kategoriye gore hesap: EVIYE -> gozetimli (evye + sifon), TESTERE -> kendi oranlari, diger -> CIF uzerinden GV/IGV */
-const ithalatTip = (kat) => { const k = norm(kat); return k.includes('eviye') || k.includes('evye') ? 'eviye' : k.includes('testere') ? 'testere' : 'diger'; };
-const ITH_TIP_AD = { eviye: 'Eviye (gözetimli)', testere: 'Testere', diger: 'Diğer' };
-const ithProfil = (R0, tip) => (tip === 'eviye' ? { gv: R0.gv, igv: R0.igv } : { gv: R0[tip + '_gv'], igv: R0[tip + '_igv'] });
-function gumrukHtml(g, kat) {
-  g = g || {}; const s = g.sifon || null; const R0 = state.ayarlar?.ithalat || {};
-  const tip = ithalatTip(kat), pr = ithProfil(R0, tip);
+   Gozetim var  -> gumruk kiymeti = max(kg x $/kg, CIF); farka dusen KDV indirilemez (maliyete)
+   Gozetim yok  -> gumruk kiymeti = CIF
+   Her urunun kendi GV, IGV ve KDV orani (KDV bossa Ayarlar'daki ithalat KDV'si) */
+function gumrukHtml(g) {
+  g = g || {}; const R0 = state.ayarlar?.ithalat || {};
   const inp = (id, v, ph) => `<input class="input" id="${id}" inputmode="decimal" value="${v !== undefined && v !== null && v !== '' ? fmtN(v) : ''}" placeholder="${ph !== undefined && ph !== null && ph !== '' ? fmtN(ph) : ''}">`;
-  return `<details class="gum" ${g.gtip || g.kg || s ? 'open' : ''}><summary>İthalat / gümrük bilgileri · <span id="g-tip">${ITH_TIP_AD[tip]}</span></summary>
-    <p class="tiny" style="margin-top:0">Hesap kategoriye göre yapılır: kategorisi <b>EVİYE</b> olanlarda gözetim + sifon, <b>TESTERE</b> olanlarda testere oranları, diğerlerinde CIF üzerinden GV/İGV.</p>
-    <div class="grid3"><div class="field"><label>GTİP</label><input class="input" id="g-gtip" value="${esc(g.gtip || '')}"></div>
-      <div class="field"><label>GV %</label>${inp('g-gv', g.gv, pr.gv)}</div><div class="field"><label>İGV %</label>${inp('g-igv', g.igv, pr.igv)}</div></div>
-    <div id="g-ev" style="${tip === 'eviye' ? '' : 'display:none'}">
-    <div class="grid2"><div class="field"><label>Gözetim ağırlığı (kg / adet)</label>${inp('g-kg', g.kg, '')}<div class="hint">Boşsa gözetim uygulanmaz</div></div>
-      <div class="field"><label>Gözetim $/kg</label>${inp('g-gusd', g.gozetim_usd_kg, R0.gozetim_usd_kg)}</div></div>
-    <label class="check"><input type="checkbox" id="g-sif" ${s ? 'checked' : ''}> Sette sifon var (sifon ayrı vergilenir)</label>
-    <div id="g-sifd" style="${s ? '' : 'display:none'}">
-      <div class="grid3"><div class="field"><label>Sifon FOB payı ($/set)</label>${inp('g-sfob', s?.fob, R0.sifon_fob)}</div>
-        <div class="field"><label>Sifon kg</label>${inp('g-skg', s?.kg, R0.sifon_kg)}</div><div class="field"><label>Sifon gözetim $/kg</label>${inp('g-sgusd', s?.gozetim_usd_kg, R0.sifon_gozetim_usd_kg)}</div></div>
-      <div class="grid2"><div class="field"><label>Sifon GV %</label>${inp('g-sgv', s?.gv, R0.sifon_gv)}</div><div class="field"><label>Sifon İGV %</label>${inp('g-sigv', s?.igv, R0.sifon_igv)}</div></div>
-    </div>
-    </div></div>
-    <p class="tiny">Boş alanlarda Ayarlar’daki ithalat varsayılanları kullanılır (gri yazılar).</p></details>`;
+  const goz = !!g.gozetim || (g.gozetim === undefined && !!g.kg);
+  return `<details class="gum" ${g.gtip || g.gv != null || goz ? 'open' : ''}><summary>İthalat / gümrük bilgileri</summary>
+    <div class="field"><label>GTİP</label><input class="input" id="g-gtip" value="${esc(g.gtip || '')}"></div>
+    <div class="field"><label>Gözetim</label><div class="seg" id="g-goz"><button type="button" data-v="1">Gözetim var</button><button type="button" data-v="0">Gözetim yok</button></div></div>
+    <div id="g-gozd" class="grid2" style="${goz ? '' : 'display:none'}"><div class="field"><label>Gözetim ağırlığı (kg / adet)</label>${inp('g-kg', g.kg, '')}</div>
+      <div class="field"><label>Gözetim değeri ($ / kg)</label>${inp('g-gusd', g.gozetim_usd_kg, R0.gozetim_usd_kg)}</div></div>
+    <div class="grid3"><div class="field"><label>Gümrük vergisi (GV) %</label>${inp('g-gv', g.gv, '')}</div>
+      <div class="field"><label>İlave GV (İGV) %</label>${inp('g-igv', g.igv, '')}</div>
+      <div class="field"><label>İthalat KDV %</label>${inp('g-kdv', g.kdv, R0.kdv ?? 20)}</div></div>
+    <p class="tiny">Gözetim varsa vergi, gözetim kıymeti ile CIF’ten büyük olanın üzerinden hesaplanır; aradaki farka düşen KDV indirilemez ve maliyete eklenir.</p></details>`;
 }
 function gumrukBind(el) {
-  const c = $('#g-sif', el); if (c) c.onchange = () => { $('#g-sifd', el).style.display = c.checked ? '' : 'none'; };
-  const kat = $('#u-kat', el); if (!kat) return;
-  kat.addEventListener('input', () => {
-    const tip = ithalatTip(kat.value), pr = ithProfil(state.ayarlar?.ithalat || {}, tip);
-    $('#g-tip', el).textContent = ITH_TIP_AD[tip]; $('#g-ev', el).style.display = tip === 'eviye' ? '' : 'none';
-    $('#g-gv', el).placeholder = pr.gv != null ? fmtN(pr.gv) : ''; $('#g-igv', el).placeholder = pr.igv != null ? fmtN(pr.igv) : '';
-  });
+  const seg = $('#g-goz', el); if (!seg) return;
+  let goz = $('#g-gozd', el).style.display !== 'none';
+  const st = () => { $$('#g-goz button', el).forEach((b) => b.classList.toggle('on', (b.dataset.v === '1') === goz)); $('#g-gozd', el).style.display = goz ? '' : 'none'; seg.dataset.on = goz ? '1' : '0'; };
+  seg.onclick = (e) => { const b = e.target.closest('button'); if (b) { goz = b.dataset.v === '1'; st(); } };
+  st();
 }
 function gumrukOku(el) {
   if (!$('#g-gtip', el)) return undefined;
   const n = (id) => { const v = parseNum($(id, el).value); return isNaN(v) ? null : v; };
-  const ev = $('#g-ev', el).style.display !== 'none';
-  const g = { gtip: $('#g-gtip', el).value.trim() || null, kg: ev ? n('#g-kg') : null, gozetim_usd_kg: ev ? n('#g-gusd') : null, gv: n('#g-gv'), igv: n('#g-igv'),
-    sifon: ev && $('#g-sif', el).checked ? { fob: n('#g-sfob'), kg: n('#g-skg'), gozetim_usd_kg: n('#g-sgusd'), gv: n('#g-sgv'), igv: n('#g-sigv') } : null };
-  return Object.values(g).some((v) => v !== null) ? g : null;
+  const goz = $('#g-goz', el).dataset.on === '1';
+  const g = { gtip: $('#g-gtip', el).value.trim() || null, gozetim: goz, kg: goz ? n('#g-kg') : null, gozetim_usd_kg: goz ? n('#g-gusd') : null, gv: n('#g-gv'), igv: n('#g-igv'), kdv: n('#g-kdv') };
+  return g.gtip || goz || g.gv !== null || g.igv !== null || g.kdv !== null ? g : null;
 }
 
 /* ---------- Gumruk vergisi hesabi (ithalat maliyet yontemi) ----------
    CIF = FOB + navlun + sigorta (navlun/sigorta FOB payina gore dagitilir)
-   Gumruk kiymeti = max(gozetim kiymeti, gercek CIF payi) — evye ve sifon ayri
+   Gumruk kiymeti = gozetim varsa max(gozetim kiymeti, CIF payi), yoksa CIF payi
    GV, IGV = kiymet x oran · KDV = (kiymet + GV + IGV) x KDV
    Indirilemeyen KDV = KDV x gozetim farki x (1 + GV + IGV); maliyete eklenir */
 function vergiKalem(k, ctx) {
-  const R0 = ctx.R, tip = ithalatTip(k.urunler?.kategori);
-  const g0 = k.urunler?.gumruk || {};
-  const g = tip === 'eviye' ? g0 : { ...g0, kg: null, sifon: null };
-  const pr = ithProfil(R0, tip);
+  const R0 = ctx.R, g = k.urunler?.gumruk || {};
   const P = num(k.birim_fiyat), Q = num(k.miktar);
-  const birimCIF = ctx.fob > 0 ? P * (1 + (ctx.navlun + ctx.sigorta) / ctx.fob) : P;
-  const v = (x, d) => (x !== null && x !== undefined ? num(x) : num(d));
-  const par = [];
-  let sifCIF = 0;
-  if (g.sifon) {
-    const sfob = v(g.sifon.fob, R0.sifon_fob);
-    sifCIF = P > 0 ? birimCIF * Math.min(1, sfob / P) : 0;
-    par.push({ ad: 'Sifon', cif: sifCIF, kg: v(g.sifon.kg, R0.sifon_kg), gusd: v(g.sifon.gozetim_usd_kg, R0.sifon_gozetim_usd_kg), gv: v(g.sifon.gv, R0.sifon_gv), igv: v(g.sifon.igv, R0.sifon_igv) });
-  }
-  par.unshift({ ad: g.sifon ? 'Evye' : 'Ürün', cif: birimCIF - sifCIF, kg: g.kg ? num(g.kg) : 0, gusd: v(g.gozetim_usd_kg, R0.gozetim_usd_kg), gv: v(g.gv, pr.gv), igv: v(g.igv, pr.igv) });
-  const kdv = ctx.kdv / 100;
-  let gvT = 0, igvT = 0, kdvT = 0, indT = 0, kiyT = 0, gozT = 0;
-  par.forEach((x) => {
-    x.gozetim = x.kg > 0 ? x.kg * x.gusd : 0;
-    x.kiymet = Math.max(x.gozetim, x.cif);
-    x.fark = Math.max(0, x.gozetim - x.cif);
-    x.gvT = (x.kiymet * x.gv) / 100; x.igvT = (x.kiymet * x.igv) / 100;
-    x.kdvT = (x.kiymet + x.gvT + x.igvT) * kdv;
-    x.ind = kdv * x.fark * (1 + x.gv / 100 + x.igv / 100);
-    gvT += x.gvT; igvT += x.igvT; kdvT += x.kdvT; indT += x.ind; kiyT += x.kiymet; gozT += x.gozetim;
-  });
-  const K = ctx.kur;
-  const r = { cif: birimCIF, gozetim: gozT, kiymet: kiyT, gv: gvT, igv: igvT, kdv: kdvT, indirilemez: indT, parcalar: par, tip, eksik: tip === 'eviye' ? !g.kg : (g.gv == null && pr.gv == null) };
-  r.birimVergiTL = (gvT + igvT + indT) * K;
+  const cif = ctx.fob > 0 ? P * (1 + (ctx.navlun + ctx.sigorta) / ctx.fob) : P;
+  const goz = (g.gozetim === true || (g.gozetim === undefined && g.kg)) && num(g.kg) > 0;
+  const gv = num(g.gv), igv = num(g.igv), kdvO = (g.kdv !== null && g.kdv !== undefined ? num(g.kdv) : ctx.kdv) / 100;
+  const gozetim = goz ? num(g.kg) * num(g.gozetim_usd_kg ?? R0.gozetim_usd_kg) : 0;
+  const kiymet = Math.max(gozetim, cif), fark = Math.max(0, gozetim - cif);
+  const gvT = (kiymet * gv) / 100, igvT = (kiymet * igv) / 100;
+  const kdvT = (kiymet + gvT + igvT) * kdvO;
+  const ind = kdvO * fark * (1 + gv / 100 + igv / 100);
+  const r = { cif, gozetim, kiymet, fark, gv: gvT, igv: igvT, kdv: kdvT, indirilemez: ind, goz, Q,
+    eksik: (g.gv === null || g.gv === undefined) ? 'GV oranı yok' : (g.gozetim && !(num(g.kg) > 0)) ? 'gözetim ağırlığı yok' : '' };
+  r.birimVergiTL = (gvT + igvT + ind) * ctx.kur;
   r.vergiTL = Math.round(r.birimVergiTL * Q * 100) / 100;
-  r.Q = Q;
   return r;
 }
 
@@ -2595,7 +2573,7 @@ async function vergiHesapla(c, kal, plan, kur0) {
   const pb = PB[c.para_birimi];
   modal({
     title: `${cinNo(c.no)} · gümrük vergisi`, wide: true,
-    body: `<p class="small muted" style="margin-top:0">CIF = FOB + navlun + sigorta. Gümrük kıymeti, gözetim kıymeti ile CIF payının büyüğüdür (evye ve sifon ayrı). GV, İGV ve gözetim farkına düşen <b>indirilemeyen KDV</b> ürün maliyetine eklenir; indirilebilir KDV eklenmez.</p>
+    body: `<p class="small muted" style="margin-top:0">CIF = FOB + navlun + sigorta. Gözetimli üründe gümrük kıymeti gözetim kıymeti ile CIF’in büyüğüdür, gözetimsizde CIF’tir. GV, İGV ve gözetim farkına düşen <b>indirilemeyen KDV</b> ürün maliyetine eklenir; indirilebilir KDV eklenmez. Oranlar ürün kartından gelir.</p>
       ${elle.length ? `<p class="small" style="color:var(--orange)">Bu siparişte elle girilmiş ${elle.map((p) => esc(p.kategori)).join(', ')} kalemi var. Çift sayılmaması için hesaplamadan sonra onları silin.</p>` : ''}
       <div class="grid3">
         <div class="field"><label>Gümrük kuru (1 ${c.para_birimi} = ? ₺)</label><input class="input" id="vh-k" inputmode="decimal" value="${kurV ? fmtN(kurV) : ''}"></div>
@@ -2603,7 +2581,7 @@ async function vergiHesapla(c, kal, plan, kur0) {
         <div class="field"><label>Sigorta (${pb})</label><input class="input" id="vh-s" inputmode="decimal" value="${sig ? fmtN(Math.round(sig * 100) / 100) : ''}"></div>
       </div>
       <div class="grid3">
-        <div class="field"><label>İthalat KDV %</label><input class="input" id="vh-kdv" inputmode="decimal" value="${fmtN(R.kdv ?? 20)}"></div>
+        <div class="field"><label>KDV % (ürün kartında yoksa)</label><input class="input" id="vh-kdv" inputmode="decimal" value="${fmtN(R.kdv ?? 20)}"></div>
         <div class="field"><label>Vergi ödeme zamanı</label><select class="input" id="vh-tk">${['Yüklendi', 'Limanda', 'Teslim Alındı', 'Tarih'].map((t) => `<option value="${t}" ${t === (e0?.tetik || 'Yüklendi') ? 'selected' : ''}>${TETIK[t]}</option>`).join('')}</select></div>
         <div class="field" id="vh-gf"><label>Kaç gün sonra</label><input class="input" id="vh-g" inputmode="numeric" value="${e0 ? e0.gun_sonra : 50}"></div>
         <div class="field" id="vh-df" style="display:none"><label>Tarih</label><input class="input" type="date" id="vh-d" value="${e0?.vade_tarihi || ''}"></div>
@@ -2622,11 +2600,11 @@ async function vergiHesapla(c, kal, plan, kur0) {
         const T = (f) => rs.reduce((a, { r }) => a + f(r) * r.Q, 0);
         const gv = T((r) => r.gv) * ctx.kur, igv = T((r) => r.igv) * ctx.kur, kdv = T((r) => r.kdv) * ctx.kur, ind = T((r) => r.indirilemez) * ctx.kur;
         son = { ctx, rs, gv, igv, kdv, ind };
-        const eksik = rs.filter(({ r }) => r.eksik).map(({ k }) => k.urunler?.ad);
+        const eksik = rs.filter(({ r }) => r.eksik).map(({ k, r }) => `${k.urunler?.ad} (${r.eksik})`);
         E('#vh-out').innerHTML = `
-          ${eksik.length ? `<p class="small" style="color:var(--orange)">Eksik gümrük bilgisi: ${eksik.map(esc).join(', ')}. Eviyelerde gözetim ağırlığı, diğerlerinde GV oranı girilmemiş (eksikse vergi düşük çıkar). Ürün kartından ya da Ayarlar’dan ekleyin.</p>` : ''}
+          ${eksik.length ? `<p class="small" style="color:var(--orange)">Eksik gümrük bilgisi: ${eksik.map(esc).join(', ')}. Vergi eksik çıkar; ürün kartındaki “İthalat / gümrük bilgileri”nden girin.</p>` : ''}
           <div class="table-wrap"><table class="tbl stack"><thead><tr><th>Ürün</th><th class="r">Adet</th><th class="r">CIF / adet</th><th class="r">Gözetim kıymeti</th><th class="r">GV + İGV / adet</th><th class="r">KDV / adet</th><th class="r">İndirilemeyen KDV</th><th class="r">Maliyete eklenen / adet</th></tr></thead>
-          <tbody>${rs.map(({ k, r }) => `<tr><td class="w"><b>${esc(k.urunler?.ad)}</b> <span class="badge">${ITH_TIP_AD[r.tip]}</span>${r.parcalar.length > 1 ? `<div class="tiny">${r.parcalar.map((x) => `${x.ad}: kıymet ${fmtPB(x.kiymet, c.para_birimi)}${x.fark > 0 ? ` (fark ${fmtPB(x.fark, c.para_birimi)})` : ''}`).join(' · ')}</div>` : ''}</td>
+          <tbody>${rs.map(({ k, r }) => `<tr><td class="w"><b>${esc(k.urunler?.ad)}</b> <span class="badge ${r.goz ? 'b-blue' : ''}">${r.goz ? 'gözetimli' : 'gözetimsiz'}</span>${r.fark > 0 ? `<div class="tiny">kıymet ${fmtPB(r.kiymet, c.para_birimi)} · gözetim farkı ${fmtPB(r.fark, c.para_birimi)}</div>` : ''}</td>
             <td class="r" data-l="Adet">${fmtN(r.Q)}</td><td class="r" data-l="CIF">${fmtPB(r.cif, c.para_birimi)}</td><td class="r" data-l="Gözetim">${r.gozetim ? fmtPB(r.gozetim, c.para_birimi) : '–'}</td>
             <td class="r" data-l="GV+İGV">${fmtTL((r.gv + r.igv) * ctx.kur)}</td><td class="r" data-l="KDV">${fmtTL(r.kdv * ctx.kur)}</td><td class="r" data-l="İndirilemeyen">${r.indirilemez ? fmtTL(r.indirilemez * ctx.kur) : '–'}</td>
             <td class="r" data-l="Maliyete"><b>${fmtTL(r.birimVergiTL)}</b></td></tr>`).join('')}</tbody></table></div>
@@ -2740,8 +2718,52 @@ function bindNakitRows(root, rows) {
   $$('[data-nid]', root).forEach((el) => el.addEventListener('click', () => { const n = rows.find((x) => x.id === +el.dataset.nid); if (n) nakitForm(n); }));
 }
 
-/* Aylik nakit akisi: gelecek (cek, platform, musteri taksitleri) − odenecek */
-function nakitAkisi(items) {
+/* Kasa: eldeki para (TL, dolar…) aciklamalariyla; nakit akisinin baslangici */
+const kasaTL = (k) => num(k.tutar) * (k.para_birimi === 'TRY' ? 1 : num(k.kur) || num(sonKur(k.para_birimi)) || 0);
+function kasaKart(kasa) {
+  const top = kasa.reduce((a, k) => a + kasaTL(k), 0);
+  const pbTop = {}; kasa.forEach((k) => { pbTop[k.para_birimi] = (pbTop[k.para_birimi] || 0) + num(k.tutar); });
+  return `<div class="card"><h2 style="display:flex;justify-content:space-between;align-items:center">Kasa / eldeki para <a href="#" id="ks-add" style="text-transform:none;letter-spacing:0;font-size:14px">+ Ekle</a></h2>
+    ${kasa.length ? `<div class="list" style="box-shadow:none;border:1px solid var(--line);margin:0 0 10px">${kasa.map((k) => `<div class="row" data-kid="${k.id}">
+      <div class="main-col"><div class="t">${esc(k.ad)}</div><div class="st">${k.aciklama ? `<span>${esc(k.aciklama)}</span>` : ''}<span class="tiny">güncelleme ${fmtD(String(k.guncelleme).slice(0, 10))}</span></div></div>
+      <div class="end"><div class="amt">${fmtPB(k.tutar, k.para_birimi)}</div>${k.para_birimi !== 'TRY' ? `<div class="tiny">≈ ${fmtTL(kasaTL(k))}${k.kur ? ` · kur ${fmtN(k.kur)}` : ''}</div>` : ''}</div></div>`).join('')}</div>
+      <div class="totals"><div class="tr big"><span>Toplam (TL karşılığı)</span><span>${fmtTL(top)}</span></div>${Object.keys(pbTop).length > 1 ? `<div class="tr"><span class="muted">Para birimine göre</span><span>${Object.entries(pbTop).map(([pb, v]) => fmtPB(v, pb)).join(' · ')}</span></div>` : ''}</div>`
+    : '<p class="small muted" style="margin:0">Kasadaki TL, dolar vb. paranızı girin; nakit akışı bu tutardan başlayarak hesaplanır.</p>'}</div>`;
+}
+function bindKasa(root, kasa) {
+  $('#ks-add', root)?.addEventListener('click', (e) => { e.preventDefault(); kasaForm(null); });
+  $$('[data-kid]', root).forEach((el) => el.onclick = () => kasaForm(kasa.find((k) => k.id === +el.dataset.kid)));
+}
+function kasaForm(k) {
+  modal({
+    title: k ? 'Kasa kalemini güncelle' : 'Kasaya para ekle',
+    body: `<div class="field"><label>Ad</label><input class="input" id="ks-ad" value="${esc(k?.ad || '')}" placeholder="Örn. Kasa TL, Kasa dolar, Ziraat hesabı"></div>
+      ${dovizHtml('ks-dv', k?.para_birimi || 'TRY', k?.kur || '')}
+      <p class="tiny" style="margin-top:-6px">Döviz için kur, toplamdaki TL karşılığı içindir; boşsa son kullanılan kur alınır.</p>
+      <div class="field"><label>Tutar (<span id="ks-pbs">${PB[k?.para_birimi || 'TRY']}</span>)</label><input class="input" id="ks-t" inputmode="decimal" value="${k ? fmtN(k.tutar) : ''}"></div>
+      <div class="field"><label>Açıklama</label><input class="input" id="ks-ac" value="${esc(k?.aciklama || '')}" placeholder="Örn. dükkandaki kasa, ofis kasası, nereden geldiği"></div>`,
+    foot: `${k && isAdmin() ? `<button class="btn red" id="ks-del">${icon('trash')}</button>` : ''}<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="ks-ok">Kaydet</button>`,
+    onMount: (m) => {
+      const dv = bindDoviz(m.el, 'ks-dv', () => { $('#ks-pbs', m.el).textContent = PB[dv.get().pb]; });
+      $('#ks-ok', m.el).onclick = async (e) => {
+        const ad = $('#ks-ad', m.el).value.trim(), t = parseNum($('#ks-t', m.el).value);
+        if (!ad) return toast('Ad girin', 'err');
+        if (isNaN(t)) return toast('Tutar girin', 'err');
+        const d = dv.get();
+        const row = { ad, para_birimi: d.pb, kur: d.pb !== 'TRY' && d.kur > 0 ? d.kur : null, tutar: t, aciklama: $('#ks-ac', m.el).value.trim() || null, guncelleme: new Date().toISOString() };
+        if (row.kur) kurHatirla(d.pb, row.kur);
+        try { await busy(e.currentTarget, () => (k ? api.update('kasa', `id=eq.${k.id}`, row) : api.insert('kasa', [row]))); m.close(); toast('Kaydedildi', 'ok'); render(); } catch (err) { fail(err); }
+      };
+      $('#ks-del', m.el)?.addEventListener('click', async () => {
+        if (!await confirmBox('Silinsin mi?', `${esc(k.ad)} kasadan silinecek.`, 'Sil', true)) return;
+        try { await api.del('kasa', `id=eq.${k.id}`); m.close(); toast('Silindi', 'ok'); render(); } catch (err) { fail(err); }
+      });
+    }
+  });
+}
+
+/* Aylik nakit akisi: gelecek (cek, platform, musteri taksitleri) − odenecek; kasadan baslar */
+function nakitAkisi(items, baslangic = 0) {
   const bugun = today();
   const ay0 = bugun.slice(0, 7);
   const aylar = []; { const d = new Date(bugun.slice(0, 8) + '01T12:00:00'); for (let i = 0; i < 6; i++) { aylar.push(d.toISOString().slice(0, 7)); d.setMonth(d.getMonth() + 1); } }
@@ -2751,12 +2773,12 @@ function nakitAkisi(items) {
   if (!sira.length) return '';
   const ad = (k) => (k === 'gec' ? 'Gecikmiş' : k === 'sonra' ? 'Daha sonra' : `${AY_AD[+k.slice(5) - 1]} ${k.slice(0, 4)}`);
   const max = Math.max(...sira.map((k) => Math.max(B[k].g, B[k].c)), 1);
-  let kum = 0;
-  return `<div class="card"><h2>Aylık nakit akışı <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· döviz kalemler yaklaşık kurla</span></h2>
+  let kum = baslangic;
+  return `<div class="card"><h2>Aylık nakit akışı${baslangic ? ` <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· kasadaki ${fmtTL(baslangic)} ile başlar</span>` : ''} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· döviz kalemler yaklaşık kurla</span></h2>
     <div class="akis">${sira.map((k) => { const o = B[k]; kum += o.g - o.c; return `<div class="ak-row">
       <div class="ak-ad">${ad(k)}</div>
       <div class="ak-bar"><i class="g" style="width:${(o.g / max) * 100}%"></i><i class="c" style="width:${(o.c / max) * 100}%"></i></div>
-      <div class="ak-n"><span class="zero">+${fmtTL(o.g)}</span><span class="pos">−${fmtTL(o.c)}</span><b class="${o.g - o.c >= 0 ? 'zero' : 'pos'}">${fmtTL(o.g - o.c)}</b><span class="tiny">kümülatif ${fmtTL(kum)}</span></div>
+      <div class="ak-n"><span class="zero">+${fmtTL(o.g)}</span><span class="pos">−${fmtTL(o.c)}</span><b class="${o.g - o.c >= 0 ? 'zero' : 'pos'}">${fmtTL(o.g - o.c)}</b><span class="tiny">${baslangic ? 'kasa + ' : ''}kümülatif ${fmtTL(kum)}</span></div>
     </div>`; }).join('')}</div>
     <div class="tiny" style="margin-top:8px"><span class="lg g"></span> gelecek (çek, platform, müşteri taksiti) &nbsp; <span class="lg c"></span> ödenecek (fabrika, vergi, çek, kira, diğer)</div></div>`;
 }

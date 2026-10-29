@@ -100,6 +100,7 @@ const TABLOLAR: [string, string, string][] = [
   ["Fabrikalar", "v_fabrikalar", "select=ad,sehir,iletisim,siparis_toplam,odenen,bakiye,aktif_siparis,aktif,notlar&order=ad"],
   ["Ithalat Siparisleri", "v_cin_siparisler", "select=no,tarih,fabrika_ad,durum,para_birimi,kur,toplam,toplam_miktar,fabrika_odenen,fabrika_kalan,masraf_tl,nakliye_sekli,liman,konteyner_no,takip_no,tahmini_uretim,tahmini_yukleme,tahmini_varis,uretim_bitis,yukleme_tarihi,varis_tarihi,teslim_tarihi,aciklama&order=no"],
   ["Ithalat Kalemleri", "cin_kalemler", "select=cin_siparisler(no),urunler(kod,ad),miktar,birim_fiyat,vergi_tl&order=id"],
+  ["Kasa", "kasa", "select=ad,para_birimi,tutar,kur,aciklama,guncelleme&order=sira,id"],
   ["Cek ve Platform", "v_nakit_girisleri", "select=tur,kaynak,belge_no,cari_kod,cari_unvan,kesideci,alis_tarihi,vade,tutar,para_birimi,kur,durum,tahsil_tarihi,ciro_edilen,aciklama&order=vade"],
   ["Odeme Plani", "v_odeme_takvimi", "select=yon,kategori,cin_no,fabrika_ad,fis_no,cari_unvan,aciklama,tetik,gun_sonra,yuzde,tutar_hesap,para_birimi,vade,vade_kesin,maliyete_dahil,odendi,odeme_tarihi,odenen_kur&order=id"],
 ];
