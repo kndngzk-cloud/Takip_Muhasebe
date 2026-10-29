@@ -14,6 +14,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
+const fmt2 = (v) => num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtTL = (v) => num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₺';
 const fmtN = (v) => num(v).toLocaleString('tr-TR', { maximumFractionDigits: 3 });
 const fmtD = (iso) => { if (!iso) return '–'; const [y, m, d] = String(iso).slice(0, 10).split('-'); return `${d}.${m}.${y}`; };
@@ -239,6 +240,7 @@ const ROUTES = [
   [/^#\/siparis\/(\d+)$/, 'siparis', viewSiparisDetay],
   [/^#\/stok$/, 'stok', viewStok],
   [/^#\/stok\/hareketler$/, 'stok', viewStokHareketleri],
+  [/^#\/alis\/yeni(?:\?urun=(\d+))?$/, 'stok', viewMalAlisi],
   [/^#\/urun\/(\d+)$/, 'stok', viewUrunDetay],
   [/^#\/cariler$/, 'cari', viewCariler],
   [/^#\/cari\/(\d+)$/, 'cari', viewCariDetay],
@@ -574,23 +576,28 @@ async function viewSiparisYeni(cariId) {
         <div class="lr">
           <div class="field"><label>Miktar</label><input class="input l-mik" inputmode="decimal" value="${l.miktar === '' ? '' : fmtN(l.miktar)}"></div>
           <div class="field"><label>Birim fiyat</label><input class="input l-fiy" inputmode="decimal" value="${l.fiyat === '' ? '' : fmtN(l.fiyat)}"></div>
-          <div class="field"><label>Tutar</label><input class="input" readonly value="${fmtTL(num(l.miktar) * num(l.fiyat))}" style="background:var(--surface-2)"></div>
+          <div class="field"><label>Tutar</label><input class="input l-tut" readonly value="${fmt2(num(l.miktar) * num(l.fiyat))}" style="background:var(--surface-2)"></div>
         </div>
         ${u ? `<div class="info"><span>Real: <b>${fmtN(u.real_stok)}</b></span><span>Sevk sonrası: <b class="${stokUyari ? 'pos' : ''}">${fmtN(u.sevk_sonrasi_stok)}</b> ${esc(u.birim)}</span>
           ${f.mf[u.id] !== undefined ? `<span class="badge b-green">Müşteri fiyatı ${fmtTL(f.mf[u.id])}</span>` : `<span class="tiny">Liste fiyatı ${fmtTL(u.satis_fiyati)}</span>`}
-          ${stokUyari ? '<span class="badge b-orange">Stok yetersiz</span>' : ''}</div>` : ''}
+          <span class="badge b-orange l-warn ${stokUyari ? '' : 'hidden'}">Stok yetersiz</span></div>` : ''}
       </div>`;
     }).join('');
     $$('#lines .line').forEach((el) => {
       const i = +el.dataset.i, l = f.lines[i];
       picker($('.l-urun', el), {
         items: aktifUrun, label: (u) => u.ad, sub: (u) => `${esc(u.kod)} · sevk sonrası ${fmtN(u.sevk_sonrasi_stok)} ${esc(u.birim)}${f.mf[u.id] !== undefined ? ' · müşteri fiyatı ' + fmtTL(f.mf[u.id]) : ''}`,
-        onPick: (u) => { l.urun = u; l.manuel = false; l.fiyat = priceFor(u); if (l.miktar === '') l.miktar = 1; drawLines(); setTimeout(() => $(`.line[data-i="${i}"] .l-mik`)?.select(), 30); },
+        onPick: (u) => { l.urun = u; l.manuel = false; l.fiyat = priceFor(u); if (l.miktar === '') l.miktar = 1; if (i === f.lines.length - 1) f.lines.push({ urun: null, miktar: '', fiyat: '' }); drawLines(); setTimeout(() => $(`.line[data-i="${i}"] .l-mik`)?.select(), 30); },
         addText: 'Yeni ürün ekle',
         onAdd: (v) => urunForm(null, { ad: v }, async (u) => { cache.dirty('urunler'); const all = await cache.urunler(); urunler.splice(0, urunler.length, ...all); l.urun = all.find((x) => x.id === u.id); l.fiyat = priceFor(l.urun); l.miktar = 1; drawLines(); })
       });
-      $('.l-mik', el).onchange = (e) => { const v = parseNum(e.target.value); l.miktar = isNaN(v) ? '' : v; drawLines(); };
-      $('.l-fiy', el).onchange = (e) => { const v = parseNum(e.target.value); l.fiyat = isNaN(v) ? '' : v; l.manuel = true; drawLines(); };
+      const upd = () => {
+        $('.l-tut', el).value = fmt2(num(l.miktar) * num(l.fiyat));
+        const w = $('.l-warn', el); if (w && l.urun) w.classList.toggle('hidden', !(num(l.miktar) > num(l.urun.sevk_sonrasi_stok)));
+        drawTotals();
+      };
+      $('.l-mik', el).oninput = (e) => { const v = parseNum(e.target.value); l.miktar = isNaN(v) ? '' : v; upd(); };
+      $('.l-fiy', el).oninput = (e) => { const v = parseNum(e.target.value); l.fiyat = isNaN(v) ? '' : v; l.manuel = true; upd(); };
       $('.l-del', el).onclick = () => { f.lines.splice(i, 1); if (!f.lines.length) f.lines.push({ urun: null, miktar: '', fiyat: '' }); drawLines(); };
     });
     drawTotals();
@@ -605,7 +612,7 @@ async function viewSiparisYeni(cariId) {
       ${f.cari?.tip === 'Perakende' ? '<div class="tiny">Perakende cari: aynı tutarda tahsilat otomatik girilir, bakiye sıfır kalır.</div>' : ''}`;
   };
   $('#f-kdv').oninput = drawTotals;
-  $('#add-line').onclick = () => { f.lines.push({ urun: null, miktar: '', fiyat: '' }); drawLines(); setTimeout(() => $$('#lines .l-urun').pop()?.focus(), 30); };
+  $('#add-line').onclick = () => { if (f.lines[f.lines.length - 1]?.urun) f.lines.push({ urun: null, miktar: '', fiyat: '' }); drawLines(); setTimeout(() => $$('#lines .l-urun').pop()?.focus(), 30); };
 
   f.lines.push({ urun: null, miktar: '', fiyat: '' });
   setTip('R'); drawLines();
@@ -776,48 +783,101 @@ async function viewStokHareketleri() {
   draw();
 }
 
-/* Mal alisi: alis fiyatiyla stok girisi */
-async function malAlisi(urun = null) {
-  let urunler;
-  try { urunler = await cache.urunler(); } catch (e) { return fail(e); }
-  let sel = urun;
-  modal({
-    title: 'Mal alışı (stok girişi)',
-    body: `
-      <div class="field picker"><label>Ürün</label><input class="input" id="m-u" placeholder="Ürün ara…" autocomplete="off" value="${esc(urun?.ad || '')}"><div class="hint" id="m-ui"></div></div>
+/* Mal alisi: tek fiste cok kalem, alis fiyatiyla stok girisi */
+function malAlisi(urun = null) { go(urun ? `#/alis/yeni?urun=${urun.id}` : '#/alis/yeni'); }
+
+async function viewMalAlisi(urunId) {
+  topbar('Mal Alışı', { back: true });
+  const [urunler, gecmis] = await Promise.all([
+    cache.urunler(),
+    api.get('stok_hareketleri', 'select=tedarikci&islem=eq.' + encodeURIComponent('Alış') + '&tedarikci=not.is.null&order=id.desc&limit=2000').catch(() => [])
+  ]);
+  const tedarikciler = [...new Set(gecmis.map((x) => x.tedarikci).filter(Boolean))];
+  const lines = [];
+  const bos = () => ({ urun: null, miktar: '', maliyet: '' });
+  if (urunId) { const u = urunler.find((x) => x.id === +urunId); if (u) lines.push({ urun: u, miktar: '', maliyet: '' }); }
+  lines.push(bos());
+  $('#view').innerHTML = `
+    <div class="card">
       <div class="grid2">
-        <div class="field"><label>Miktar</label><input class="input" id="m-mik" inputmode="decimal"></div>
-        <div class="field"><label>Birim alış fiyatı (₺)</label><input class="input" id="m-fiy" inputmode="decimal" placeholder="Sonra da girilebilir"></div>
+        <div class="field"><label>Tarih</label><input class="input" type="date" id="a-t" value="${today()}"></div>
+        <div class="field"><label>Belge / fatura no</label><input class="input" id="a-bel" placeholder="İsteğe bağlı"></div>
       </div>
-      <div class="grid2">
-        <div class="field"><label>Tarih</label><input class="input" type="date" id="m-t" value="${today()}"></div>
-        <div class="field"><label>Tedarikçi</label><input class="input" id="m-ted"></div>
-      </div>
-      <div class="grid2">
-        <div class="field"><label>Belge / fatura no</label><input class="input" id="m-bel"></div>
-        <div class="field"><label>Açıklama</label><input class="input" id="m-ac"></div>
-      </div>`,
-    foot: `<button class="btn" id="m-yeni">Kaydet ve yeni</button><button class="btn green" id="m-ok">Kaydet</button>`,
-    onMount: (m) => {
-      const info = () => { $('#m-ui', m.el).innerHTML = sel ? `Real ${fmtN(sel.real_stok)} ${esc(sel.birim)} · son alış ${sel.son_alis_fiyati !== null ? fmtTL(sel.son_alis_fiyati) : '–'}` : ''; };
-      info();
-      picker($('#m-u', m.el), { items: () => urunler.filter((u) => u.aktif), label: (u) => u.ad, sub: (u) => `${esc(u.kod)} · real ${fmtN(u.real_stok)}`, onPick: (u) => { sel = u; $('#m-u', m.el).value = u.ad; info(); $('#m-mik', m.el).focus(); } });
-      const save = async (btn, again) => {
-        if (!sel) return toast('Ürün seçin', 'err');
-        const mik = parseNum($('#m-mik', m.el).value); const fy = $('#m-fiy', m.el).value.trim() ? parseNum($('#m-fiy', m.el).value) : null;
-        if (!(mik > 0)) return toast('Miktar girin', 'err');
-        if (fy !== null && (isNaN(fy) || fy < 0)) return toast('Alış fiyatı geçersiz', 'err');
-        try {
-          await busy(btn, () => api.insert('stok_hareketleri', [{ tarih: $('#m-t', m.el).value || today(), urun_id: sel.id, tur: 'Giriş', islem: 'Alış', miktar: mik, birim_maliyet: fy, tedarikci: $('#m-ted', m.el).value || null, belge_no: $('#m-bel', m.el).value || null, aciklama: $('#m-ac', m.el).value || null }]));
-          cache.dirty('urunler'); toast(`${sel.ad}: +${fmtN(mik)} girildi`, 'ok');
-          if (again) { sel = null; $('#m-u', m.el).value = ''; $('#m-mik', m.el).value = ''; $('#m-fiy', m.el).value = ''; info(); urunler = await cache.urunler(); $('#m-u', m.el).focus(); }
-          else { m.close(); render(); }
-        } catch (e) { fail(e); }
+      <div class="field"><label>Tedarikçi</label><input class="input" id="a-ted" list="ted-list" placeholder="İsteğe bağlı"><datalist id="ted-list">${tedarikciler.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
+      <div class="field" style="margin-bottom:0"><label>Açıklama</label><input class="input" id="a-ac" placeholder="İsteğe bağlı"></div>
+    </div>
+    <div class="section-title">Ürünler <span class="tiny" style="text-transform:none;letter-spacing:0">Ürün seçince altına yeni satır açılır</span></div>
+    <div class="lines" id="a-lines"></div>
+    <button class="btn block" id="a-add" style="margin-bottom:14px">${icon('plus')}Satır ekle</button>
+    <div class="card"><div class="totals" id="a-tot"></div></div>
+    <button class="btn green block" id="a-save" style="padding:14px;font-size:16px">${icon('inbox')}Alış fişini kaydet</button>`;
+
+  const draw = (focusIdx = null, focusSel = '.a-mik') => {
+    $('#a-lines').innerHTML = lines.map((l, i) => {
+      const u = l.urun;
+      return `<div class="line" data-i="${i}">
+        <div class="picker" style="display:flex;gap:6px"><input class="input a-urun" placeholder="${i + 1}. ürün ara…" value="${esc(u?.ad || '')}" autocomplete="off"><button class="icon-btn a-del" title="Kaldır">${icon('trash')}</button></div>
+        <div class="lr">
+          <div class="field"><label>Miktar</label><input class="input a-mik" inputmode="decimal" value="${l.miktar === '' ? '' : fmtN(l.miktar)}"></div>
+          <div class="field"><label>Birim alış (₺)</label><input class="input a-mal" inputmode="decimal" placeholder="${u && u.son_alis_fiyati !== null ? fmtN(u.son_alis_fiyati) : 'sonra da girilebilir'}" value="${l.maliyet === '' ? '' : fmtN(l.maliyet)}"></div>
+          <div class="field"><label>Tutar</label><input class="input a-tut" readonly value="${l.maliyet === '' ? '–' : fmt2(num(l.miktar) * num(l.maliyet))}" style="background:var(--surface-2)"></div>
+        </div>
+        ${u ? `<div class="info"><span>Real stok: <b>${fmtN(u.real_stok)}</b> ${esc(u.birim)}</span>${u.son_alis_fiyati !== null ? `<span>Son alış: <b>${fmtTL(u.son_alis_fiyati)}</b></span>` : ''}<span class="a-sonra">${num(l.miktar) > 0 ? `Giriş sonrası: <b>${fmtN(num(u.real_stok) + num(l.miktar))}</b>` : ''}</span></div>` : ''}
+      </div>`;
+    }).join('');
+    $$('#a-lines .line').forEach((el) => {
+      const i = +el.dataset.i, l = lines[i];
+      const pick = (u) => {
+        l.urun = u;
+        if (i === lines.length - 1) lines.push(bos());
+        draw(i, '.a-mik');
       };
-      $('#m-ok', m.el).onclick = (e) => save(e.currentTarget, false);
-      $('#m-yeni', m.el).onclick = (e) => save(e.currentTarget, true);
-    }
-  });
+      picker($('.a-urun', el), {
+        items: () => urunler.filter((u) => u.aktif), label: (u) => u.ad, sub: (u) => `${esc(u.kod)} · real ${fmtN(u.real_stok)} ${esc(u.birim)}${u.son_alis_fiyati !== null ? ' · son alış ' + fmtTL(u.son_alis_fiyati) : ''}`,
+        onPick: pick, addText: 'Yeni ürün ekle',
+        onAdd: (v) => urunForm(null, { ad: v }, async (u) => { cache.dirty('urunler'); const all = await cache.urunler(); urunler.splice(0, urunler.length, ...all); pick(all.find((x) => x.id === u.id)); })
+      });
+      const upd = () => {
+        $('.a-tut', el).value = l.maliyet === '' ? '–' : fmt2(num(l.miktar) * num(l.maliyet));
+        const so = $('.a-sonra', el); if (so) so.innerHTML = num(l.miktar) > 0 ? `Giriş sonrası: <b>${fmtN(num(l.urun.real_stok) + num(l.miktar))}</b>` : '';
+        tot();
+      };
+      $('.a-mik', el).oninput = (e) => { const v = parseNum(e.target.value); l.miktar = isNaN(v) ? '' : v; upd(); };
+      $('.a-mal', el).oninput = (e) => { const v = parseNum(e.target.value); l.maliyet = isNaN(v) ? '' : v; upd(); };
+      $('.a-mal', el).onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); const nx = $(`#a-lines .line[data-i="${i + 1}"] .a-urun`); nx && nx.focus(); } };
+      $('.a-mik', el).onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('.a-mal', el).focus(); } };
+      $('.a-del', el).onclick = () => { lines.splice(i, 1); if (!lines.length || lines[lines.length - 1].urun) lines.push(bos()); draw(); };
+    });
+    tot();
+    if (focusIdx !== null) setTimeout(() => $(`#a-lines .line[data-i="${focusIdx}"] ${focusSel}`)?.focus(), 30);
+  };
+  const tot = () => {
+    const dolu = lines.filter((l) => l.urun);
+    const top = dolu.reduce((a, l) => a + (l.maliyet === '' ? 0 : Math.round(num(l.miktar) * num(l.maliyet) * 100) / 100), 0);
+    const eksik = dolu.filter((l) => l.maliyet === '').length;
+    $('#a-tot').innerHTML = `<div class="tr"><span class="muted">Kalem sayısı</span><span>${dolu.length}</span></div>
+      <div class="tr"><span class="muted">Toplam miktar</span><span>${fmtN(dolu.reduce((a, l) => a + num(l.miktar), 0))}</span></div>
+      <div class="tr big"><span>Fiş toplamı (KDV hariç)</span><span>${fmtTL(top)}</span></div>
+      ${eksik ? `<div class="tiny">${eksik} kalemde alış fiyatı boş; sonra Stok → Hareketler'den girebilirsiniz.</div>` : ''}`;
+  };
+  $('#a-add').onclick = () => { if (lines[lines.length - 1].urun) lines.push(bos()); draw(lines.length - 1, '.a-urun'); };
+  draw(urunId ? 0 : null, urunId ? '.a-mik' : '.a-urun');
+
+  $('#a-save').onclick = async (e) => {
+    const dolu = lines.filter((l) => l.urun);
+    if (!dolu.length) return toast('En az bir ürün seçin', 'err');
+    const bad = dolu.find((l) => !(num(l.miktar) > 0));
+    if (bad) return toast(`${bad.urun.ad}: miktar girin`, 'err');
+    const badM = dolu.find((l) => l.maliyet !== '' && num(l.maliyet) < 0);
+    if (badM) return toast(`${badM.urun.ad}: alış fiyatı geçersiz`, 'err');
+    const ortak = { tarih: $('#a-t').value || today(), tur: 'Giriş', islem: 'Alış', tedarikci: $('#a-ted').value.trim() || null, belge_no: $('#a-bel').value.trim() || null, aciklama: $('#a-ac').value.trim() || null };
+    try {
+      await busy(e.currentTarget, () => api.insert('stok_hareketleri', dolu.map((l) => ({ ...ortak, urun_id: l.urun.id, miktar: num(l.miktar), birim_maliyet: l.maliyet === '' ? null : num(l.maliyet) }))));
+      cache.dirty('urunler');
+      toast(`Alış fişi kaydedildi · ${dolu.length} kalem`, 'ok');
+      go('#/stok/hareketler');
+    } catch (err) { fail(err); }
+  };
 }
 
 /* Sayim / fire duzeltmesi */
@@ -1259,7 +1319,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.1</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.2</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
