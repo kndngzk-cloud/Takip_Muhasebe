@@ -292,3 +292,4 @@ grant execute on function private.tg_cin_senkron() to authenticated;
 -- Sonraki eklemeler (Supabase'e uygulandi): ithalat_vergi_hesabi (urunler.gumruk, ayarlar.ithalat,
 -- cin_kalemler.vergi_tl/vergi_detay, odeme_plani.kaynak + yeni kategoriler, cin_maliyet vergi_tl dahil),
 -- v_stok_gumruk (v_stok + gumruk), v_odeme_takvimi_kaynak (gorunume kaynak kolonu)
+-- nakit_girisleri (cek, senet, platform) + v_nakit_girisleri + ayarlar.platformlar uygulandi

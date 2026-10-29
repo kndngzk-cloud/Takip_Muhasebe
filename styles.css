@@ -353,3 +353,13 @@ a.chip.on { color: #fff; }
 details.gum { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
 details.gum summary { font-weight: 700; cursor: pointer; color: var(--text-2); }
 details.gum[open] summary { margin-bottom: 10px; }
+/* Nakit akisi */
+.akis { display: flex; flex-direction: column; gap: 10px; }
+.ak-row { display: grid; grid-template-columns: 120px 1fr 300px; gap: 12px; align-items: center; }
+.ak-ad { font-weight: 700; font-size: 14px; }
+.ak-bar { display: flex; flex-direction: column; gap: 3px; }
+.ak-bar i { display: block; height: 8px; border-radius: 4px; min-width: 2px; }
+.ak-bar i.g, .lg.g { background: var(--green); } .ak-bar i.c, .lg.c { background: var(--orange); }
+.lg { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; }
+.ak-n { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; font-size: 13px; font-variant-numeric: tabular-nums; align-items: baseline; }
+@media (max-width: 700px) { .ak-row { grid-template-columns: 1fr; gap: 4px; } .ak-n { justify-content: flex-start; } }
