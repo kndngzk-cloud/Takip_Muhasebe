@@ -237,6 +237,7 @@ const ROUTES = [
   [/^#\/?$/, 'home', viewHome],
   [/^#\/siparisler$/, 'siparis', viewSiparisler],
   [/^#\/siparis\/yeni(?:\?cari=(\d+))?$/, 'siparis', viewSiparisYeni],
+  [/^#\/siparis\/(\d+)\/duzenle$/, 'siparis', viewSiparisDuzenle],
   [/^#\/siparis\/(\d+)$/, 'siparis', viewSiparisDetay],
   [/^#\/stok$/, 'stok', viewStok],
   [/^#\/stok\/hareketler$/, 'stok', viewStokHareketleri],
@@ -449,9 +450,11 @@ async function viewSiparisDetay(id) {
     <div id="kar-kart"></div>
     <div class="btn-row">
       ${s.durum === 'Beklemede' ? `<button class="btn green" id="b-sevk">${icon('truck')}Sevk et</button>` : ''}
+      ${s.durum !== 'İptal' ? `<button class="btn primary" id="b-duz">${icon('edit')}Düzenle</button>` : ''}
       ${s.durum !== 'İptal' ? `<button class="btn red" id="b-iptal">${icon('x')}Siparişi iptal et</button>` : ''}
     </div>`;
   $('#b-sevk')?.addEventListener('click', () => sevkEt(s.id, s.fis_no));
+  $('#b-duz')?.addEventListener('click', () => go(`#/siparis/${s.id}/duzenle`));
   $('#b-iptal')?.addEventListener('click', async () => {
     const msg = s.durum === 'Sevk Edildi'
       ? 'Bu sipariş sevk edilmiş. İptal edilirse ürünler stoğa <b>iade</b> olarak geri girer ve carinin borcu ters kayıtla kapatılır.'
@@ -581,15 +584,26 @@ function fisCanvas(s, kal) {
 }
 
 /* ---------- Yeni siparis ---------- */
-async function viewSiparisYeni(cariId) {
-  topbar('Yeni Sipariş', { back: true });
-  const [ayar, urunler, cariler] = await Promise.all([cache.ayarlar(), cache.urunler(), cache.cariler()]);
-  const f = { yon: ayar.maliyet_yontemi || 'FIFO', cari: null, tip: 'R', gonderim: '', tarih: today(), kdv: num(ayar.kdv_orani) * 100, aciklama: '', sevk: false, fiyatKaydet: true, lines: [], mf: {} };
+async function viewSiparisDuzenle(id) { return viewSiparisYeni(null, id); }
+async function viewSiparisYeni(cariId, editId = null) {
+  topbar(editId ? 'Siparişi Düzenle' : 'Yeni Sipariş', { back: true });
+  const [ayar, urunler, cariler] = await Promise.all([cache.ayarlar(), cache.urunler(true), cache.cariler()]);
+  const f = { yon: ayar.maliyet_yontemi || 'FIFO', cari: null, tip: 'R', gonderim: '', tarih: today(), kdv: num(ayar.kdv_orani) * 100, aciklama: '', sevk: false, fiyatKaydet: true, lines: [], mf: {}, orig: {} };
+  let es = null, ekal = [];
+  if (editId) {
+    [[es], ekal] = await Promise.all([api.get('v_siparisler', `select=*&id=eq.${editId}`), api.get('siparis_kalemleri', `select=*&siparis_id=eq.${editId}&order=id.asc`)]);
+    if (!es) { $('#view').innerHTML = '<div class="card empty">Sipariş bulunamadı</div>'; return; }
+    if (es.durum === 'İptal') { $('#view').innerHTML = '<div class="card empty">İptal edilmiş sipariş düzenlenemez</div>'; return; }
+    topbar(`Fiş ${es.fis_no} · düzenle`, { back: true });
+    Object.assign(f, { yon: es.maliyet_yontemi || f.yon, tip: es.fatura_tipi, tarih: es.tarih, kdv: es.fatura_tipi === 'R' ? num(es.kdv_orani) * 100 : f.kdv, aciklama: es.aciklama || '' });
+    ekal.forEach((k) => { f.orig[k.urun_id] = (f.orig[k.urun_id] || 0) + num(k.miktar); });
+  }
+  const avail = (u) => num(u.sevk_sonrasi_stok) + (f.orig[u.id] || 0);
   const aktifUrun = () => urunler.filter((u) => u.aktif);
   $('#view').innerHTML = `
     <div class="card">
       <div class="field picker"><label>Cari</label>
-        <input class="input" id="f-cari" placeholder="Cari ara veya yeni ekle…" autocomplete="off">
+        <input class="input" id="f-cari" placeholder="Cari ara veya yeni ekle…" autocomplete="off" ${editId ? 'readonly style="background:var(--surface-2)"' : ''}>
         <div class="hint" id="cari-info"></div></div>
       <div class="grid2">
         <div class="field"><label>Fatura tipi</label><div class="seg" id="f-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
@@ -608,10 +622,10 @@ async function viewSiparisYeni(cariId) {
     <div class="card">
       <div class="totals" id="totals"></div>
       <div class="field" style="margin-top:12px"><label>Açıklama</label><textarea class="input" id="f-acik" placeholder="İsteğe bağlı not"></textarea></div>
-      <label class="check"><input type="checkbox" id="f-sevk"> Sevk edildi olarak kaydet (stoktan hemen düşer)</label>
+      ${editId ? `<p class="tiny" style="margin:4px 0">Durum: <b>${esc(es.durum)}</b>${es.durum === 'Sevk Edildi' ? ' · stok çıkışları yeni miktarlara göre düzeltilir' : ''}. Cari değiştirmek için siparişi iptal edip yenisini açın.</p>` : '<label class="check"><input type="checkbox" id="f-sevk"> Sevk edildi olarak kaydet (stoktan hemen düşer)</label>'}
       <label class="check"><input type="checkbox" id="f-mf" checked> Değişen fiyatları bu müşterinin fiyatı olarak kaydet</label>
     </div>
-    <button class="btn primary block" id="save" style="padding:14px;font-size:16px">Siparişi kaydet</button>`;
+    <button class="btn primary block" id="save" style="padding:14px;font-size:16px">${editId ? 'Değişiklikleri kaydet' : 'Siparişi kaydet'}</button>`;
 
   const setTip = (t) => { f.tip = t; $$('#f-tip button').forEach((b) => b.classList.toggle('on', b.dataset.v === t)); $('#kdv-f').style.opacity = t === 'R' ? 1 : 0.35; $('#f-kdv').disabled = t !== 'R'; drawTotals(); };
   $('#f-tip').onclick = (e) => { const b = e.target.closest('button'); if (b) setTip(b.dataset.v); };
@@ -633,7 +647,7 @@ async function viewSiparisYeni(cariId) {
   };
   const priceFor = (u) => (f.mf[u.id] !== undefined ? f.mf[u.id] : num(u.satis_fiyati));
 
-  picker($('#f-cari'), {
+  if (!editId) picker($('#f-cari'), {
     items: () => cariler.filter((c) => c.aktif), label: (c) => c.unvan,
     sub: (c) => `${esc(c.kod)} · ${esc(c.sehir || '')} · ${c.tip} · bakiye ${fmtTL(c.bakiye)}`,
     onPick: setCari, addText: 'Yeni cari ekle',
@@ -643,7 +657,7 @@ async function viewSiparisYeni(cariId) {
   const drawLines = () => {
     $('#lines').innerHTML = f.lines.map((l, i) => {
       const u = l.urun;
-      const stokUyari = u && num(l.miktar) > num(u.sevk_sonrasi_stok);
+      const stokUyari = u && num(l.miktar) > avail(u);
       return `<div class="line" data-i="${i}">
         <div class="picker" style="display:flex;gap:6px"><input class="input l-urun" placeholder="Ürün ara…" value="${esc(u?.ad || '')}" autocomplete="off"><button class="icon-btn l-del" title="Kaldır">${icon('trash')}</button></div>
         <div class="lr">
@@ -651,7 +665,7 @@ async function viewSiparisYeni(cariId) {
           <div class="field"><label>Birim fiyat</label><input class="input l-fiy" inputmode="decimal" value="${l.fiyat === '' ? '' : fmtN(l.fiyat)}"></div>
           <div class="field"><label>Tutar</label><input class="input l-tut" readonly value="${fmt2(num(l.miktar) * num(l.fiyat))}" style="background:var(--surface-2)"></div>
         </div>
-        ${u ? `<div class="info"><span>Real: <b>${fmtN(u.real_stok)}</b></span><span>Sevk sonrası: <b class="${stokUyari ? 'pos' : ''}">${fmtN(u.sevk_sonrasi_stok)}</b> ${esc(u.birim)}</span>
+        ${u ? `<div class="info"><span>Real: <b>${fmtN(u.real_stok)}</b></span><span>${f.orig[u.id] ? 'Kullanılabilir' : 'Sevk sonrası'}: <b class="${stokUyari ? 'pos' : ''}">${fmtN(avail(u))}</b> ${esc(u.birim)}</span>
           ${f.mf[u.id] !== undefined ? `<span class="badge b-green">Müşteri fiyatı ${fmtTL(f.mf[u.id])}</span>` : `<span class="tiny">Liste fiyatı ${fmtTL(u.satis_fiyati)}</span>`}
           <span class="badge b-orange l-warn ${stokUyari ? '' : 'hidden'}">Stok yetersiz</span></div>` : ''}
       </div>`;
@@ -666,7 +680,7 @@ async function viewSiparisYeni(cariId) {
       });
       const upd = () => {
         $('.l-tut', el).value = fmt2(num(l.miktar) * num(l.fiyat));
-        const w = $('.l-warn', el); if (w && l.urun) w.classList.toggle('hidden', !(num(l.miktar) > num(l.urun.sevk_sonrasi_stok)));
+        const w = $('.l-warn', el); if (w && l.urun) w.classList.toggle('hidden', !(num(l.miktar) > avail(l.urun)));
         drawTotals();
       };
       $('.l-mik', el).oninput = (e) => { const v = parseNum(e.target.value); l.miktar = isNaN(v) ? '' : v; upd(); };
@@ -687,8 +701,14 @@ async function viewSiparisYeni(cariId) {
   $('#f-kdv').oninput = drawTotals;
   $('#add-line').onclick = () => { if (f.lines[f.lines.length - 1]?.urun) f.lines.push({ urun: null, miktar: '', fiyat: '' }); drawLines(); setTimeout(() => $$('#lines .l-urun').pop()?.focus(), 30); };
 
+  if (editId) {
+    ekal.forEach((k) => { const u = urunler.find((x) => x.id === k.urun_id); if (u) f.lines.push({ urun: u, miktar: num(k.miktar), fiyat: num(k.birim_fiyat), manuel: true }); });
+    const g = $('#f-gon'); if (es.gonderim_sekli && ![...g.options].some((o) => o.value === es.gonderim_sekli)) g.insertAdjacentHTML('beforeend', `<option>${esc(es.gonderim_sekli)}</option>`);
+    g.value = es.gonderim_sekli || ''; $('#f-acik').value = f.aciklama;
+  }
   f.lines.push({ urun: null, miktar: '', fiyat: '' });
-  setTip('R'); drawLines();
+  setTip(f.tip); drawLines();
+  if (editId) { const c = cariler.find((x) => x.id === es.cari_id); if (c) { await setCari(c); $('#f-mf').checked = false; } }
   if (cariId) { const c = cariler.find((x) => x.id === +cariId); if (c) setCari(c); }
 
   $('#save').onclick = async (e) => {
@@ -699,16 +719,17 @@ async function viewSiparisYeni(cariId) {
     if (bad) return toast(`${bad.urun.ad}: miktar ve fiyatı kontrol edin`, 'err');
     const kdvO = (parseNum($('#f-kdv').value) || 0) / 100;
     if (f.tip === 'R' && (kdvO < 0 || kdvO >= 1)) return toast('KDV oranı 0 ile 99 arasında olmalı', 'err');
-    const eksik = lines.filter((l) => num(l.miktar) > num(l.urun.sevk_sonrasi_stok));
-    if (eksik.length && !await confirmBox('Stok yetersiz', `Şu ürünlerde yeterli stok yok:<br>${eksik.map((l) => `• ${esc(l.urun.ad)} (sevk sonrası ${fmtN(l.urun.sevk_sonrasi_stok)}, istenen ${fmtN(l.miktar)})`).join('<br>')}<br><br>Yine de kaydedilsin mi?`, 'Kaydet')) return;
-    const sevk = $('#f-sevk').checked;
+    const eksik = lines.filter((l) => num(l.miktar) > avail(l.urun));
+    if (eksik.length && !await confirmBox('Stok yetersiz', `Şu ürünlerde yeterli stok yok:<br>${eksik.map((l) => `• ${esc(l.urun.ad)} (kullanılabilir ${fmtN(avail(l.urun))}, istenen ${fmtN(l.miktar)})`).join('<br>')}<br><br>Yine de kaydedilsin mi?`, 'Kaydet')) return;
+    const sevk = !editId && $('#f-sevk').checked;
     try {
       const r = await busy(e.currentTarget, async () => {
-        const res = await api.rpc('siparis_kaydet', {
-          p_cari_id: f.cari.id, p_kalemler: lines.map((l) => ({ urun_id: l.urun.id, miktar: num(l.miktar), birim_fiyat: num(l.fiyat) })),
+        const ortak = {
+          p_kalemler: lines.map((l) => ({ urun_id: l.urun.id, miktar: num(l.miktar), birim_fiyat: num(l.fiyat) })),
           p_fatura_tipi: f.tip, p_gonderim_sekli: $('#f-gon').value || null, p_tarih: $('#f-tarih').value || today(),
           p_kdv_orani: f.tip === 'R' ? kdvO : 0, p_aciklama: $('#f-acik').value || null, p_sevk_sehri: null, p_maliyet_yontemi: f.yon
-        });
+        };
+        const res = editId ? await api.rpc('siparis_guncelle', { p_siparis_id: +editId, ...ortak }) : await api.rpc('siparis_kaydet', { p_cari_id: f.cari.id, ...ortak });
         if (sevk) await api.rpc('siparis_sevk', { p_siparis_id: res.id, p_sevk_tarihi: $('#f-tarih').value || today() });
         if ($('#f-mf').checked) {
           const ups = lines.filter((l) => f.mf[l.urun.id] === undefined ? num(l.fiyat) !== num(l.urun.satis_fiyati) : num(l.fiyat) !== f.mf[l.urun.id])
@@ -719,7 +740,7 @@ async function viewSiparisYeni(cariId) {
         return res;
       });
       cache.dirty('urunler', 'cariler');
-      toast(`Fiş ${r.fis_no} kaydedildi · ${fmtTL(r.genel_toplam)}`, 'ok');
+      toast(`Fiş ${r.fis_no} ${editId ? 'güncellendi' : 'kaydedildi'} · ${fmtTL(r.genel_toplam)}`, 'ok');
       go(`#/siparis/${r.id}`);
     } catch (err) { fail(err); }
   };
@@ -1408,7 +1429,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.4</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.5</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
