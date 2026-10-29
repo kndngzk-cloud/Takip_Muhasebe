@@ -496,15 +496,88 @@ function sevkEt(id, fis) {
 }
 
 function printFis(s, kal) {
-  $('#print-root').innerHTML = `
-    <h2 style="margin:0">${esc(state.ayarlar?.firma_adi || '')}</h2>
-    <p>Sipariş Fişi <b>#${s.fis_no}</b> · ${fmtD(s.tarih)} · ${esc(s.fatura_tipi)}</p>
-    <p><b>${esc(s.cari_unvan)}</b><br>${esc(s.sevk_sehri || '')} ${s.gonderim_sekli ? '· ' + esc(s.gonderim_sekli) : ''}</p>
-    <table><thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim fiyat</th><th class="r">Tutar</th></tr></thead>
-    <tbody>${kal.map((k) => `<tr><td>${esc(k.urunler?.ad)}</td><td class="r">${fmtN(k.miktar)} ${esc(k.urunler?.birim || '')}</td><td class="r">${fmtTL(k.birim_fiyat)}</td><td class="r">${fmtTL(k.tutar)}</td></tr>`).join('')}</tbody></table>
-    <p class="r">Ara toplam: ${fmtTL(s.ara_toplam)}${s.fatura_tipi === 'R' ? `<br>KDV: ${fmtTL(s.kdv_tutari)}` : ''}<br><b>Genel toplam: ${fmtTL(s.genel_toplam)}</b></p>
-    ${s.aciklama ? `<p>Not: ${esc(s.aciklama)}</p>` : ''}`;
-  window.print();
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  const ad = `Fis-${s.fis_no}.png`;
+  modal({
+    title: `Fiş ${s.fis_no} · yazdır / paylaş`,
+    body: `<p class="small muted" style="margin-top:0">${ios ? 'iPhone/iPad: “Paylaş”a basın, açılan menüden <b>Yazdır</b>, WhatsApp veya Dosyalar’a Kaydet’i seçin.' : 'Yazıcıya göndermek için “Yazdır”, görsel olarak göndermek için “Paylaş” ya da “İndir”.'}</p>
+      <div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff"><img id="fis-img" style="width:100%;display:block" alt="Fiş"></div>`,
+    foot: `${!(ios && standalone) ? '<button class="btn" id="fp-print">' + icon('print') + 'Yazdır</button>' : ''}
+      <button class="btn" id="fp-dl">${icon('download')}İndir</button>
+      ${navigator.canShare ? '<button class="btn primary" id="fp-share">Paylaş' + (ios ? ' / Yazdır' : '') + '</button>' : ''}`,
+    onMount: (m) => {
+      const cv = fisCanvas(s, kal);
+      $('#fis-img', m.el).src = cv.toDataURL('image/png');
+      const blobP = new Promise((res) => cv.toBlob(res, 'image/png'));
+      $('#fp-print', m.el)?.addEventListener('click', () => {
+        $('#print-root').innerHTML = `<img src="${cv.toDataURL('image/png')}" style="width:100%">`;
+        setTimeout(() => window.print(), 50);
+      });
+      $('#fp-dl', m.el).onclick = async () => {
+        const b = await blobP; const a = document.createElement('a');
+        a.href = URL.createObjectURL(b); a.download = ad; document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      };
+      $('#fp-share', m.el)?.addEventListener('click', async () => {
+        try {
+          const file = new File([await blobP], ad, { type: 'image/png' });
+          if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: `Fiş ${s.fis_no}` });
+          else $('#fp-dl', m.el).click();
+        } catch (e) { if (e.name !== 'AbortError') fail(e); }
+      });
+    }
+  });
+}
+
+/* Fisi A5 benzeri bir gorsele cizer (Turkce karakterler sorunsuz) */
+function fisCanvas(s, kal) {
+  const W = 1240, pad = 70, rowH = 52;
+  const H = 560 + kal.length * rowH + (s.aciklama ? 80 : 0) + 260;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  const F = (w, sz) => `${w} ${sz}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+  c.fillStyle = '#16213a'; c.fillRect(0, 0, W, 150);
+  c.fillStyle = '#fff'; c.font = F(800, 46); c.textBaseline = 'middle';
+  c.fillText(state.ayarlar?.firma_adi || 'Firmam', pad, 62);
+  c.font = F(500, 26); c.fillStyle = '#c9d2e6'; c.fillText('Sipariş Fişi', pad, 112);
+  c.textAlign = 'right'; c.fillStyle = '#fff'; c.font = F(800, 44); c.fillText(`#${s.fis_no}`, W - pad, 62);
+  c.font = F(600, 26); c.fillStyle = '#c9d2e6'; c.fillText(`${fmtD(s.tarih)} · ${s.fatura_tipi}`, W - pad, 112);
+  c.textAlign = 'left';
+  let y = 210;
+  c.fillStyle = '#5b6578'; c.font = F(600, 24); c.fillText('MÜŞTERİ', pad, y);
+  c.fillStyle = '#16213a'; c.font = F(800, 36); c.fillText(s.cari_unvan || '', pad, y + 44);
+  c.fillStyle = '#5b6578'; c.font = F(500, 26);
+  c.fillText([s.sevk_sehri, s.gonderim_sekli, s.durum].filter(Boolean).join('  ·  '), pad, y + 90);
+  y = 370;
+  const cols = [pad, 690, 900, W - pad];
+  c.fillStyle = '#f1f4f9'; c.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60);
+  c.fillStyle = '#5b6578'; c.font = F(700, 24);
+  c.fillText('ÜRÜN', cols[0], y); c.textAlign = 'right';
+  c.fillText('MİKTAR', cols[1] + 60, y); c.fillText('BİRİM FİYAT', cols[2] + 90, y); c.fillText('TUTAR', cols[3], y); c.textAlign = 'left';
+  y += 58;
+  kal.forEach((k) => {
+    c.fillStyle = '#16213a'; c.font = F(600, 28);
+    let ad = k.urunler?.ad || ''; while (c.measureText(ad).width > 520 && ad.length > 3) ad = ad.slice(0, -2);
+    c.fillText(ad, cols[0], y);
+    c.textAlign = 'right'; c.font = F(500, 28);
+    c.fillText(`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, cols[1] + 60, y);
+    c.fillText(fmtTL(k.birim_fiyat), cols[2] + 90, y);
+    c.font = F(700, 28); c.fillText(fmtTL(k.tutar), cols[3], y); c.textAlign = 'left';
+    c.strokeStyle = '#e3e7ef'; c.lineWidth = 2; c.beginPath(); c.moveTo(pad - 10, y + 26); c.lineTo(W - pad + 10, y + 26); c.stroke();
+    y += rowH;
+  });
+  y += 30;
+  const tr = (l, v, big) => { c.textAlign = 'right'; c.fillStyle = big ? '#16213a' : '#5b6578'; c.font = F(big ? 800 : 600, big ? 36 : 28); c.fillText(l, 880, y); c.fillText(v, W - pad, y); c.textAlign = 'left'; y += big ? 60 : 46; };
+  tr('Ara toplam', fmtTL(s.ara_toplam));
+  if (s.fatura_tipi === 'R') tr(`KDV (%${fmtN(num(s.kdv_orani) * 100)})`, fmtTL(s.kdv_tutari));
+  c.strokeStyle = '#16213a'; c.lineWidth = 3; c.beginPath(); c.moveTo(620, y - 22); c.lineTo(W - pad, y - 22); c.stroke(); y += 12;
+  tr('GENEL TOPLAM', fmtTL(s.genel_toplam), true);
+  if (s.aciklama) { y += 10; c.fillStyle = '#5b6578'; c.font = F(500, 26); c.fillText('Not: ' + s.aciklama, pad, y); y += 40; }
+  const out = document.createElement('canvas'); out.width = W; out.height = Math.min(H, y + 40);
+  out.getContext('2d').drawImage(cv, 0, 0);
+  return out;
 }
 
 /* ---------- Yeni siparis ---------- */
@@ -1335,7 +1408,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.3</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.4</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
