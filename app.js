@@ -1191,7 +1191,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
         <div class="field"><label>Minimum stok</label><input class="input" id="u-min" inputmode="decimal" value="${fmtN(d.min_stok)}"><div class="hint">Altına düşünce KRİTİK görünür</div></div></div>
       <div class="field"><label>Not</label><input class="input" id="u-not" value="${esc(d.notlar || '')}"></div>
       ${u ? `<label class="check"><input type="checkbox" id="u-akt" ${d.aktif ? 'checked' : ''}> Aktif (pasif ürünler listelerde görünmez)</label>` : ''}
-      ${gumrukHtml(d.gumruk)}`,
+      ${gumrukHtml(d.gumruk, d.kategori)}`,
     foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="u-ok">Kaydet</button>`,
     onMount: (m) => {
       gumrukBind(m.el);
@@ -1685,8 +1685,8 @@ async function viewAyarlar() {
     </div>
     <div class="card">
       <h2>İthalat vergi varsayılanları</h2>
-      <p class="small muted" style="margin-top:0">Ürün kartında boş bırakılan gümrük bilgileri için bu değerler kullanılır.</p>
-      <div class="grid3">${[['kdv', 'İthalat KDV %'], ['gv', 'Evye GV %'], ['igv', 'Evye İGV %'], ['gozetim_usd_kg', 'Evye gözetim $/kg'], ['sifon_fob', 'Sifon FOB payı $'], ['sifon_kg', 'Sifon kg'], ['sifon_gozetim_usd_kg', 'Sifon gözetim $/kg'], ['sifon_gv', 'Sifon GV %'], ['sifon_igv', 'Sifon İGV %']].map(([k, l]) => `<div class="field"><label>${l}</label><input class="input s-it" data-k="${k}" inputmode="decimal" value="${a.ithalat?.[k] !== undefined ? fmtN(a.ithalat[k]) : ''}" ${ad ? '' : 'disabled'}></div>`).join('')}</div>
+      <p class="small muted" style="margin-top:0">Ürün kartında boş bırakılan gümrük bilgileri için bu değerler kullanılır. Hesap ürünün kategorisine göre yapılır: <b>EVİYE</b> gözetimli, <b>TESTERE</b> kendi oranlarıyla, diğerleri CIF üzerinden.</p>
+      <div class="grid3">${[['kdv', 'İthalat KDV %'], ['gv', 'Eviye GV %'], ['igv', 'Eviye İGV %'], ['gozetim_usd_kg', 'Eviye gözetim $/kg'], ['sifon_fob', 'Sifon FOB payı $'], ['sifon_kg', 'Sifon kg'], ['sifon_gozetim_usd_kg', 'Sifon gözetim $/kg'], ['sifon_gv', 'Sifon GV %'], ['sifon_igv', 'Sifon İGV %'], ['testere_gv', 'Testere GV %'], ['testere_igv', 'Testere İGV %'], ['diger_gv', 'Diğer ürünler GV %'], ['diger_igv', 'Diğer ürünler İGV %']].map(([k, l]) => `<div class="field"><label>${l}</label><input class="input s-it" data-k="${k}" inputmode="decimal" value="${a.ithalat?.[k] !== undefined ? fmtN(a.ithalat[k]) : ''}" ${ad ? '' : 'disabled'}></div>`).join('')}</div>
       ${ad ? '<button class="btn primary" id="s-it-ok">Varsayılanları kaydet</button>' : ''}
     </div>
     <div class="card">
@@ -1703,7 +1703,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.13</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.14</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -1719,7 +1719,7 @@ async function viewAyarlar() {
   $('#s-bk').onclick = (e) => busy(e.currentTarget, yedekAl).catch(fail);
   $('#s-it-ok')?.addEventListener('click', async (e) => {
     const it = {}; let bad = false;
-    $$('.s-it').forEach((i) => { const v = parseNum(i.value); if (isNaN(v) || v < 0) bad = true; else it[i.dataset.k] = v; });
+    $$('.s-it').forEach((i) => { if (!i.value.trim()) return; const v = parseNum(i.value); if (isNaN(v) || v < 0) bad = true; else it[i.dataset.k] = v; });
     if (bad) return toast('Tüm alanlara geçerli sayı girin', 'err');
     try { await busy(e.currentTarget, () => api.update('ayarlar', 'id=eq.1', { ithalat: it })); await cache.ayarlar(true); toast('Kaydedildi', 'ok'); } catch (err) { fail(err); }
   });
@@ -2237,7 +2237,7 @@ async function viewCinDetay(id) {
   topbar('İthalat Siparişi', { back: true });
   const [[c], kal, plan, msip, mal] = await Promise.all([
     api.get('v_cin_siparisler', `select=*&id=eq.${id}`),
-    api.get('cin_kalemler', `select=*,urunler(ad,kod,birim,gumruk)&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
+    api.get('cin_kalemler', `select=*,urunler(ad,kod,birim,gumruk,kategori)&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
     api.get('v_odeme_takvimi', `select=*&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
     api.get('v_siparisler', `select=*&cin_siparis_id=eq.${id}&order=fis_no.asc`),
     api.rpc('cin_maliyet', { p_id: +id }).catch(() => [])
@@ -2497,29 +2497,46 @@ function fabrikaForm(f = null, preset = null, onSaved = null) {
   });
 }
 
-/* ---------- Urun karti: ithalat / gumruk bilgileri ---------- */
-function gumrukHtml(g) {
+/* ---------- Urun karti: ithalat / gumruk bilgileri ----------
+   Kategoriye gore hesap: EVIYE -> gozetimli (evye + sifon), TESTERE -> kendi oranlari, diger -> CIF uzerinden GV/IGV */
+const ithalatTip = (kat) => { const k = norm(kat); return k.includes('eviye') || k.includes('evye') ? 'eviye' : k.includes('testere') ? 'testere' : 'diger'; };
+const ITH_TIP_AD = { eviye: 'Eviye (gözetimli)', testere: 'Testere', diger: 'Diğer' };
+const ithProfil = (R0, tip) => (tip === 'eviye' ? { gv: R0.gv, igv: R0.igv } : { gv: R0[tip + '_gv'], igv: R0[tip + '_igv'] });
+function gumrukHtml(g, kat) {
   g = g || {}; const s = g.sifon || null; const R0 = state.ayarlar?.ithalat || {};
+  const tip = ithalatTip(kat), pr = ithProfil(R0, tip);
   const inp = (id, v, ph) => `<input class="input" id="${id}" inputmode="decimal" value="${v !== undefined && v !== null && v !== '' ? fmtN(v) : ''}" placeholder="${ph !== undefined && ph !== null && ph !== '' ? fmtN(ph) : ''}">`;
-  return `<details class="gum" ${g.gtip || g.kg || s ? 'open' : ''}><summary>İthalat / gümrük bilgileri</summary>
-    <div class="grid2"><div class="field"><label>GTİP</label><input class="input" id="g-gtip" value="${esc(g.gtip || '')}"></div>
-      <div class="field"><label>Gözetim ağırlığı (kg / adet)</label>${inp('g-kg', g.kg, '')}<div class="hint">Boşsa gözetim uygulanmaz</div></div></div>
-    <div class="grid3"><div class="field"><label>Gözetim $/kg</label>${inp('g-gusd', g.gozetim_usd_kg, R0.gozetim_usd_kg)}</div>
-      <div class="field"><label>GV %</label>${inp('g-gv', g.gv, R0.gv)}</div><div class="field"><label>İGV %</label>${inp('g-igv', g.igv, R0.igv)}</div></div>
+  return `<details class="gum" ${g.gtip || g.kg || s ? 'open' : ''}><summary>İthalat / gümrük bilgileri · <span id="g-tip">${ITH_TIP_AD[tip]}</span></summary>
+    <p class="tiny" style="margin-top:0">Hesap kategoriye göre yapılır: kategorisi <b>EVİYE</b> olanlarda gözetim + sifon, <b>TESTERE</b> olanlarda testere oranları, diğerlerinde CIF üzerinden GV/İGV.</p>
+    <div class="grid3"><div class="field"><label>GTİP</label><input class="input" id="g-gtip" value="${esc(g.gtip || '')}"></div>
+      <div class="field"><label>GV %</label>${inp('g-gv', g.gv, pr.gv)}</div><div class="field"><label>İGV %</label>${inp('g-igv', g.igv, pr.igv)}</div></div>
+    <div id="g-ev" style="${tip === 'eviye' ? '' : 'display:none'}">
+    <div class="grid2"><div class="field"><label>Gözetim ağırlığı (kg / adet)</label>${inp('g-kg', g.kg, '')}<div class="hint">Boşsa gözetim uygulanmaz</div></div>
+      <div class="field"><label>Gözetim $/kg</label>${inp('g-gusd', g.gozetim_usd_kg, R0.gozetim_usd_kg)}</div></div>
     <label class="check"><input type="checkbox" id="g-sif" ${s ? 'checked' : ''}> Sette sifon var (sifon ayrı vergilenir)</label>
     <div id="g-sifd" style="${s ? '' : 'display:none'}">
       <div class="grid3"><div class="field"><label>Sifon FOB payı ($/set)</label>${inp('g-sfob', s?.fob, R0.sifon_fob)}</div>
         <div class="field"><label>Sifon kg</label>${inp('g-skg', s?.kg, R0.sifon_kg)}</div><div class="field"><label>Sifon gözetim $/kg</label>${inp('g-sgusd', s?.gozetim_usd_kg, R0.sifon_gozetim_usd_kg)}</div></div>
       <div class="grid2"><div class="field"><label>Sifon GV %</label>${inp('g-sgv', s?.gv, R0.sifon_gv)}</div><div class="field"><label>Sifon İGV %</label>${inp('g-sigv', s?.igv, R0.sifon_igv)}</div></div>
     </div>
+    </div></div>
     <p class="tiny">Boş alanlarda Ayarlar’daki ithalat varsayılanları kullanılır (gri yazılar).</p></details>`;
 }
-function gumrukBind(el) { const c = $('#g-sif', el); if (c) c.onchange = () => { $('#g-sifd', el).style.display = c.checked ? '' : 'none'; }; }
+function gumrukBind(el) {
+  const c = $('#g-sif', el); if (c) c.onchange = () => { $('#g-sifd', el).style.display = c.checked ? '' : 'none'; };
+  const kat = $('#u-kat', el); if (!kat) return;
+  kat.addEventListener('input', () => {
+    const tip = ithalatTip(kat.value), pr = ithProfil(state.ayarlar?.ithalat || {}, tip);
+    $('#g-tip', el).textContent = ITH_TIP_AD[tip]; $('#g-ev', el).style.display = tip === 'eviye' ? '' : 'none';
+    $('#g-gv', el).placeholder = pr.gv != null ? fmtN(pr.gv) : ''; $('#g-igv', el).placeholder = pr.igv != null ? fmtN(pr.igv) : '';
+  });
+}
 function gumrukOku(el) {
   if (!$('#g-gtip', el)) return undefined;
   const n = (id) => { const v = parseNum($(id, el).value); return isNaN(v) ? null : v; };
-  const g = { gtip: $('#g-gtip', el).value.trim() || null, kg: n('#g-kg'), gozetim_usd_kg: n('#g-gusd'), gv: n('#g-gv'), igv: n('#g-igv'),
-    sifon: $('#g-sif', el).checked ? { fob: n('#g-sfob'), kg: n('#g-skg'), gozetim_usd_kg: n('#g-sgusd'), gv: n('#g-sgv'), igv: n('#g-sigv') } : null };
+  const ev = $('#g-ev', el).style.display !== 'none';
+  const g = { gtip: $('#g-gtip', el).value.trim() || null, kg: ev ? n('#g-kg') : null, gozetim_usd_kg: ev ? n('#g-gusd') : null, gv: n('#g-gv'), igv: n('#g-igv'),
+    sifon: ev && $('#g-sif', el).checked ? { fob: n('#g-sfob'), kg: n('#g-skg'), gozetim_usd_kg: n('#g-sgusd'), gv: n('#g-sgv'), igv: n('#g-sigv') } : null };
   return Object.values(g).some((v) => v !== null) ? g : null;
 }
 
@@ -2529,7 +2546,10 @@ function gumrukOku(el) {
    GV, IGV = kiymet x oran · KDV = (kiymet + GV + IGV) x KDV
    Indirilemeyen KDV = KDV x gozetim farki x (1 + GV + IGV); maliyete eklenir */
 function vergiKalem(k, ctx) {
-  const R0 = ctx.R, g = k.urunler?.gumruk || {};
+  const R0 = ctx.R, tip = ithalatTip(k.urunler?.kategori);
+  const g0 = k.urunler?.gumruk || {};
+  const g = tip === 'eviye' ? g0 : { ...g0, kg: null, sifon: null };
+  const pr = ithProfil(R0, tip);
   const P = num(k.birim_fiyat), Q = num(k.miktar);
   const birimCIF = ctx.fob > 0 ? P * (1 + (ctx.navlun + ctx.sigorta) / ctx.fob) : P;
   const v = (x, d) => (x !== null && x !== undefined ? num(x) : num(d));
@@ -2540,7 +2560,7 @@ function vergiKalem(k, ctx) {
     sifCIF = P > 0 ? birimCIF * Math.min(1, sfob / P) : 0;
     par.push({ ad: 'Sifon', cif: sifCIF, kg: v(g.sifon.kg, R0.sifon_kg), gusd: v(g.sifon.gozetim_usd_kg, R0.sifon_gozetim_usd_kg), gv: v(g.sifon.gv, R0.sifon_gv), igv: v(g.sifon.igv, R0.sifon_igv) });
   }
-  par.unshift({ ad: g.sifon ? 'Evye' : 'Ürün', cif: birimCIF - sifCIF, kg: g.kg ? num(g.kg) : 0, gusd: v(g.gozetim_usd_kg, R0.gozetim_usd_kg), gv: v(g.gv, R0.gv), igv: v(g.igv, R0.igv) });
+  par.unshift({ ad: g.sifon ? 'Evye' : 'Ürün', cif: birimCIF - sifCIF, kg: g.kg ? num(g.kg) : 0, gusd: v(g.gozetim_usd_kg, R0.gozetim_usd_kg), gv: v(g.gv, pr.gv), igv: v(g.igv, pr.igv) });
   const kdv = ctx.kdv / 100;
   let gvT = 0, igvT = 0, kdvT = 0, indT = 0, kiyT = 0, gozT = 0;
   par.forEach((x) => {
@@ -2553,7 +2573,7 @@ function vergiKalem(k, ctx) {
     gvT += x.gvT; igvT += x.igvT; kdvT += x.kdvT; indT += x.ind; kiyT += x.kiymet; gozT += x.gozetim;
   });
   const K = ctx.kur;
-  const r = { cif: birimCIF, gozetim: gozT, kiymet: kiyT, gv: gvT, igv: igvT, kdv: kdvT, indirilemez: indT, parcalar: par, eksik: !g.kg && !(g.gv || g.igv) };
+  const r = { cif: birimCIF, gozetim: gozT, kiymet: kiyT, gv: gvT, igv: igvT, kdv: kdvT, indirilemez: indT, parcalar: par, tip, eksik: tip === 'eviye' ? !g.kg : (g.gv == null && pr.gv == null) };
   r.birimVergiTL = (gvT + igvT + indT) * K;
   r.vergiTL = Math.round(r.birimVergiTL * Q * 100) / 100;
   r.Q = Q;
@@ -2604,9 +2624,9 @@ async function vergiHesapla(c, kal, plan, kur0) {
         son = { ctx, rs, gv, igv, kdv, ind };
         const eksik = rs.filter(({ r }) => r.eksik).map(({ k }) => k.urunler?.ad);
         E('#vh-out').innerHTML = `
-          ${eksik.length ? `<p class="small" style="color:var(--orange)">Gümrük bilgisi girilmemiş ürünler (varsayılan oranlar, gözetimsiz hesaplandı): ${eksik.map(esc).join(', ')}. Ürün kartından ekleyebilirsiniz.</p>` : ''}
+          ${eksik.length ? `<p class="small" style="color:var(--orange)">Eksik gümrük bilgisi: ${eksik.map(esc).join(', ')}. Eviyelerde gözetim ağırlığı, diğerlerinde GV oranı girilmemiş (eksikse vergi düşük çıkar). Ürün kartından ya da Ayarlar’dan ekleyin.</p>` : ''}
           <div class="table-wrap"><table class="tbl stack"><thead><tr><th>Ürün</th><th class="r">Adet</th><th class="r">CIF / adet</th><th class="r">Gözetim kıymeti</th><th class="r">GV + İGV / adet</th><th class="r">KDV / adet</th><th class="r">İndirilemeyen KDV</th><th class="r">Maliyete eklenen / adet</th></tr></thead>
-          <tbody>${rs.map(({ k, r }) => `<tr><td class="w"><b>${esc(k.urunler?.ad)}</b>${r.parcalar.length > 1 ? `<div class="tiny">${r.parcalar.map((x) => `${x.ad}: kıymet ${fmtPB(x.kiymet, c.para_birimi)}${x.fark > 0 ? ` (fark ${fmtPB(x.fark, c.para_birimi)})` : ''}`).join(' · ')}</div>` : ''}</td>
+          <tbody>${rs.map(({ k, r }) => `<tr><td class="w"><b>${esc(k.urunler?.ad)}</b> <span class="badge">${ITH_TIP_AD[r.tip]}</span>${r.parcalar.length > 1 ? `<div class="tiny">${r.parcalar.map((x) => `${x.ad}: kıymet ${fmtPB(x.kiymet, c.para_birimi)}${x.fark > 0 ? ` (fark ${fmtPB(x.fark, c.para_birimi)})` : ''}`).join(' · ')}</div>` : ''}</td>
             <td class="r" data-l="Adet">${fmtN(r.Q)}</td><td class="r" data-l="CIF">${fmtPB(r.cif, c.para_birimi)}</td><td class="r" data-l="Gözetim">${r.gozetim ? fmtPB(r.gozetim, c.para_birimi) : '–'}</td>
             <td class="r" data-l="GV+İGV">${fmtTL((r.gv + r.igv) * ctx.kur)}</td><td class="r" data-l="KDV">${fmtTL(r.kdv * ctx.kur)}</td><td class="r" data-l="İndirilemeyen">${r.indirilemez ? fmtTL(r.indirilemez * ctx.kur) : '–'}</td>
             <td class="r" data-l="Maliyete"><b>${fmtTL(r.birimVergiTL)}</b></td></tr>`).join('')}</tbody></table></div>
