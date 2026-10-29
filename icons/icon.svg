@@ -1,16 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9f1c"/><stop offset=".5" stop-color="#ff4d6d"/><stop offset="1" stop-color="#7b2ff7"/></linearGradient>
-<linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#ffe9f0"/></linearGradient></defs>
+<defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0ea5e9"/><stop offset=".55" stop-color="#14b8a6"/><stop offset="1" stop-color="#a3e635"/></linearGradient></defs>
 <rect width="512" height="512" fill="url(#g)"/>
-<circle cx="430" cy="80" r="120" fill="#fff" opacity=".10"/><circle cx="60" cy="470" r="140" fill="#fff" opacity=".08"/>
-<!-- kutular -->
-<g stroke="#7b2ff7" stroke-width="8" stroke-linejoin="round">
-<rect x="112" y="262" width="138" height="128" rx="16" fill="url(#b)"/>
-<rect x="262" y="262" width="138" height="128" rx="16" fill="url(#b)"/>
-<rect x="187" y="124" width="138" height="128" rx="16" fill="url(#b)"/>
-</g>
-<g fill="#ff9f1c"><rect x="163" y="262" width="36" height="44" rx="4"/><rect x="313" y="262" width="36" height="44" rx="4"/><rect x="238" y="124" width="36" height="44" rx="4"/></g>
-<!-- tik rozeti -->
-<circle cx="392" cy="384" r="62" fill="#22c55e" stroke="#fff" stroke-width="10"/>
-<path d="M362 386l20 20 40-42" fill="none" stroke="#fff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="440" cy="90" r="130" fill="#fff" opacity=".12"/>
+<g fill="#fff"><rect x="110" y="300" width="64" height="100" rx="14"/><rect x="194" y="240" width="64" height="160" rx="14"/><rect x="278" y="180" width="64" height="220" rx="14"/></g>
+<path d="M110 250 L210 175 L270 205 L360 125" fill="none" stroke="#fde047" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M320 118 L372 112 L366 164" fill="none" stroke="#fde047" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="388" cy="350" r="64" fill="#facc15" stroke="#fff" stroke-width="10"/>
+<text x="388" y="377" font-family="Arial, sans-serif" font-weight="900" font-size="78" fill="#fff" text-anchor="middle">₺</text>
 </svg>
