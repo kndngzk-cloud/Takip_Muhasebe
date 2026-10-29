@@ -130,6 +130,16 @@ const api = {
     return j;
   },
   get(table, query = 'select=*') { return this.req('GET', `${table}?${query}`); },
+  /* Storage / Edge Function istekleri (oturum anahtariyla) */
+  async raw(path, opts = {}) {
+    if (this.session && this.session.expires_at - Date.now() < 60000) await this.refresh().catch(() => {});
+    const headers = { apikey: CFG.key, ...(opts.headers || {}) };
+    if (this.session) headers.Authorization = `Bearer ${this.session.access_token}`;
+    let r;
+    try { r = await fetch(`${CFG.url}/${path}`, { ...opts, headers }); } catch { throw new Error('Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.'); }
+    if (!r.ok) { const t = await r.text(); let m = t; try { const j = JSON.parse(t); m = j.hata || j.message || j.error || t; } catch {} throw new Error(m || `Hata ${r.status}`); }
+    return r;
+  },
   insert(table, rows, { upsert = false, onConflict = '' } = {}) {
     const q = onConflict ? `?on_conflict=${onConflict}` : '';
     return this.req('POST', table + q, { body: rows, prefer: 'return=representation' + (upsert ? ',resolution=merge-duplicates' : '') });
@@ -1500,16 +1510,20 @@ async function viewAyarlar() {
       ${ad ? '<button class="btn primary" id="s-ok">Ayarları kaydet</button>' : '<p class="tiny">Ayarları sadece yönetici değiştirebilir.</p>'}
     </div>
     <div class="card">
-      <h2>Yedek</h2>
-      <p class="small muted" style="margin-top:0">Tüm ürün, cari, sipariş ve hareketleri tek bir Excel dosyası olarak indirir. Ücretsiz planda otomatik yedek olmadığı için haftada bir indirmenizi öneririm.</p>
-      <button class="btn green" id="s-bk">${icon('download')}Excel'e yedek al</button>
+      <h2>Yedekler</h2>
+      <p class="small muted" style="margin-top:0">Her gece 03:00'te tüm veriler otomatik olarak Excel'e yedeklenir. Son 7 günün yedeği saklanır, daha eskileri kendiliğinden silinir.</p>
+      <div id="yd-list"><div class="loading" style="padding:14px"><div class="spinner"></div></div></div>
+      <div class="btn-row" style="margin-top:10px">
+        ${ad ? `<button class="btn" id="s-now">${icon('inbox')}Şimdi yedek al</button>` : ''}
+        <button class="btn green" id="s-bk">${icon('download')}Anlık Excel indir</button>
+      </div>
     </div>
     <div class="card">
       <h2>Hesap</h2>
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.6</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.7</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -1523,6 +1537,32 @@ async function viewAyarlar() {
     } catch (err) { fail(err); }
   });
   $('#s-bk').onclick = (e) => busy(e.currentTarget, yedekAl).catch(fail);
+  const yedekListe = async () => {
+    const el = $('#yd-list'); if (!el) return;
+    if (!ad) { el.innerHTML = '<p class="tiny">Yedekleri sadece yönetici görebilir.</p>'; return; }
+    try {
+      const r = await api.raw('storage/v1/object/list/yedekler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefix: '', limit: 100, sortBy: { column: 'name', order: 'desc' } }) });
+      const ls = (await r.json()).filter((o) => /^yedek-\d{4}-\d{2}-\d{2}\.xlsx$/.test(o.name));
+      el.innerHTML = ls.length ? `<div class="list" style="box-shadow:none;border:1px solid var(--line);margin:0">${ls.map((o) => `<div class="row" style="cursor:default">
+          <div class="main-col"><div class="t">${fmtD(o.name.slice(6, 16))}</div><div class="st">${esc(o.name)} · ${o.metadata?.size ? fmtN(Math.round(o.metadata.size / 1024)) + ' KB' : ''}</div></div>
+          <button class="btn sm" data-yd="${esc(o.name)}">${icon('download')}İndir</button></div>`).join('')}</div>`
+        : '<p class="tiny">Henüz otomatik yedek yok; ilki bu gece alınacak.</p>';
+      $$('[data-yd]', el).forEach((b) => b.onclick = () => busy(b, async () => {
+        const name = b.dataset.yd;
+        const blob = await (await api.raw(`storage/v1/object/yedekler/${encodeURIComponent(name)}`)).blob();
+        const file = new File([blob], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (ios && navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: name }); } catch (e) { if (e.name !== 'AbortError') throw e; } return; }
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      }).catch(fail));
+    } catch (e) { el.innerHTML = `<p class="tiny" style="color:var(--red)">Yedek listesi alınamadı: ${esc(e.message)}</p>`; }
+  };
+  yedekListe();
+  $('#s-now')?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
+    const r = await (await api.raw('functions/v1/gunluk-yedek', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+    toast(`Yedek alındı: ${r.dosya}`, 'ok'); yedekListe();
+  }).catch(fail));
   $('#s-out').onclick = async () => { if (await confirmBox('Çıkış yapılsın mı?', 'Tekrar girmek için e-posta ve şifreniz gerekecek.', 'Çıkış yap', true)) { await api.logout(); Object.assign(state, { profil: null, ayarlar: null, urunler: null, cariler: null, ui: {} }); location.hash = '#/'; render(); } };
 }
 

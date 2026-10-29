@@ -1,0 +1,6 @@
+-- Kurulu durumda (bilgi amacli). Her gece 00:00 UTC (03:00 Turkiye) gunluk-yedek islemini cagirir.
+-- select cron.schedule('gunluk-excel-yedek', '0 0 * * *', $cron$ select net.http_post(
+--   url := 'https://zxlbtpimbygbagwouwmc.supabase.co/functions/v1/gunluk-yedek',
+--   headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer <anon anahtar>'),
+--   body := jsonb_build_object('token', (select deger from public.sistem_ayar where anahtar = 'yedek_token')),
+--   timeout_milliseconds := 60000); $cron$);
