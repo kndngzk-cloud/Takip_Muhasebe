@@ -379,12 +379,14 @@ function viewLogin() {
 /* ------------------------------------------------------------------ */
 async function viewHome() {
   topbar(state.ayarlar?.firma_adi || 'Ana Sayfa', { actions: `<button class="tb-btn" onclick="go('#/siparis/yeni')">${icon('plus')}Sipariş</button>` });
-  const [oz, bek, urun] = await Promise.all([
+  const [oz, bek, urun, alacakli] = await Promise.all([
     api.rpc('panel_ozet'),
     api.get('v_siparisler', `select=*&durum=${eq('Beklemede')}&order=tarih.asc,fis_no.asc&limit=50`),
-    cache.urunler(true)
+    cache.urunler(true),
+    api.get('v_cariler', 'select=*&bakiye=gt.0.005&aktif=is.true&order=bakiye.desc&limit=10')
   ]);
-  const kritik = urun.filter((u) => u.aktif && u.durum !== 'Yeterli' && (num(u.toplam_giris) > 0 || num(u.bekleyen_siparis) > 0 || num(u.real_stok) < 0));
+  const eksi = urun.filter((u) => u.aktif && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
+  const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
   $('#view').innerHTML = `
     <div class="quick">
       <button class="q-blue" onclick="go('#/siparis/yeni')">${icon('order')}Yeni Sipariş</button>
@@ -397,13 +399,16 @@ async function viewHome() {
       <div class="kpi"><div class="l">Bu ay satış</div><div class="v num">${fmtTL(oz.bu_ay_satis)}</div><div class="s">KDV dahil, iptaller hariç</div></div>
       <div class="kpi orange"><div class="l">Açık alacak</div><div class="v num">${fmtTL(oz.acik_alacak)}</div><div class="s">R ${fmtTL(oz.acik_alacak_r)} · GR ${fmtTL(oz.acik_alacak_gr)}</div></div>
       <div class="kpi purple"><div class="l">Bekleyen sipariş</div><div class="v num">${oz.bekleyen_siparis}</div><div class="s">sevk edilmeyi bekliyor</div></div>
-      <div class="kpi ${oz.kritik_urun ? 'red' : 'green'}"><div class="l">Kritik / eksi stok</div><div class="v num">${oz.kritik_urun}</div><div class="s">ürün</div></div>
+      <div class="kpi ${eksi.length ? 'red' : 'green'}"><div class="l">Eksi stok</div><div class="v num">${eksi.length}</div><div class="s">ürün</div></div>
     </div>
     <div class="section-title">Sevk bekleyen siparişler <a href="#/siparisler">Tümü</a></div>
     <div class="list">${bek.length ? bek.map((s) => siparisRow(s, true)).join('') : '<div class="empty">Bekleyen sipariş yok 🎉</div>'}</div>
-    <div class="section-title">Dikkat isteyen stoklar <a href="#/stok">Stok</a></div>
-    <div class="list">${kritik.length ? kritik.map(urunRow).join('') : '<div class="empty">Kritik stok yok</div>'}</div>`;
+    <div class="section-title">En çok alacaklı olduğumuz cariler <a href="#" id="tum-alacak">Tümü</a></div>
+    <div class="list">${alacak10.length ? alacak10.map(cariRow).join('') : '<div class="empty">Açık alacak yok</div>'}</div>
+    <div class="section-title">Eksi stoktaki ürünler <a href="#/stok">Stok</a></div>
+    <div class="list">${eksi.length ? eksi.map(urunRow).join('') : '<div class="empty">Eksi stokta ürün yok</div>'}</div>`;
   bindRows();
+  $('#tum-alacak').onclick = (e) => { e.preventDefault(); state.ui.cari = { f: 'Bakiyesi olan', q: '', sirala: 'bakiye' }; go('#/cariler'); };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1523,7 +1528,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.7</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.8</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
