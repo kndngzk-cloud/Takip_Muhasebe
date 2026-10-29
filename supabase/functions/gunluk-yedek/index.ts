@@ -97,6 +97,10 @@ const TABLOLAR: [string, string, string][] = [
   ["Stok Hareketleri", "stok_hareketleri", "select=tarih,urunler(kod,ad),tur,islem,fatura_tipi,kdv_orani,para_birimi,kur,doviz_maliyet,miktar,birim_maliyet,tedarikci,belge_no,aciklama,siparisler(fis_no)&order=tarih,id"],
   ["Cari Hareketler", "v_cari_ekstre", "select=tarih,cari_kod,cari_unvan,islem,fatura_tipi,belge_no,matrah,kdv_tutari,borc,alacak,para_birimi,kur,doviz_tutar,odeme_sekli,aciklama,yuruyen_bakiye&order=cari_kod,tarih,id"],
   ["Musteri Fiyatlari", "musteri_fiyatlari", "select=cariler(kod,unvan),urunler(kod,ad),fiyat,para_birimi,odeme_kosulu,tarih&order=id"],
+  ["Fabrikalar", "v_fabrikalar", "select=ad,sehir,iletisim,siparis_toplam,odenen,bakiye,aktif_siparis,aktif,notlar&order=ad"],
+  ["Ithalat Siparisleri", "v_cin_siparisler", "select=no,tarih,fabrika_ad,durum,para_birimi,kur,toplam,toplam_miktar,fabrika_odenen,fabrika_kalan,masraf_tl,nakliye_sekli,liman,konteyner_no,takip_no,tahmini_uretim,tahmini_yukleme,tahmini_varis,uretim_bitis,yukleme_tarihi,varis_tarihi,teslim_tarihi,aciklama&order=no"],
+  ["Ithalat Kalemleri", "cin_kalemler", "select=cin_siparisler(no),urunler(kod,ad),miktar,birim_fiyat,vergi_tl&order=id"],
+  ["Odeme Plani", "v_odeme_takvimi", "select=yon,kategori,cin_no,fabrika_ad,fis_no,cari_unvan,aciklama,tetik,gun_sonra,yuzde,tutar_hesap,para_birimi,vade,vade_kesin,maliyete_dahil,odendi,odeme_tarihi,odenen_kur&order=id"],
 ];
 const flat = (o: Record<string, unknown>, p = ""): Record<string, unknown> =>
   Object.entries(o).reduce((a, [k, v]) => (v && typeof v === "object" && !Array.isArray(v) ? Object.assign(a, flat(v as Record<string, unknown>, p + k + "_")) : ((a[p + k] = v), a)), {} as Record<string, unknown>);

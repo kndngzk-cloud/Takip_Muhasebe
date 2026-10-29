@@ -334,3 +334,22 @@ textarea.input { min-height: 70px; resize: vertical; }
 .grid2 > *, .grid3 > * { min-width: 0; }
 .stats.stats4 { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 640px) { .stats.stats4 { grid-template-columns: 1fr 1fr; } }
+
+/* ===================== CIN SIPARISLERI ===================== */
+a.chip { display: inline-flex; align-items: center; color: var(--text-2); text-decoration: none; }
+a.chip.on { color: #fff; }
+.prog { height: 4px; background: var(--surface-2); border-radius: 4px; margin-top: 8px; overflow: hidden; max-width: 320px; }
+.prog i { display: block; height: 100%; background: var(--green); border-radius: 4px; }
+.steps { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.step { text-align: center; cursor: pointer; padding: 6px 2px; border-radius: 10px; min-width: 0; }
+.step:hover { background: var(--surface-2); }
+.step .dot { width: 14px; height: 14px; border-radius: 50%; margin: 0 auto 6px; border: 2px solid var(--line); background: var(--surface); }
+.step.done .dot { background: var(--green); border-color: var(--green); }
+.step.cur .dot { box-shadow: 0 0 0 4px var(--green-soft); }
+.step .sl { font-size: 12px; font-weight: 700; color: var(--text-3); }
+.step.done .sl { color: var(--text); }
+.step .sd { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+@media (max-width: 560px) { .steps { grid-template-columns: repeat(3, 1fr); row-gap: 10px; } }
+details.gum { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
+details.gum summary { font-weight: 700; cursor: pointer; color: var(--text-2); }
+details.gum[open] summary { margin-bottom: 10px; }
