@@ -1167,7 +1167,7 @@ async function viewCariler() {
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Cari adı, kod, şehir ara…" value="${esc(ui.q)}"></div>
       <select class="input" id="srt" style="width:auto;padding:9px 30px 9px 12px;font-size:14px"><option value="ad">A → Z</option><option value="bakiye">Bakiye ↓</option><option value="son">Son hareket</option></select></div>
     <div class="chips" id="c1">${['Toptan', 'Perakende', 'Bakiyesi olan', 'Tümü'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}</div>
-    <div id="sum" class="tiny" style="margin:0 4px 8px"></div>
+    <div class="card" id="sum" style="padding:12px"></div>
     <div class="list" id="lst"></div>`;
   $('#srt').value = ui.sirala;
   const draw = () => {
@@ -1177,7 +1177,12 @@ async function viewCariler() {
     if (ui.sirala === 'bakiye') f.sort((a, b) => num(b.bakiye) - num(a.bakiye));
     if (ui.sirala === 'son') f.sort((a, b) => String(b.son_hareket || '').localeCompare(String(a.son_hareket || '')));
     const tr = f.reduce((a, c) => a + num(c.bakiye_r), 0), tg = f.reduce((a, c) => a + num(c.bakiye_gr), 0);
-    $('#sum').innerHTML = `${f.length} cari · bakiye toplamı <b>${fmtTL(tr + tg)}</b> (R ${fmtTL(tr)} · GR ${fmtTL(tg)})`;
+    $('#sum').innerHTML = `<div class="stats stats4">
+      <div class="stat"><div class="l">${esc(ui.f)} · ${f.length} cari</div><div class="v ${balCls(tr + tg)}">${fmtTL(tr + tg)}</div></div>
+      <div class="stat"><div class="l">R toplam</div><div class="v ${balCls(tr)}">${fmtTL(tr)}</div></div>
+      <div class="stat"><div class="l">GR toplam</div><div class="v ${balCls(tg)}">${fmtTL(tg)}</div></div>
+      <div class="stat"><div class="l">Alacak / borç</div><div class="v small" style="font-size:13px;white-space:normal"><span class="pos">${fmtTL(f.reduce((a, c) => a + Math.max(num(c.bakiye), 0), 0))}</span><br><span class="neg">${fmtTL(f.reduce((a, c) => a + Math.min(num(c.bakiye), 0), 0))}</span></div></div>
+    </div>${ui.q ? `<div class="tiny" style="margin-top:6px">“${esc(ui.q)}” aramasına göre</div>` : ''}`;
     $('#lst').innerHTML = f.length ? f.slice(0, 500).map(cariRow).join('') : '<div class="empty">Cari bulunamadı</div>';
     bindRows($('#lst'));
   };
@@ -1528,7 +1533,7 @@ async function viewAyarlar() {
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
-    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.8</p>`;
+    <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v1.9</p>`;
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };

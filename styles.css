@@ -332,3 +332,5 @@ textarea.input { min-height: 70px; resize: vertical; }
 .show-m { display: none; }
 @media (max-width: 640px) { .show-m { display: inline; } }
 .grid2 > *, .grid3 > * { min-width: 0; }
+.stats.stats4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 640px) { .stats.stats4 { grid-template-columns: 1fr 1fr; } }
