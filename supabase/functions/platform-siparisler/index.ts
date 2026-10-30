@@ -134,7 +134,7 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
         const komK = tr.filter((x) => /Commission/.test(x.transactionType)).reduce((t, x) => t + tutar(x), 0);
         const kargoK = tr.filter((x) => /Shipment|Cargo|Delivery/.test(x.transactionType)).reduce((t, x) => t + tutar(x), 0);
         const digerK = tr.filter((x) => !["Payment", "TotalPayment"].includes(x.transactionType)).reduce((t, x) => t + tutar(x), 0);
-        if (satis > 0 && tr.some((x) => /Commission/.test(x.transactionType))) { kom = r2(-komK); kargo = r2(-kargoK); net = r2(satis + digerK); kesin = tr.some((x) => /Shipment|Cargo/.test(x.transactionType)); }
+        if (satis > 0 && tr.some((x) => /Commission/.test(x.transactionType))) { kom = r2(-komK); kesin = tr.some((x) => /Shipment|Cargo|Delivery/.test(x.transactionType)); kargo = kesin ? r2(-kargoK) : null; net = kesin ? r2(satis + digerK) : null; }
       }
     } catch { /* muhasebe kaydi yoksa tahmin kalir */ }
     const sv = sevk[no];
@@ -177,6 +177,29 @@ async function trendyol(a: Record<string, string>, gunSay: number, bitGun = 0): 
       for (const c of j.content ?? []) { const o = kom[c.orderNumber] ||= { kom: 0, gelir: 0 }; o.kom += Math.abs(sayi(c.commissionAmount) || 0); o.gelir += sayi(c.sellerRevenue) || 0; }
     }
   } catch { /* hakedis yoksa tahminsiz */ }
+  // kargo: kargo faturasi kalemlerinden (siparis no ile)
+  const kargoTy: Record<string, number> = {};
+  const ty = { fatura: 0, kalem: 0, tipler: [] as string[], hata: null as string | null };
+  try {
+    const goruldu = new Set<string>();
+    for (let e = Date.now(); e > bas - 15 * 86400000; e -= 15 * 86400000) {
+      const st = e - 15 * 86400000 + 1000;
+      const j = await al(`https://apigw.trendyol.com/integration/finance/che/sellers/${a.seller_id}/otherfinancials?startDate=${st}&endDate=${e}&transactionType=DeductionInvoices&page=0&size=500`);
+      for (const c of (j.content ?? []) as Record<string, any>[]) {
+        const tip = `${c.transactionType ?? ""} ${c.description ?? ""}`;
+        if (ty.tipler.length < 6 && !ty.tipler.includes(String(c.transactionType))) ty.tipler.push(String(c.transactionType));
+        if (!/kargo|cargo/i.test(tip)) continue;
+        const seri = String(c.id ?? c.invoiceSerialNumber ?? "");
+        if (!seri || goruldu.has(seri)) continue; goruldu.add(seri); ty.fatura++;
+        for (let pg = 0; pg < 20; pg++) {
+          const it = await al(`https://apigw.trendyol.com/integration/finance/che/sellers/${a.seller_id}/cargo-invoice/${encodeURIComponent(seri)}/items?page=${pg}&size=500`);
+          for (const x of (it.content ?? []) as Record<string, any>[]) { if (!x.orderNumber) continue; ty.kalem++; kargoTy[String(x.orderNumber)] = r2((kargoTy[String(x.orderNumber)] || 0) + Math.abs(sayi(x.amount) || 0)); }
+          if (pg + 1 >= (it.totalPages ?? 1)) break;
+        }
+      }
+    }
+  } catch (err) { ty.hata = String((err as Error).message || err).slice(0, 200); }
+  TESHIS.Trendyol = ty;
   const grup: Record<string, Record<string, any>[]> = {};
   for (const p of paketler) (grup[p.orderNumber] ||= []).push(p);
   const out: Sip[] = [];
@@ -194,7 +217,7 @@ async function trendyol(a: Record<string, string>, gunSay: number, bitGun = 0): 
       musteri: [p0.customerFirstName, p0.customerLastName].filter(Boolean).join(" ") || sa.fullName || null, alici: sa.fullName || [sa.firstName, sa.lastName].filter(Boolean).join(" ") || null,
       telefon: sa.phone || null, eposta: p0.customerEmail || null, sehir: sa.city || null, adres: [sa.fullAddress, sa.district, sa.city].filter(Boolean).join(" ") || null, vergi_no: ia.taxNumber || p0.taxNumber || null,
       satirlar: lines.map((l: any) => ({ kod: l.merchantSku || l.sku || l.barcode || "", ad: l.productName || "", miktar: Number(l.quantity) || 1, tutar: r2((sayi(l.price) || 0) * (Number(l.quantity) || 1)) })),
-      brut, komisyon: k ? r2(k.kom) : (komTah > 0 ? komTah : null), kargo_kesinti: null, net: k ? r2(k.gelir) : null, kesinti_kesin: false,
+      brut, komisyon: k ? r2(k.kom) : (komTah > 0 ? komTah : null), kargo_kesinti: kargoTy[no] ?? null, net: k && kargoTy[no] != null ? r2(k.gelir - kargoTy[no]) : null, kesinti_kesin: !!k && kargoTy[no] != null,
       kargo_firma: p0.cargoProviderName || null, kargo_takip: p0.cargoTrackingNumber ? String(p0.cargoTrackingNumber) : null, kargo_link: p0.cargoTrackingLink || null, barkod: p0.cargoTrackingNumber ? String(p0.cargoTrackingNumber) : null,
       sevk_tarihi: sevkT, teslim_tarihi: aktif.some((p) => p.status === "Delivered") ? d10(p0.lastModifiedDate) : null,
       iptal: !aktif.length, ham: { durum: ps.map((p) => p.status) },

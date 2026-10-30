@@ -404,14 +404,15 @@ function viewLogin() {
 /* ------------------------------------------------------------------ */
 async function viewHome() {
   topbar(state.ayarlar?.firma_adi || 'Ana Sayfa', { actions: `<button class="tb-btn" onclick="go('#/siparis/yeni')">${icon('plus')}Sipariş</button>` });
-  const [oz, bek, urun, alacakli, plan14, cinAktif, nakit14] = await Promise.all([
+  const [oz, bek, urun, alacakli, plan14, cinAktif, nakit14, plSon] = await Promise.all([
     api.rpc('panel_ozet'),
     api.get('v_siparisler', `select=*&durum=${eq('Beklemede')}&order=tarih.asc,fis_no.asc&limit=50`),
     cache.urunler(true),
     api.get('v_cariler', 'select=*&bakiye=gt.0.005&aktif=is.true&order=bakiye.desc&limit=10'),
     api.get('v_odeme_takvimi', `select=*&odendi=is.false&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
     api.get('v_cin_siparisler', `select=*&durum=not.in.(${encodeURIComponent('"Teslim Alındı","İptal"')})&order=tahmini_varis.asc.nullslast&limit=30`).catch(() => []),
-    api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => [])
+    api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
+    api.get('v_platform_siparisler', `select=*&or=(tarih.gte.${addDays(today(), -2)},and(sevk_tarihi.is.null,durum.in.(Aktarıldı,Bekliyor,Eşleşmedi,Hata)))&order=tarih.desc&limit=40`).catch(() => [])
   ]);
   const eksi = urun.filter((u) => u.aktif && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
@@ -431,6 +432,8 @@ async function viewHome() {
     </div>
     <div class="section-title">Sevk bekleyen siparişler <a href="#/siparisler">Tümü</a></div>
     <div class="list">${bek.length ? bek.map((s) => siparisRow(s, true)).join('') : '<div class="empty">Bekleyen sipariş yok 🎉</div>'}</div>
+    <div class="section-title">Platform siparişleri (son 3 gün ve kargo bekleyenler) <a href="#/platform-siparisler">Tümü</a></div>
+    <div class="list" id="h-pl">${plSon.length ? plSon.map(plRow).join('') : '<div class="empty">Son 3 günde platform siparişi yok</div>'}</div>
     <div class="section-title">En çok alacaklı olduğumuz cariler <a href="#" id="tum-alacak">Tümü</a></div>
     <div class="list">${alacak10.length ? alacak10.map(cariRow).join('') : '<div class="empty">Açık alacak yok</div>'}</div>
     <div class="section-title">Eksi stoktaki ürünler <a href="#/stok">Stok</a></div>
@@ -440,6 +443,7 @@ async function viewHome() {
     <div class="section-title">Yoldaki ithalat siparişleri <a href="#/cin">Tümü</a></div>
     <div class="list">${cinAktif.length ? cinAktif.map(cinRow).join('') : '<div class="empty">Aktif ithalat siparişi yok</div>'}</div>`;
   bindRows();
+  $$('[data-pl]', $('#h-pl')).forEach((el) => el.addEventListener('click', () => plDetay(plSon.find((x) => x.id === +el.dataset.pl))));
   bindPlanRows($('#h-plan'), plan14, null);
   bindNakitRows($('#h-plan'), nakit14);
   $('#tum-alacak').onclick = (e) => { e.preventDefault(); state.ui.cari = { f: 'Bakiyesi olan', q: '', sirala: 'bakiye' }; go('#/cariler'); };
@@ -1961,7 +1965,8 @@ function barkodSvg(t) {
 
 function platformKart(p, siparisSayfasi = true) {
   const tahmin = !p.kesinti_kesin;
-  const net = p.net != null ? num(p.net) : num(p.brut) - num(p.komisyon) - num(p.kargo_kesinti);
+  const kargo = p.kargo_kesinti != null ? num(p.kargo_kesinti) : num(p.kargo_tahmin);
+  const net = p.net != null ? num(p.net) : num(p.brut) - num(p.komisyon) - kargo;
   return `<div class="card pl-kart">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
       <div>${plBadge(p.platform)} <b class="num" style="margin-left:4px">${esc(p.siparis_no)}</b></div>
@@ -1978,12 +1983,12 @@ function platformKart(p, siparisSayfasi = true) {
     ${p.kargo_link ? `<div class="btn-row" style="margin-top:10px"><a class="btn sm" href="${esc(p.kargo_link)}" target="_blank" rel="noopener">${icon('truck')}Kargoyu takip et</a></div>` : ''}
     <div class="pl-dokum">
       <div><span>Satış (KDV dahil)</span><b class="num">${fmtTL(p.brut)}</b></div>
-      <div><span>Komisyon${tahmin && p.komisyon != null ? ' (tahmini)' : ''}</span><b class="num">${p.komisyon != null ? '−' + fmtTL(p.komisyon) : '–'}</b></div>
-      <div><span>Kargo kesintisi${tahmin ? ' (henüz kesinleşmedi)' : ''}</span><b class="num">${p.kargo_kesinti != null ? '−' + fmtTL(p.kargo_kesinti) : '–'}</b></div>
+      <div><span>Komisyon</span><b class="num">${p.komisyon != null ? '−' + fmtTL(p.komisyon) : '–'}</b></div>
+      <div><span>Kargo kesintisi${p.kargo_kesinti == null && p.kargo_tahmin != null ? ' (tahmini, geçmiş siparişlere göre)' : p.kargo_kesinti == null ? ' (henüz belli değil)' : ''}</span><b class="num">${p.kargo_kesinti != null || p.kargo_tahmin != null ? '−' + fmtTL(kargo) : '–'}</b></div>
       <div class="tot"><span>Size kalan</span><b class="num">${fmtTL(net)}</b></div>
     </div>
     ${p.elle && siparisSayfasi ? `<div class="tiny" style="margin-top:8px">Bu sipariş elle girilmişti; platform siparişine bağlandı. Tutarına dokunulmaz, kargo ve iptal bilgisi buradan izlenir.${isAdmin() ? ` <a href="#" class="pl-ayir" data-id="${p.id}">Bağlantıyı kaldır</a>` : ''}</div>` : ''}
-    ${tahmin && !p.elle && siparisSayfasi && p.durum === 'Aktarıldı' ? '<div class="tiny" style="margin-top:8px">Kesintiler platformdan kesinleşince sipariş tutarı otomatik güncellenir.</div>' : ''}
+    ${p.kargo_kesinti == null && !p.elle && siparisSayfasi && p.durum === 'Aktarıldı' ? '<div class="tiny" style="margin-top:8px">Kargo kesintisi platformda kesinleşince sipariş tutarı otomatik güncellenir.</div>' : ''}
   </div>`;
 }
 function platformKartBagla(root, yenile) {
@@ -1997,6 +2002,14 @@ function platformKartBagla(root, yenile) {
 
 const siparisTabs = (k, n = 0) => `<div class="chips" style="margin-bottom:10px">${[['#/siparisler', 'sip', 'Siparişler'], ['#/platform-siparisler', 'pl', 'Platform siparişleri']].map(([h, kk, t]) => `<a class="chip ${k === kk ? 'on' : ''}" href="${h}">${t}${kk === 'pl' && n ? ` <span class="badge b-red" style="margin-left:6px">${n}</span>` : ''}</a>`).join('')}</div>`;
 
+const plRow = (p) => `<div class="row" data-pl="${p.id}">
+        <div class="main-col"><div class="t">${esc(p.musteri || '–')}</div>
+          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${p.fis_no ? ` <span class="tiny">Fiş ${p.fis_no}</span>` : ''}</div>
+          <div class="tiny" style="margin-top:3px">${esc((p.satirlar || []).map((s) => `${s.miktar > 1 ? s.miktar + ' × ' : ''}${s.ad}`).join(', ').slice(0, 90))}</div>
+          <div class="tiny" style="margin-top:2px"><span class="ic-s">${icon('truck')}</span> ${esc(p.kargo_firma || '')} ${p.kargo_takip ? `<span class="num">${esc(p.kargo_takip)}</span> · ` : ''}${esc(plKargoDurum(p))}</div>
+          ${p.hata && p.durum !== 'Aktarıldı' ? `<div class="tiny" style="color:var(--red);margin-top:2px">${esc(p.hata)}</div>` : ''}</div>
+        <div class="end"><div class="amt">${fmtTL(p.net != null ? p.net : num(p.brut) - num(p.komisyon) - (p.kargo_kesinti != null ? num(p.kargo_kesinti) : num(p.kargo_tahmin)))}</div><div class="tiny">satış ${fmtTL(p.brut)}</div></div>
+      </div>`;
 async function viewPlatformSiparisler() {
   topbar('Platform Siparişleri', { back: !wideScr(), actions: isAdmin() ? `<button class="tb-btn" id="pl-cek">${icon('download')}Şimdi çek</button>` : '' });
   const ui = state.ui.pl ||= { f: 'Tümü', pl: '', q: '' };
@@ -2017,14 +2030,7 @@ async function viewPlatformSiparisler() {
     const f = data.filter((p) => (ui.f === 'Tümü' || grup(p) === ui.f) && (!ui.pl || p.platform === ui.pl)
       && (!q || norm(`${p.musteri || ''} ${p.siparis_no} ${p.kargo_takip || ''} ${p.sehir || ''} ${p.fis_no ? 'fis ' + p.fis_no : ''} ${(p.satirlar || []).map((s) => s.ad + ' ' + s.kod).join(' ')}`).includes(q)));
     $('#sum').innerHTML = `${f.length} sipariş${sorun ? ` · <b style="color:var(--red)">${sorun} sipariş sizden ürün seçimi / kontrol bekliyor</b>` : ''}`;
-    $('#lst').innerHTML = f.length ? f.slice(0, 400).map((p) => `<div class="row" data-pl="${p.id}">
-        <div class="main-col"><div class="t">${esc(p.musteri || '–')}</div>
-          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${p.fis_no ? ` <span class="tiny">Fiş ${p.fis_no}</span>` : ''}</div>
-          <div class="tiny" style="margin-top:3px">${esc((p.satirlar || []).map((s) => `${s.miktar > 1 ? s.miktar + ' × ' : ''}${s.ad}`).join(', ').slice(0, 90))}</div>
-          <div class="tiny" style="margin-top:2px"><span class="ic-s">${icon('truck')}</span> ${esc(p.kargo_firma || '')} ${p.kargo_takip ? `<span class="num">${esc(p.kargo_takip)}</span> · ` : ''}${esc(plKargoDurum(p))}</div>
-          ${p.hata && p.durum !== 'Aktarıldı' ? `<div class="tiny" style="color:var(--red);margin-top:2px">${esc(p.hata)}</div>` : ''}</div>
-        <div class="end"><div class="amt">${fmtTL(p.net != null ? p.net : num(p.brut) - num(p.komisyon) - num(p.kargo_kesinti))}</div><div class="tiny">satış ${fmtTL(p.brut)}</div></div>
-      </div>`).join('') : `<div class="empty">${data.length ? 'Kayıt bulunamadı' : 'Henüz platform siparişi çekilmedi.'}</div>`;
+    $('#lst').innerHTML = f.length ? f.slice(0, 400).map(plRow).join('') : `<div class="empty">${data.length ? 'Kayıt bulunamadı' : 'Henüz platform siparişi çekilmedi.'}</div>`;
     $$('[data-pl]', $('#lst')).forEach((el) => el.addEventListener('click', () => plDetay(data.find((x) => x.id === +el.dataset.pl), data)));
   };
   $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
@@ -2047,6 +2053,7 @@ async function viewPlatformSiparisler() {
 }
 
 async function plDetay(p, data) {
+  data ||= await api.get('platform_siparisler', 'select=id,siparis_id&siparis_id=not.is.null').catch(() => []);
   if (p.siparis_id && p.durum === 'Aktarıldı') { go(`#/siparis/${p.siparis_id}`); return; }
   const urunler = await cache.urunler();
   const satirlar = (p.satirlar || []).map((s) => ({ ...s, bul: s.urun_id || null }));
@@ -3613,7 +3620,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.35';
+const APP_V = '1.36';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
