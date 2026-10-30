@@ -280,6 +280,7 @@ const NAV = [
   { h: '#/cariler', k: 'cari', t: 'Cariler', i: 'users' },
   { h: '#/cin', k: 'cin', t: 'İthalat', i: 'ship', side: true },
   { h: '#/odemeler', k: 'odeme', t: 'Ödemeler', i: 'cash', side: true },
+  { h: '#/paytr', k: 'paytr', t: 'PayTR tahsilatları', i: 'cash', side: true, sub: true },
   { h: '#/raporlar', k: 'rapor', t: 'Raporlar', i: 'chart', side: true },
   { h: '#/ayarlar', k: 'ayar', t: 'Ayarlar', i: 'gear', side: true },
   { h: '#/daha', k: 'daha', t: 'Daha', i: 'more', bottom: true }
@@ -305,6 +306,7 @@ const ROUTES = [
   [/^#\/cin\/(\d+)\/duzenle$/, 'cin', viewCinForm],
   [/^#\/cin\/(\d+)$/, 'cin', viewCinDetay],
   [/^#\/odemeler$/, 'odeme', viewOdemeTakvimi],
+  [/^#\/paytr$/, 'paytr', viewPaytr],
   [/^#\/tahsilatlar$/, 'odeme', viewOdemeTakvimi],
   [/^#\/fabrikalar$/, 'cin', viewFabrikalar]
 ];
@@ -315,7 +317,7 @@ function shell(active) {
     <div class="shell">
       <nav class="sidebar">
         <div class="brand">${esc(state.ayarlar?.firma_adi || 'Firmam')}<small>Sipariş • Stok • Cari</small></div>
-        ${NAV.filter((n) => !n.bottom).map((n) => `<a href="${n.h}" class="${n.k === active ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
+        ${NAV.filter((n) => !n.bottom).map((n) => `<a href="${n.h}" class="${n.k === active ? 'active' : ''}${n.sub ? ' sub' : ''}">${n.sub ? '' : icon(n.i)}${n.t}</a>`).join('')}
         <div class="spacer"></div><div class="who">${who}</div>
       </nav>
       <div class="main">
@@ -323,7 +325,7 @@ function shell(active) {
         <main class="view" id="view"><div class="loading"><div class="spinner"></div>Yükleniyor…</div></main>
       </div>
       <nav class="bottomnav">
-        ${NAV.filter((n) => !n.side).map((n) => `<a href="${n.h}" class="${n.k === active || (n.k === 'daha' && ['rapor', 'ayar', 'cin', 'odeme'].includes(active)) ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
+        ${NAV.filter((n) => !n.side).map((n) => `<a href="${n.h}" class="${n.k === active || (n.k === 'daha' && ['rapor', 'ayar', 'cin', 'odeme', 'paytr'].includes(active)) ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
       </nav>
     </div>`;
 }
@@ -1770,6 +1772,7 @@ async function viewDaha() {
     <div class="list">
       <div class="row" data-go="#/cin"><div class="main-col"><div class="t">İthalat</div><div class="st">Fabrika siparişleri, aşamalar, yoldaki mallar, gümrük vergisi</div></div></div>
       <div class="row" data-go="#/odemeler"><div class="main-col"><div class="t">Ödemeler</div><div class="st">Yapılacak ödemeler, çekler, platform ödemeleri, müşteri taksitleri, aylık nakit akışı</div></div></div>
+      <div class="row" data-go="#/paytr"><div class="main-col"><div class="t">PayTR tahsilatları</div><div class="st">Kart ödemelerini cariye tahsilat olarak işle, makbuz al</div></div></div>
       <div class="row" data-go="#/fabrikalar"><div class="main-col"><div class="t">Fabrikalar</div><div class="st">Tedarikçi fabrikalar ve bakiyeleri</div></div></div>
       <div class="row" data-go="#/raporlar"><div class="main-col"><div class="t">Raporlar</div><div class="st">Kâr (FIFO/LIFO), aylık satış özeti</div></div></div>
       <div class="row" data-go="#/stok/hareketler"><div class="main-col"><div class="t">Stok hareketleri</div><div class="st">Girişler, sevkler, alış maliyetleri</div></div></div>
@@ -1882,7 +1885,7 @@ const ENT_ALAN = {
   Hepsiburada: [['merchant_id', 'Mağaza ID'], ['servis_anahtari', 'Servis anahtarı'], ['kullanici_adi', 'Entegratör kullanıcı adı']]
 };
 const ENT_NOT = {
-  PayTR: 'PayTR Mağaza Paneli → <b>Destek &amp; Kurulum → Entegrasyon Bilgileri</b> (Mağaza No, Mağaza Parola, Mağaza Gizli Anahtar). Her sabah 07:15’te ödeme özeti çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur. Otomatik veri gelince elle girilmiş gelecek PayTR kayıtları silinir.',
+  PayTR: 'PayTR Mağaza Paneli → <b>Destek &amp; Kurulum → Entegrasyon Bilgileri</b> (Mağaza No, Mağaza Parola, Mağaza Gizli Anahtar). Gün içinde 2 saatte bir (07:15–19:15) ödeme özeti ve kart işlemleri çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur. Otomatik veri gelince elle girilmiş gelecek PayTR kayıtları silinir.',
   'PayTR 2': 'İkinci PayTR mağazanızın bilgileri (aynı yerden). Ödemeler’de “PayTR … · 2. hesap” olarak görünür.',
   Hepsiburada: 'Hepsiburada satıcı paneli → Hesabım → <b>Entegrasyon → Entegratör Bilgileri</b>: Mağaza ID, entegratör kartındaki <b>Servis Anahtarı</b> ve o entegratörün kullanıcı adı (…_dev). Vadesi gelecek hakedişler (satış − komisyon/kargo vb.) günlük toplanarak eklenir.',
   Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.'
@@ -1920,6 +1923,234 @@ async function entegrasyonKart() {
       if (s?.hata) toast(`${ENT_AD[pl] || pl}: ${s.hata}`, 'err'); else if (s) toast(`${ENT_AD[pl] || pl}: ${s.gun} ödeme günü, toplam ${fmtTL(s.toplam)} Ödemeler’e işlendi`, 'ok'); else toast(r.hata || 'Yanıt alınamadı', 'err');
       entegrasyonKart();
     }).catch(fail);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* PayTR tahsilatlari: kart odemelerini cariye tahsilat olarak isle      */
+/* ------------------------------------------------------------------ */
+const odemeTabs = (k) => `<div class="chips" style="margin-bottom:10px">${[['#/odemeler', 'odeme', 'Ödeme takvimi'], ['#/paytr', 'paytr', 'PayTR tahsilatları']].map(([h, kk, t]) => `<a class="chip ${k === kk ? 'on' : ''}" href="${h}">${t}</a>`).join('')}</div>`;
+const ptHesap = (h) => (h === 'PayTR 2' ? 'PayTR · 2. hesap' : 'PayTR · 1. hesap');
+const ptSaat = (p) => (/\d{1,2}:\d{2}/.exec(p.islem_zamani || '') || [''])[0];
+
+async function viewPaytr() {
+  topbar('PayTR Tahsilatları', { back: !wideScr(), actions: isAdmin() ? `<button class="tb-btn" id="pt-yenile">${icon('download')}PayTR'den çek</button>` : '' });
+  const ui = state.ui.paytr ||= { f: 'Eşleşmemiş', hesap: '', q: '' };
+  const [data, cariler] = await Promise.all([api.get('v_paytr_islemler', 'select=*&order=islem_tarihi.desc,id.desc&limit=5000'), cache.cariler()]);
+  const hesaplar = [...new Set(data.map((p) => p.hesap))].sort();
+  $('#view').innerHTML = `${odemeTabs('paytr')}
+    <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Tutar, sipariş no, kart, cari ara…" value="${esc(ui.q)}"></div></div>
+    <div class="chips" id="pt-c">${['Eşleşmemiş', 'Eşleşmiş', 'Tümü'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}
+      ${hesaplar.length > 1 ? `<span style="width:8px"></span>${[['', 'Tüm hesaplar'], ...hesaplar.map((h) => [h, ptHesap(h)])].map(([v, t]) => `<button class="chip ${ui.hesap === v ? 'on' : ''}" data-h="${esc(v)}">${t}</button>`).join('')}` : ''}</div>
+    <div id="sum" class="tiny" style="margin:0 4px 8px"></div>
+    <div id="lst"></div>`;
+  if (!data.length) {
+    $('#lst').innerHTML = `<div class="card empty">Henüz PayTR kart işlemi yok.${isAdmin() ? ' Sağ üstteki “PayTR’den çek” ile son günlerin işlemlerini alabilirsiniz.' : ''} İşlemler gün içinde 2 saatte bir otomatik de çekilir.</div>`;
+  }
+  const draw = () => {
+    const q = norm(ui.q);
+    const f = data.filter((p) => (ui.f === 'Tümü' || (ui.f === 'Eşleşmemiş' ? p.durum === 'Bekliyor' : p.durum !== 'Bekliyor')) && (!ui.hesap || p.hesap === ui.hesap)
+      && (!q || norm(`${p.siparis_no || ''} ${p.kart_no || ''} ${p.kart_marka || ''} ${p.cari_unvan || ''} ${fmtN(p.islem_tutari)} ${p.islem_tutari} ${p.makbuz_no ? 'makbuz ' + p.makbuz_no : ''} ${p.durum === 'Perakende' ? 'perakende' : ''}`).includes(q)));
+    const bek = data.filter((p) => p.durum === 'Bekliyor' && (!ui.hesap || p.hesap === ui.hesap));
+    const net = (arr) => arr.reduce((a, p) => a + (p.islem_tipi === 'İade' ? -1 : 1) * num(p.islem_tutari), 0);
+    if (data.length) $('#sum').innerHTML = `<b style="color:var(--red)">${bek.length} eşleşmemiş</b> ödeme · ${fmtTL(net(bek))} &nbsp;·&nbsp; listede ${f.length} işlem`;
+    if (!data.length) return;
+    const gr = {}; f.slice(0, 600).forEach((p) => (gr[p.islem_tarihi] ||= []).push(p));
+    $('#lst').innerHTML = Object.keys(gr).length ? Object.entries(gr).map(([d, a]) => `<div class="section-title">${fmtD(d)} <span class="tiny" style="text-transform:none;letter-spacing:0">${a.length} işlem · ${fmtTL(net(a))}</span></div>
+      <div class="list">${a.map(ptRow).join('')}</div>`).join('') + (f.length > 600 ? '<div class="empty">İlk 600 işlem gösteriliyor, aramayı daraltın</div>' : '')
+      : '<div class="card empty">Bu filtrede işlem yok</div>';
+    bindPt();
+  };
+  const ptRow = (p) => {
+    const ok = p.durum !== 'Bekliyor', iade = p.islem_tipi === 'İade';
+    return `<div class="row pt-row ${ok ? 'pt-ok' : 'pt-bek'}" data-pt="${p.id}">
+      <div class="main-col">
+        <div class="t"><span class="num">${iade ? '−' : ''}${fmtTL(p.islem_tutari)}</span> ${iade ? '<span class="badge b-orange">İade</span>' : ''} ${num(p.taksit) > 1 ? `<span class="badge b-blue">${p.taksit} taksit</span>` : ''}</div>
+        <div class="st">${[ptSaat(p), p.kart_marka, p.kart_no, p.siparis_no ? `Sipariş ${esc(p.siparis_no)}` : '', hesaplar.length > 1 ? ptHesap(p.hesap) : ''].filter(Boolean).map(esc).join(' · ')}</div>
+        ${ok ? `<div class="pt-es">✓ ${p.durum === 'Perakende' ? '<b>Perakende</b>' : `<b>${esc(p.cari_unvan || 'Cari')}</b> · ${p.fatura_tipi}`} · Makbuz #${p.makbuz_no}</div>` : ''}
+      </div>
+      <div class="pt-act">${ok
+        ? `<button class="btn sm" data-mk="${p.id}">${icon('download')}Makbuz</button>${isAdmin() ? `<button class="btn sm" data-ga="${p.id}">Geri al</button>` : ''}`
+        : `<div class="picker pt-pick"><input class="input pt-cari" data-id="${p.id}" placeholder="Cari seç…" autocomplete="off"></div>
+           <div class="seg pt-tip" data-id="${p.id}"><button type="button" data-v="R" class="on">R</button><button type="button" data-v="GR">GR</button></div>
+           <button class="btn sm green" data-td="${p.id}">${iade ? 'İadeyi düş' : 'Tahsilat düş'}</button>
+           <button class="btn sm" data-pr="${p.id}">Perakende</button>`}
+      </div></div>`;
+  };
+  const secim = {}; // islem id -> secilen cari
+  const bindPt = () => {
+    $$('.pt-cari', $('#lst')).forEach((inp) => {
+      const id = +inp.dataset.id;
+      if (secim[id]) inp.value = secim[id].unvan;
+      picker(inp, {
+        items: () => cariler, label: (c) => c.unvan, sub: (c) => `${esc(c.kod || '')} · R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}`,
+        onPick: (c) => {
+          secim[id] = c; inp.value = c.unvan;
+          const seg = $(`.pt-tip[data-id="${id}"]`, $('#lst'));
+          const tip = num(c.bakiye_gr) > num(c.bakiye_r) ? 'GR' : 'R';
+          $$('button', seg).forEach((b) => b.classList.toggle('on', b.dataset.v === tip));
+        }
+      });
+      inp.addEventListener('input', () => { if (secim[id] && inp.value !== secim[id].unvan) delete secim[id]; });
+    });
+    $$('.pt-tip', $('#lst')).forEach((seg) => (seg.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; e.stopPropagation(); $$('button', seg).forEach((x) => x.classList.toggle('on', x === b)); }));
+    const bul = (id) => data.find((p) => p.id === id);
+    const isle = async (btn, p, cari) => {
+      const tip = cari ? ($(`.pt-tip[data-id="${p.id}"] button.on`, $('#lst'))?.dataset.v || 'R') : 'R';
+      const r = await busy(btn, () => api.rpc('paytr_eslestir', { p_id: p.id, p_cari_id: cari ? cari.id : null, p_fatura_tipi: tip }));
+      Object.assign(p, { durum: cari ? 'Cari' : 'Perakende', cari_id: cari?.id || null, cari_unvan: cari?.unvan || null, fatura_tipi: cari ? tip : null, makbuz_no: r.makbuz_no, cari_hareket_id: r.cari_hareket_id });
+      if (cari) cache.dirty('cariler');
+      toast(cari ? `${cari.unvan}: ${fmtTL(p.islem_tutari)} ${p.islem_tipi === 'İade' ? 'iade borç olarak' : 'tahsilat'} işlendi (${tip}) · Makbuz #${r.makbuz_no}` : `Perakende olarak işaretlendi · Makbuz #${r.makbuz_no}`, 'ok');
+      draw();
+    };
+    $$('[data-td]', $('#lst')).forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation(); const p = bul(+b.dataset.td), c = secim[p.id];
+      if (!c) { toast('Önce cari seçin', 'err'); $(`.pt-cari[data-id="${p.id}"]`, $('#lst'))?.focus(); return; }
+      try { await isle(b, p, c); } catch (err) { fail(err); }
+    }));
+    $$('[data-pr]', $('#lst')).forEach((b) => (b.onclick = async (e) => { e.stopPropagation(); try { await isle(b, bul(+b.dataset.pr), null); } catch (err) { fail(err); } }));
+    $$('[data-mk]', $('#lst')).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); makbuzGoster(bul(+b.dataset.mk)); }));
+    $$('[data-ga]', $('#lst')).forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation(); const p = bul(+b.dataset.ga);
+      if (!(await confirmBox('Eşleştirme geri alınsın mı?', p.durum === 'Cari' ? `<b>${esc(p.cari_unvan || '')}</b> carisindeki ${fmtTL(p.islem_tutari)} tahsilat kaydı silinecek ve ödeme tekrar “eşleşmemiş” olacak. Makbuz #${p.makbuz_no} geçersiz olur.` : 'Ödeme tekrar “eşleşmemiş” olacak.', 'Geri al', true))) return;
+      try { await api.rpc('paytr_eslesme_kaldir', { p_id: p.id }); Object.assign(p, { durum: 'Bekliyor', cari_id: null, cari_unvan: null, fatura_tipi: null, makbuz_no: null, cari_hareket_id: null }); cache.dirty('cariler'); toast('Geri alındı', 'ok'); draw(); } catch (err) { fail(err); }
+    }));
+    $$('[data-pt]', $('#lst')).forEach((row) => row.addEventListener('click', (e) => { if (!e.target.isConnected || e.target.closest('button,input,a,.picker,.seg')) return; ptDetay(bul(+row.dataset.pt)); }));
+  };
+  $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
+  $('#pt-c').onclick = (e) => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    if (b.dataset.f) ui.f = b.dataset.f; if (b.dataset.h !== undefined) ui.hesap = b.dataset.h;
+    $$('#pt-c .chip').forEach((c) => c.classList.toggle('on', c.dataset.f ? c.dataset.f === ui.f : c.dataset.h === ui.hesap));
+    draw();
+  };
+  $('#pt-yenile')?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
+    const hs = ['PayTR', 'PayTR 2'], msj = [];
+    for (const h of hs) {
+      const r = await (await api.raw('functions/v1/platform-odemeler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform: h }) })).json().catch(() => ({}));
+      const s = r.sonuc?.[h]; if (s) msj.push(`${ptHesap(h)}: ${s.hata ? 'hata – ' + s.hata : s.islem || 'tamam'}`);
+    }
+    toast(msj.join(' · ') || 'Yanıt alınamadı', msj.some((m) => m.includes('hata')) ? 'err' : 'ok');
+    render();
+  }).catch(fail));
+  draw();
+}
+
+function ptDetay(p) {
+  const satir = (l, v) => (v === null || v === undefined || v === '' ? '' : `<tr><td class="muted" style="padding:6px 10px 6px 0;white-space:nowrap">${l}</td><td style="padding:6px 0;font-weight:600">${v}</td></tr>`);
+  const ham = p.ham && typeof p.ham === 'object' ? Object.entries(p.ham) : [];
+  modal({
+    title: `${p.islem_tipi === 'İade' ? 'İade' : 'Kart ödemesi'} · ${fmtTL(p.islem_tutari)}`,
+    body: `<table style="width:100%;border-collapse:collapse;font-size:15px">
+        ${satir('Durum', p.durum === 'Bekliyor' ? '<span style="color:var(--red)">Eşleşmemiş</span>' : `<span style="color:var(--green)">✓ ${p.durum === 'Perakende' ? 'Perakende' : esc(p.cari_unvan || '') + ' · ' + p.fatura_tipi}</span> · Makbuz #${p.makbuz_no}`)}
+        ${satir('Hesap', ptHesap(p.hesap))}
+        ${satir('İşlem tarihi', esc(p.islem_zamani || fmtD(p.islem_tarihi)))}
+        ${satir('İşlem tipi', p.islem_tipi)}
+        ${satir('İşlem tutarı', fmtTL(p.islem_tutari))}
+        ${satir('Ödeme tutarı (müşteriden çekilen)', p.odeme_tutari != null ? fmtTL(p.odeme_tutari) : '')}
+        ${satir('PayTR kesintisi', p.kesinti_tutari != null ? `${fmtTL(p.kesinti_tutari)}${p.kesinti_orani != null ? ` (%${fmtN(p.kesinti_orani)})` : ''}` : '')}
+        ${satir('Net (hesabınıza geçecek)', p.net_tutar != null ? fmtTL(p.net_tutar) : '')}
+        ${satir('Taksit', num(p.taksit) > 1 ? `${p.taksit} taksit` : 'Tek çekim')}
+        ${satir('Kart', esc([p.kart_marka, p.kart_no].filter(Boolean).join(' · ')))}
+        ${satir('Ödeme tipi', esc(p.odeme_tipi || ''))}
+        ${satir('Sipariş no', esc(p.siparis_no || ''))}
+        ${satir('Para birimi', p.para_birimi !== 'TRY' ? p.para_birimi : '')}
+      </table>
+      ${ham.length ? `<details class="gum"><summary>PayTR’den gelen tüm alanlar</summary><table style="width:100%;font-size:13px">${ham.map(([k, v]) => `<tr><td class="muted" style="padding:3px 10px 3px 0">${esc(k)}</td><td style="padding:3px 0;word-break:break-all">${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</td></tr>`).join('')}</table></details>` : ''}`,
+    foot: `<button class="btn" data-close>Kapat</button>${p.durum !== 'Bekliyor' ? `<button class="btn primary" id="pd-mk">${icon('download')}Makbuz</button>` : ''}`,
+    onMount: (m) => { $('#pd-mk', m.el)?.addEventListener('click', () => { m.close(); makbuzGoster(p); }); }
+  });
+}
+
+/* sayiyi Turkce yaziya cevir (makbuz "Yalniz" satiri) */
+function yaziyla(n) {
+  const B = ['', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz'], O = ['', 'on', 'yirmi', 'otuz', 'kırk', 'elli', 'altmış', 'yetmiş', 'seksen', 'doksan'];
+  const uc = (x) => { const y = Math.floor(x / 100), o = Math.floor((x % 100) / 10), b = x % 10; return (y ? (y > 1 ? B[y] : '') + 'yüz' : '') + O[o] + B[b]; };
+  const yaz = (x) => {
+    if (x === 0) return 'sıfır';
+    const K = ['', 'bin', 'milyon', 'milyar']; let s = '', i = 0;
+    while (x > 0) { const g = x % 1000; if (g) s = (i === 1 && g === 1 ? '' : uc(g)) + K[i] + s; x = Math.floor(x / 1000); i++; }
+    return s;
+  };
+  const tl = Math.floor(Math.round(n * 100) / 100), kr = Math.round((n - tl) * 100);
+  return `${yaz(tl)} Türk Lirası${kr ? ' ' + yaz(kr) + ' Kuruş' : ''}`;
+}
+
+function makbuzCanvas(p) {
+  const W = 1240, pad = 80, H = 1000;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  const F = (w, sz) => `${w} ${sz}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+  c.fillStyle = '#16213a'; c.fillRect(0, 0, W, 150);
+  c.textBaseline = 'middle';
+  c.fillStyle = '#fff'; c.font = F(800, 46); c.fillText(state.ayarlar?.firma_adi || 'Firmam', pad, 62);
+  c.font = F(500, 26); c.fillStyle = '#c9d2e6'; c.fillText(p.islem_tipi === 'İade' ? 'İade Makbuzu' : 'Tahsilat Makbuzu', pad, 112);
+  c.textAlign = 'right'; c.fillStyle = '#fff'; c.font = F(800, 44); c.fillText(`No ${p.makbuz_no}`, W - pad, 62);
+  c.font = F(600, 26); c.fillStyle = '#c9d2e6'; c.fillText(fmtD(p.islem_tarihi) + (ptSaat(p) ? ' · ' + ptSaat(p) : ''), W - pad, 112);
+  c.textAlign = 'left';
+  let y = 220;
+  c.fillStyle = '#5b6578'; c.font = F(600, 24); c.fillText(p.islem_tipi === 'İade' ? 'İADE YAPILAN' : 'ÖDEMEYİ YAPAN', pad, y);
+  c.fillStyle = '#16213a'; c.font = F(800, 38);
+  let ad = p.durum === 'Perakende' ? 'Perakende müşteri' : p.cari_unvan || ''; while (c.measureText(ad).width > W - 2 * pad && ad.length > 3) ad = ad.slice(0, -2);
+  c.fillText(ad, pad, y + 48);
+  y = 360;
+  c.fillStyle = '#f1f4f9'; c.fillRect(pad - 10, y - 50, W - 2 * pad + 20, 150);
+  c.fillStyle = '#5b6578'; c.font = F(600, 24); c.fillText('TUTAR', pad + 10, y - 14);
+  c.fillStyle = '#16213a'; c.font = F(800, 64); c.fillText(fmtTL(p.islem_tutari), pad + 10, y + 42);
+  y = 540;
+  c.fillStyle = '#5b6578'; c.font = F(500, 26);
+  let yz = 'Yalnız: ' + yaziyla(num(p.islem_tutari)); while (c.measureText(yz).width > W - 2 * pad && yz.length > 10) yz = yz.slice(0, -2);
+  c.fillText(yz, pad, y);
+  y = 620;
+  const kv = [['Ödeme şekli', `Kredi kartı (PayTR)${num(p.taksit) > 1 ? ` · ${p.taksit} taksit` : ''}`], ['Kart', [p.kart_marka, p.kart_no].filter(Boolean).join(' · ')], ['Sipariş no', p.siparis_no || ''], ['Hesap', p.durum === 'Cari' ? `${p.fatura_tipi} hesabına ${p.islem_tipi === 'İade' ? 'borç' : 'alacak'} kaydedildi` : '']].filter(([, v]) => v);
+  kv.forEach(([k, v]) => { c.fillStyle = '#5b6578'; c.font = F(600, 26); c.fillText(k, pad, y); c.fillStyle = '#16213a'; c.font = F(600, 28); c.fillText(v, pad + 260, y); y += 52; });
+  y = Math.max(y + 60, 900);
+  c.strokeStyle = '#16213a'; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(W - pad - 380, y); c.lineTo(W - pad, y); c.stroke();
+  c.fillStyle = '#5b6578'; c.font = F(600, 24); c.textAlign = 'center'; c.fillText('Tahsil eden · kaşe / imza', W - pad - 190, y + 30); c.textAlign = 'left';
+  const out = document.createElement('canvas'); out.width = W; out.height = Math.min(H, y + 70);
+  out.getContext('2d').drawImage(cv, 0, 0);
+  return out;
+}
+
+/* canvas -> tek sayfalik PDF (JPEG gomulu) */
+function canvasPdf(cv) {
+  const jpg = atob(cv.toDataURL('image/jpeg', 0.92).split(',')[1]);
+  const pw = 595.28, ph = Math.round(pw * cv.height / cv.width * 100) / 100;
+  const icerik = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
+  const obj = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`,
+    `<< /Length ${icerik.length} >>\nstream\n${icerik}\nendstream`,
+    `<< /Type /XObject /Subtype /Image /Width ${cv.width} /Height ${cv.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n${jpg}\nendstream`
+  ];
+  let s = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'; const off = [];
+  obj.forEach((o, i) => { off.push(s.length); s += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const x = s.length;
+  s += `xref\n0 ${obj.length + 1}\n0000000000 65535 f \n${off.map((o) => String(o).padStart(10, '0') + ' 00000 n \n').join('')}trailer\n<< /Size ${obj.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF`;
+  const b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 255;
+  return new Blob([b], { type: 'application/pdf' });
+}
+
+async function makbuzGoster(p) {
+  await cache.ayarlar();
+  const cv = makbuzCanvas(p);
+  const ad = `Makbuz-${p.makbuz_no}.pdf`;
+  const pdf = canvasPdf(cv);
+  modal({
+    title: `Makbuz #${p.makbuz_no}`,
+    body: `<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff"><img style="width:100%;display:block" src="${cv.toDataURL('image/png')}" alt="Makbuz"></div>`,
+    foot: `<button class="btn" id="mk-print">${icon('print')}Yazdır</button><button class="btn primary" id="mk-dl">${icon('download')}PDF indir</button>${navigator.canShare ? '<button class="btn" id="mk-share">Paylaş</button>' : ''}`,
+    onMount: (m) => {
+      $('#mk-dl', m.el).onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(pdf); a.download = ad; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); };
+      $('#mk-print', m.el).onclick = () => { $('#print-root').innerHTML = `<img src="${cv.toDataURL('image/png')}" style="width:100%">`; setTimeout(() => window.print(), 50); };
+      $('#mk-share', m.el)?.addEventListener('click', async () => {
+        try { const file = new File([pdf], ad, { type: 'application/pdf' }); if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: `Makbuz ${p.makbuz_no}` }); else $('#mk-dl', m.el).click(); }
+        catch (e) { if (e.name !== 'AbortError') fail(e); }
+      });
+    }
   });
 }
 
@@ -2636,7 +2867,7 @@ async function viewOdemeTakvimi() {
   const FILT = { 'Tümü': () => true, 'Ödenecekler': (p) => p.yon === 'Ödeme', 'Gelecekler': (p) => p.yon === 'Tahsilat', 'Çek & senet': (p) => p._n && p.tur !== 'Platform', 'Platform': (p) => p._n && p.tur === 'Platform', 'Müşteri taksitleri': (p) => p.kategori === 'Müşteri', 'Verilen çekler': (p) => p.kategori === 'Verilen çek', 'Fabrika': (p) => p.kategori === 'Fabrika', 'Vergiler': (p) => ['Gümrük vergisi', 'İthalat KDV'].includes(p.kategori), 'Diğer ödemeler': (p) => !p._n && p.yon === 'Ödeme' && !['Fabrika', 'Gümrük vergisi', 'İthalat KDV', 'Verilen çek'].includes(p.kategori) };
   if (!FILT[ui.f]) ui.f = 'Tümü';
   const cekler = nakit.filter((n) => n.durum === 'Bekliyor' && n.tur !== 'Platform'), plats = nakit.filter((n) => n.durum === 'Bekliyor' && n.tur === 'Platform');
-  $('#view').innerHTML = `<div class="quick" style="grid-template-columns:repeat(3,1fr)">
+  $('#view').innerHTML = `${odemeTabs('odeme')}<div class="quick" style="grid-template-columns:repeat(3,1fr)">
       <button class="q-orange" id="yo">${icon('plus')}Ödenecek</button>
       <button class="q-blue" id="n-cek">${icon('plus')}Alınan çek</button>
       <button class="q-purple" id="n-pl">${icon('plus')}Platform</button></div>
@@ -3199,7 +3430,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.29';
+const APP_V = '1.30';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

@@ -163,6 +163,81 @@ async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem
   return { kalemler, odenen, ham: { kayit: bekleyen.length, gunler: by, tipler, ornek: bekleyen.slice(0, 3).map(({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate }) => ({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate })) } };
 }
 
+/* ---------------- PayTR islem dokumu (tek tek kart odemeleri) ---------------- */
+// POST /rapor/islem-dokumu · tarih "YYYY-MM-DD hh:mm:ss" · en fazla 3 gun
+async function paytrIslemler(a: Record<string, string>, hesap: string, gunSay: number): Promise<{ adet: number; ornek: unknown[] }> {
+  const ornek: unknown[] = [];
+  const bugun = gun(new Date());
+  const tokenAl = async (msg: string) => {
+    const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(a.merchant_key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg)))));
+  };
+  const tarihIso = (v: unknown) => {
+    const s = String(v ?? "").trim();
+    let m = /^(\d{2})[./-](\d{2})[./-](\d{4})/.exec(s); if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    return null;
+  };
+  // yanit icinde islem_tipi alani olan tum kayitlari topla (bicim: dizi ya da nesne icinde dizi)
+  const topla = (o: unknown, out: Record<string, unknown>[]) => {
+    if (!o || typeof o !== "object") return;
+    if (Array.isArray(o)) { o.forEach((x) => topla(x, out)); return; }
+    const r = o as Record<string, unknown>;
+    if ("islem_tipi" in r && ("islem_tutari" in r || "net_tutar" in r)) { out.push(r); return; }
+    Object.values(r).forEach((v) => topla(v, out));
+  };
+  const satirlar: Record<string, unknown>[] = [];
+  const say: Record<string, number> = {};
+  for (let bit = bugun, i = 0; i < Math.ceil(gunSay / 3); i++) {
+    const bas = ekle(bit, -2);
+    const sd = `${bas} 00:00:00`, ed = `${bit} 23:59:59`;
+    await new Promise((ok) => setTimeout(ok, 1500)); // PayTR art arda hizli istekleri engelliyor
+    const alanlar = { merchant_id: a.merchant_id, start_date: sd, end_date: ed, paytr_token: await tokenAl(a.merchant_id + sd + ed + a.merchant_salt) };
+    // once form-urlencoded, JSON gelmezse multipart/form-data (Postman ornegi) dene
+    let r = await fetch("https://www.paytr.com/rapor/islem-dokumu", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(alanlar) });
+    let t = await r.text();
+    if (!t.trim().startsWith("{")) {
+      const fd = new FormData(); Object.entries(alanlar).forEach(([k, v]) => fd.append(k, v));
+      r = await fetch("https://www.paytr.com/rapor/islem-dokumu", { method: "POST", body: fd });
+      t = await r.text();
+    }
+    let j: Record<string, unknown>;
+    try { j = JSON.parse(t); } catch {
+      const baslik = (/<title>([^<]*)<\/title>/i.exec(t)?.[1] || "").trim();
+      const govde = t.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      throw new Error(`PayTR işlem dökümü JSON değil (HTTP ${r.status}${baslik ? ", " + baslik : ""}): ${govde.slice(0, 160)}`);
+    }
+    if (ornek.length < 2) ornek.push({ aralik: `${sd} – ${ed}`, yanit: t.slice(0, 1200).replace(/\d{6}\d+/g, (m) => m.slice(0, 4) + "…") });
+    if (j.status === "error") throw new Error(`PayTR işlem dökümü: ${j.err_no || ""} ${j.err_msg || ""}`.trim());
+    const liste: Record<string, unknown>[] = [];
+    if (j.status === "success") topla(j, liste);
+    for (const x of liste) {
+      const tarih = tarihIso(x.islem_tarihi); if (!tarih) continue;
+      const tip = String(x.islem_tipi).toUpperCase() === "I" ? "İade" : "Satış";
+      const tutar = Math.abs(sayi(x.islem_tutari));
+      const sip = String(x.siparis_no ?? "").trim();
+      const anahtar = `${REF(hesap)}|${tip}|${sip}|${tarih}|${isNaN(tutar) ? "" : tutar.toFixed(2)}`;
+      say[anahtar] = (say[anahtar] || 0) + 1;
+      const n = (v: unknown) => { const k = sayi(v); return isNaN(k) ? null : Math.abs(k); };
+      const pb = String(x.para_birimi ?? "TL").toUpperCase();
+      satirlar.push({
+        hesap, dis_ref: `${anahtar}|${say[anahtar]}`, islem_tipi: tip, islem_tarihi: tarih, islem_zamani: String(x.islem_tarihi ?? ""),
+        siparis_no: sip || null, islem_tutari: isNaN(tutar) ? 0 : tutar, odeme_tutari: n(x.odeme_tutari), net_tutar: n(x.net_tutar),
+        kesinti_tutari: n(x.kesinti_tutari), kesinti_orani: n(x.kesinti_orani), para_birimi: pb === "TL" ? "TRY" : pb,
+        taksit: Number.isFinite(Number(x.taksit)) ? Number(x.taksit) : null, kart_marka: x.kart_marka ?? null, kart_no: x.kart_no ?? null,
+        odeme_tipi: x.odeme_tipi ?? null, ham: x,
+      });
+    }
+    bit = ekle(bas, -1);
+  }
+  if (satirlar.length) {
+    for (let i = 0; i < satirlar.length; i += 500) {
+      await rest("paytr_islemler?on_conflict=dis_ref", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(satirlar.slice(i, i + 500)) });
+    }
+  }
+  return { adet: satirlar.length, ornek };
+}
+
 const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol, Hepsiburada: hepsiburada };
 // "PayTR 2" -> kaynak "PayTR" (Odemeler'de ayni platform), dis_ref "paytr2:..." (hesaplar karismasin)
 const REF = (p: string) => p.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -201,7 +276,19 @@ Deno.serve(async (req) => {
         // yatan odemeler
         for (const d of odenen) await rest(`nakit_girisleri?dis_ref=like.${encodeURIComponent(`${ref}:${d}`)}*&durum=eq.Bekliyor`, { method: "PATCH", body: JSON.stringify({ durum: "Tahsil edildi", tahsil_tarihi: d }) });
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_calisma: new Date().toISOString(), son_durum: `Tamam · ${kalemler.length} ödeme günü`, son_adet: kalemler.length, son_yanit: JSON.parse(JSON.stringify(ham)) }) });
-        sonuc[e.platform] = { gun: new Set(kalemler.map((k) => k.vade)).size, toplam: Math.round(kalemler.filter((k) => (k.para_birimi || "TRY") === "TRY").reduce((a, k) => a + k.tutar, 0) * 100) / 100 };
+        // PayTR: tek tek kart odemeleri (tahsilat eslestirme icin). Ilk calismada son 60 gun, sonra son 9 gun.
+        let islemNot = "";
+        if (e.platform.startsWith("PayTR")) {
+          try {
+            const var_ = await rest(`paytr_islemler?select=id&hesap=eq.${encodeURIComponent(e.platform)}&limit=1`);
+            const gunSay = typeof body.islem_gun === "number" ? Math.min(body.islem_gun, 120) : var_.length ? 9 : 60;
+            const { adet, ornek } = await paytrIslemler(e.ayar || {}, e.platform, gunSay);
+            islemNot = ` · ${adet} kart işlemi`;
+            await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(JSON.parse(JSON.stringify(ham)) as Record<string, unknown>), islem_ornek: ornek } }) });
+          } catch (err) { islemNot = ` · işlem dökümü hatası: ${String((err as Error).message || err).slice(0, 200)}`; }
+          await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_durum: `Tamam · ${kalemler.length} ödeme günü${islemNot}` }) });
+        }
+        sonuc[e.platform] = { islem: islemNot.replace(/^ · /, ""), gun: new Set(kalemler.map((k) => k.vade)).size, toplam: Math.round(kalemler.filter((k) => (k.para_birimi || "TRY") === "TRY").reduce((a, k) => a + k.tutar, 0) * 100) / 100 };
       } catch (err) {
         const m = String((err as Error).message || err).slice(0, 400);
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_calisma: new Date().toISOString(), son_durum: `Hata: ${m}` }) }).catch(() => {});
