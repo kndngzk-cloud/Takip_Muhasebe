@@ -1938,6 +1938,7 @@ async function viewPaytr() {
   const ui = state.ui.paytr ||= { f: 'Eşleşmemiş', hesap: '', q: '' };
   const [data, cariler] = await Promise.all([api.get('v_paytr_islemler', 'select=*&order=islem_tarihi.desc,id.desc&limit=5000'), cache.cariler()]);
   const hesaplar = [...new Set(data.map((p) => p.hesap))].sort();
+  const yeniEs = new Set(); // bu ekranda yeni eslestirilenler "Eşleşmemiş" filtresinde de gorunur kalsin (makbuz icin)
   $('#view').innerHTML = `${odemeTabs('paytr')}
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Tutar, sipariş no, kart, cari ara…" value="${esc(ui.q)}"></div></div>
     <div class="chips" id="pt-c">${['Eşleşmemiş', 'Eşleşmiş', 'Tümü'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}
@@ -1949,7 +1950,7 @@ async function viewPaytr() {
   }
   const draw = () => {
     const q = norm(ui.q);
-    const f = data.filter((p) => (ui.f === 'Tümü' || (ui.f === 'Eşleşmemiş' ? p.durum === 'Bekliyor' : p.durum !== 'Bekliyor')) && (!ui.hesap || p.hesap === ui.hesap)
+    const f = data.filter((p) => (ui.f === 'Tümü' || (ui.f === 'Eşleşmemiş' ? p.durum === 'Bekliyor' || yeniEs.has(p.id) : p.durum !== 'Bekliyor')) && (!ui.hesap || p.hesap === ui.hesap)
       && (!q || norm(`${p.siparis_no || ''} ${p.kart_no || ''} ${p.kart_marka || ''} ${p.cari_unvan || ''} ${fmtN(p.islem_tutari)} ${p.islem_tutari} ${p.makbuz_no ? 'makbuz ' + p.makbuz_no : ''} ${p.durum === 'Perakende' ? 'perakende' : ''}`).includes(q)));
     const bek = data.filter((p) => p.durum === 'Bekliyor' && (!ui.hesap || p.hesap === ui.hesap));
     const net = (arr) => arr.reduce((a, p) => a + (p.islem_tipi === 'İade' ? -1 : 1) * num(p.islem_tutari), 0);
@@ -2000,6 +2001,7 @@ async function viewPaytr() {
       const r = await busy(btn, () => api.rpc('paytr_eslestir', { p_id: p.id, p_cari_id: cari ? cari.id : null, p_fatura_tipi: tip }));
       Object.assign(p, { durum: cari ? 'Cari' : 'Perakende', cari_id: cari?.id || null, cari_unvan: cari?.unvan || null, fatura_tipi: cari ? tip : null, makbuz_no: r.makbuz_no, cari_hareket_id: r.cari_hareket_id });
       if (cari) cache.dirty('cariler');
+      yeniEs.add(p.id);
       toast(cari ? `${cari.unvan}: ${fmtTL(p.islem_tutari)} ${p.islem_tipi === 'İade' ? 'iade borç olarak' : 'tahsilat'} işlendi (${tip}) · Makbuz #${r.makbuz_no}` : `Perakende olarak işaretlendi · Makbuz #${r.makbuz_no}`, 'ok');
       draw();
     };
@@ -2139,13 +2141,15 @@ async function makbuzGoster(p) {
   const cv = makbuzCanvas(p);
   const ad = `Makbuz-${p.makbuz_no}.pdf`;
   const pdf = canvasPdf(cv);
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
   modal({
     title: `Makbuz #${p.makbuz_no}`,
-    body: `<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff"><img style="width:100%;display:block" src="${cv.toDataURL('image/png')}" alt="Makbuz"></div>`,
-    foot: `<button class="btn" id="mk-print">${icon('print')}Yazdır</button><button class="btn primary" id="mk-dl">${icon('download')}PDF indir</button>${navigator.canShare ? '<button class="btn" id="mk-share">Paylaş</button>' : ''}`,
+    body: `${ios ? '<p class="small muted" style="margin-top:0">Yazdırmak için “Paylaş / Yazdır”a basın, açılan menüden <b>Yazdır</b>’ı seçin.</p>' : ''}<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff"><img style="width:100%;display:block" src="${cv.toDataURL('image/png')}" alt="Makbuz"></div>`,
+    foot: `${!(ios && standalone) ? `<button class="btn" id="mk-print">${icon('print')}Yazdır</button>` : ''}<button class="btn primary" id="mk-dl">${icon('download')}PDF indir</button>${navigator.canShare ? `<button class="btn" id="mk-share">Paylaş${ios ? ' / Yazdır' : ''}</button>` : ''}`,
     onMount: (m) => {
       $('#mk-dl', m.el).onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(pdf); a.download = ad; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); };
-      $('#mk-print', m.el).onclick = () => { $('#print-root').innerHTML = `<img src="${cv.toDataURL('image/png')}" style="width:100%">`; setTimeout(() => window.print(), 50); };
+      $('#mk-print', m.el)?.addEventListener('click', () => { $('#print-root').innerHTML = `<img src="${cv.toDataURL('image/png')}" style="width:100%">`; setTimeout(() => window.print(), 50); });
       $('#mk-share', m.el)?.addEventListener('click', async () => {
         try { const file = new File([pdf], ad, { type: 'application/pdf' }); if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: `Makbuz ${p.makbuz_no}` }); else $('#mk-dl', m.el).click(); }
         catch (e) { if (e.name !== 'AbortError') fail(e); }
@@ -3430,7 +3434,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.30';
+const APP_V = '1.31';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
