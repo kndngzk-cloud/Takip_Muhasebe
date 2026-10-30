@@ -452,7 +452,7 @@ const durumBadge = (d) => `<span class="badge ${d === 'Beklemede' ? 'b-orange' :
 const tipBadge = (t) => `<span class="badge ${t === 'R' ? 'b-blue' : 'b-purple'}">${esc(t)}</span>`;
 function siparisRow(s, sevkBtn = false) {
   return `<div class="row" data-go="#/siparis/${s.id}">
-    <div class="main-col"><div class="t">${esc(s.cari_unvan)}</div>
+    <div class="main-col"><div class="t">${esc(s.cari_unvan)}${s.cari_tip === 'Perakende' && (s.urun_ozet || s.platform) ? ` <span class="sp-ozet">${s.platform ? `<b style="color:${PL_RENK[s.platform] || 'inherit'}">${esc(s.platform)}</b>${s.urun_ozet ? ' · ' : ''}` : ''}${esc(s.urun_ozet || '')}</span>` : ''}</div>
       <div class="st"><span class="num">Fiş ${s.fis_no}</span>· ${fmtD(s.tarih)} ${tipBadge(s.fatura_tipi)} ${durumBadge(s.durum)}${s.cin_no ? ` <span class="badge b-blue">${cinNo(s.cin_no)}${s.cin_durum !== 'Teslim Alındı' ? ' · yolda' : ''}</span>` : ''} ${s.gonderim_sekli ? `<span class="tiny">${esc(s.gonderim_sekli)}</span>` : ''}</div></div>
     <div class="end"><div class="amt">${fmtTL(s.genel_toplam)}</div>
       ${sevkBtn && s.durum === 'Beklemede' ? `<button class="btn sm green" style="margin-top:6px" data-sevk="${s.id}" data-fis="${s.fis_no}">${icon('truck')}Sevk et</button>` : ''}</div>
@@ -520,7 +520,7 @@ async function viewSiparisler() {
     const q = norm(ui.q), uq = norm(ui.urun), ar = aralik();
     const mn = ui.min ? parseNum(ui.min) : null, mx = ui.max ? parseNum(ui.max) : null;
     let f = data.filter((s) => (ui.durum === 'Tümü' || s.durum === ui.durum) && (ui.tip === 'Tümü' || s.fatura_tipi === ui.tip)
-      && (!q || norm(`${s.cari_unvan} ${s.cari_kod || ''} ${s.fis_no} ${s.sevk_sehri || ''} ${s.gonderim_sekli || ''} ${s.aciklama || ''}`).includes(q))
+      && (!q || norm(`${s.cari_unvan} ${s.cari_kod || ''} ${s.fis_no} ${s.sevk_sehri || ''} ${s.gonderim_sekli || ''} ${s.aciklama || ''} ${s.urun_ozet || ''} ${s.platform || ''}`).includes(q))
       && (!ar || (s.tarih >= ar[0] && s.tarih <= ar[1]))
       && (!ui.gon || s.gonderim_sekli === ui.gon) && (!ui.sehir || s.sevk_sehri === ui.sehir) && (!ui.pb || s.para_birimi === ui.pb)
       && (!ui.cin || (ui.cin === 'yok' ? !s.cin_siparis_id : s.cin_siparis_id && (ui.cin === 'bagli' || s.cin_durum !== 'Teslim Alındı')))
@@ -3613,7 +3613,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.34';
+const APP_V = '1.35';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
