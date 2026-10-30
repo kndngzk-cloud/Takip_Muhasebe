@@ -412,7 +412,7 @@ async function viewHome() {
     api.get('v_odeme_takvimi', `select=*&odendi=is.false&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
     api.get('v_cin_siparisler', `select=*&durum=not.in.(${encodeURIComponent('"Teslim Alındı","İptal"')})&order=tahmini_varis.asc.nullslast&limit=30`).catch(() => []),
     api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
-    api.get('v_platform_siparisler', `select=*&or=(tarih.gte.${addDays(today(), -2)},and(sevk_tarihi.is.null,durum.in.(Aktarıldı,Bekliyor,Eşleşmedi,Hata)))&order=tarih.desc&limit=40`).catch(() => [])
+    api.get('v_platform_siparisler', `select=*&sevk_tarihi=is.null&durum=in.(Aktarıldı,Bekliyor,Eşleşmedi,Hata)&order=tarih.asc&limit=60`).catch(() => [])
   ]);
   const eksi = urun.filter((u) => u.aktif && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
@@ -432,8 +432,8 @@ async function viewHome() {
     </div>
     <div class="section-title">Sevk bekleyen siparişler <a href="#/siparisler">Tümü</a></div>
     <div class="list">${bek.length ? bek.map((s) => siparisRow(s, true)).join('') : '<div class="empty">Bekleyen sipariş yok 🎉</div>'}</div>
-    <div class="section-title">Platform siparişleri (son 3 gün ve kargo bekleyenler) <a href="#/platform-siparisler">Tümü</a></div>
-    <div class="list" id="h-pl">${plSon.length ? plSon.map(plRow).join('') : '<div class="empty">Son 3 günde platform siparişi yok</div>'}</div>
+    <div class="section-title">Kargoya verilmeyi bekleyen platform siparişleri <a href="#/platform-siparisler">Tümü</a></div>
+    <div class="list" id="h-pl">${plSon.length ? plSon.map(plRow).join('') : '<div class="empty">Kargo bekleyen platform siparişi yok</div>'}</div>
     <div class="section-title">En çok alacaklı olduğumuz cariler <a href="#" id="tum-alacak">Tümü</a></div>
     <div class="list">${alacak10.length ? alacak10.map(cariRow).join('') : '<div class="empty">Açık alacak yok</div>'}</div>
     <div class="section-title">Eksi stoktaki ürünler <a href="#/stok">Stok</a></div>
@@ -2023,7 +2023,7 @@ async function viewPlatformSiparisler() {
       ${platformlar.length > 1 ? `<span style="width:8px"></span>${[['', 'Tüm platformlar'], ...platformlar.map((x) => [x, x])].map(([v, t]) => `<button class="chip ${ui.pl === v ? 'on' : ''}" data-p="${esc(v)}">${t}</button>`).join('')}` : ''}</div>
     <div id="sum" class="tiny" style="margin:0 4px 8px"></div>
     <div class="list" id="lst"></div>
-    <div class="tiny" style="margin:10px 4px">Siparişler 15 dakikada bir otomatik kontrol edilir${son ? ` · son kontrol ${new Date(son).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}. Yeni siparişler perakende cari açılarak R faturalı, KDV dahil (komisyon ve kargo düşülmüş) olarak programa girer ve tahsilatı işlenir; kargoya verilince stoktan düşer.</div>`;
+    <div class="tiny" style="margin:10px 4px">Siparişler 2 dakikada bir otomatik kontrol edilir${son ? ` · son kontrol ${new Date(son).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}. Yeni siparişler perakende cari açılarak R faturalı, KDV dahil (komisyon ve kargo düşülmüş) olarak programa girer ve tahsilatı işlenir; kargoya verilince stoktan düşer.</div>`;
   const grup = (p) => p.durum === 'Aktarıldı' ? 'Aktarıldı' : p.durum === 'İptal' ? 'İptal' : p.durum === 'Eski' ? 'Programda yok' : 'İşlem bekleyen';
   const draw = () => {
     const q = norm(ui.q);
@@ -3620,7 +3620,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.36';
+const APP_V = '1.37';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
