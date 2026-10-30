@@ -74,6 +74,7 @@ const ICON = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   truck: '<path d="M1 4h14v12H1zM15 9h4l3 3v4h-7"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/>',
   cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+  card: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>',
   inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
@@ -280,7 +281,7 @@ const NAV = [
   { h: '#/cariler', k: 'cari', t: 'Cariler', i: 'users' },
   { h: '#/cin', k: 'cin', t: 'İthalat', i: 'ship', side: true },
   { h: '#/odemeler', k: 'odeme', t: 'Ödemeler', i: 'cash', side: true },
-  { h: '#/paytr', k: 'paytr', t: 'PayTR tahsilatları', i: 'cash', side: true, sub: true },
+  { h: '#/paytr', k: 'paytr', t: 'PayTR tahsilatları', i: 'card', side: true, sub: true },
   { h: '#/raporlar', k: 'rapor', t: 'Raporlar', i: 'chart', side: true },
   { h: '#/ayarlar', k: 'ayar', t: 'Ayarlar', i: 'gear', side: true },
   { h: '#/daha', k: 'daha', t: 'Daha', i: 'more', bottom: true }
@@ -317,7 +318,7 @@ function shell(active) {
     <div class="shell">
       <nav class="sidebar">
         <div class="brand">${esc(state.ayarlar?.firma_adi || 'Firmam')}<small>Sipariş • Stok • Cari</small></div>
-        ${NAV.filter((n) => !n.bottom).map((n) => `<a href="${n.h}" class="${n.k === active ? 'active' : ''}${n.sub ? ' sub' : ''}">${n.sub ? '' : icon(n.i)}${n.t}</a>`).join('')}
+        ${NAV.filter((n) => !n.bottom).map((n) => `<a href="${n.h}" class="${n.k === active ? 'active' : ''}${n.sub ? ' sub' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
         <div class="spacer"></div><div class="who">${who}</div>
       </nav>
       <div class="main">
@@ -3434,7 +3435,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.31';
+const APP_V = '1.32';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
