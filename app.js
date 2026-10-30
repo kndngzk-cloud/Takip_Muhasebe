@@ -2546,11 +2546,12 @@ async function viewOdemeTakvimi() {
     const q = norm(ui.q);
     const f = data.filter(FILT[ui.f]).filter((p) => !q || norm([p.aciklama, p.kategori, p.cari_unvan, p.fabrika_ad, p.kesideci, p.kaynak, p.belge_no, p.cin_no ? cinNo(p.cin_no) : '', p.fis_no].filter(Boolean).join(' ')).includes(q));
     if (!f.length) { $('#lst').innerHTML = '<div class="list"><div class="empty">Kayıt yok</div></div>'; return; }
+    const GUN = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+    const gunAd = (d) => `${fmtD(d)} ${GUN[new Date(d + 'T12:00:00').getDay()]}${d === bugun ? ' · bugün' : ''}`;
+    const tarihler = [...new Set(f.filter((p) => p.vade && p.vade >= bugun).map((p) => p.vade))].sort();
     const gruplar = ui.odenen ? [['Ödenmiş / tahsil edilmiş', f]] : [
       ['Gecikmiş', f.filter((p) => p.vade && p.vade < bugun)],
-      ['Bu hafta', f.filter((p) => p.vade && p.vade >= bugun && p.vade <= hafta)],
-      ['30 gün içinde', f.filter((p) => p.vade && p.vade > hafta && p.vade <= ay)],
-      ['Daha sonra', f.filter((p) => p.vade && p.vade > ay)],
+      ...tarihler.map((d) => [gunAd(d), f.filter((p) => p.vade === d)]),
       ['Tarihi belli değil', f.filter((p) => !p.vade)]
     ];
     $('#lst').innerHTML = gruplar.filter(([, a]) => a.length).map(([t, a]) => `<div class="section-title">${t} <span class="tiny" style="text-transform:none;letter-spacing:0">${a.length} kalem${ui.odenen ? '' : ` · ödeme ${fmtTL(top(a.filter((p) => p.yon === 'Ödeme')))} · gelecek ${fmtTL(top(a.filter((p) => p.yon === 'Tahsilat')))}`}</span></div>
@@ -3058,7 +3059,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.23';
+const APP_V = '1.24';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
