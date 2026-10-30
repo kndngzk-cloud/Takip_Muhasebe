@@ -1,0 +1,4 @@
+-- Uygulandi: entegrasyonlar tablosu (anahtarlar uygulamadan okunamaz), entegrasyon_kaydet / entegrasyon_alanlar RPC,
+-- nakit_girisleri.dis_ref + otomatik, v_nakit_girisleri yenilendi.
+-- Edge function: supabase/functions/platform-odemeler (PayTR odeme ozeti, Trendyol settlements)
+-- pg_cron: 'platform-odemeler' her gun 04:15 UTC (07:15 Turkiye)

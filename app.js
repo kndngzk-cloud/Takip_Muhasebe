@@ -1747,6 +1747,7 @@ async function viewAyarlar() {
       <div class="grid2">${[['kdv', 'İthalat KDV %'], ['gozetim_usd_kg', 'Gözetim değeri $/kg']].map(([k, l]) => `<div class="field"><label>${l}</label><input class="input s-it" data-k="${k}" inputmode="decimal" value="${a.ithalat?.[k] !== undefined ? fmtN(a.ithalat[k]) : ''}" ${ad ? '' : 'disabled'}></div>`).join('')}</div>
       ${ad ? '<button class="btn primary" id="s-it-ok">Varsayılanları kaydet</button>' : ''}
     </div>
+    ${ad ? `<div class="card" id="ent-kart"><h2>Pazaryeri / ödeme entegrasyonları</h2><div class="loading" style="padding:14px"><div class="spinner"></div></div></div>` : ''}
     <div class="card">
       <h2>Yedekler</h2>
       <p class="small muted" style="margin-top:0">Her gece 03:00'te tüm veriler otomatik olarak Excel'e yedeklenir. Son 7 günün yedeği saklanır, daha eskileri kendiliğinden silinir.</p>
@@ -1803,6 +1804,7 @@ async function viewAyarlar() {
     } catch (e) { el.innerHTML = `<p class="tiny" style="color:var(--red)">Yedek listesi alınamadı: ${esc(e.message)}</p>`; }
   };
   yedekListe();
+  if (ad) entegrasyonKart();
   $('#s-now')?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
     const r = await (await api.raw('functions/v1/gunluk-yedek', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
     toast(`Yedek alındı: ${r.dosya}`, 'ok'); yedekListe();
@@ -1813,6 +1815,50 @@ async function viewAyarlar() {
 /* ------------------------------------------------------------------ */
 /* Excel yedek (kutuphanesiz .xlsx yazici)                              */
 /* ------------------------------------------------------------------ */
+/* Pazaryeri / odeme kurulusu entegrasyonlari: anahtarlar sadece yazilir, uygulamadan geri okunamaz */
+const ENT_ALAN = {
+  PayTR: [['merchant_id', 'Mağaza no (merchant_id)'], ['merchant_key', 'Mağaza parola (merchant_key)'], ['merchant_salt', 'Mağaza gizli anahtar (merchant_salt)']],
+  Trendyol: [['seller_id', 'Satıcı ID'], ['api_key', 'API key'], ['api_secret', 'API secret']]
+};
+const ENT_NOT = {
+  PayTR: 'PayTR Mağaza Paneli → <b>BİLGİ</b> sayfasındaki bilgiler. Her sabah 07:15’te ödeme özeti çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur.',
+  Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.'
+};
+async function entegrasyonKart() {
+  const el = $('#ent-kart'); if (!el) return;
+  let ent, alan;
+  try { [ent, alan] = await Promise.all([api.get('entegrasyonlar', 'select=platform,aktif,son_calisma,son_durum,son_adet&order=platform'), api.rpc('entegrasyon_alanlar')]); }
+  catch (e) { el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2><p class="tiny" style="color:var(--red)">${esc(e.message)}</p>`; return; }
+  const dolu = Object.fromEntries((alan || []).map((a) => [a.platform, new Set(a.alanlar || [])]));
+  const sira = ['PayTR', 'Trendyol', 'Hepsiburada', 'Koçtaş'];
+  el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2>
+    <p class="small muted" style="margin-top:0">Bilgiler güvenli saklanır ve buradan geri okunamaz; değiştirmek için yenisini yazmanız yeterli, boş bıraktığınız alan eskisini korur.</p>
+    ${sira.map((pl) => { const e = ent.find((x) => x.platform === pl) || {}; const f = ENT_ALAN[pl]; return `<div class="ent" data-pl="${pl}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${pl}</b>${f ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : '<span class="badge">yakında</span>'}</div>
+      ${f ? `<p class="tiny" style="margin:6px 0 10px">${ENT_NOT[pl]}</p>
+        <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${k === 'merchant_id' || k === 'seller_id' ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
+        <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button><button class="btn sm ent-cal">Şimdi çalıştır</button></div>
+        <div class="tiny ent-dur" style="margin-top:8px">${e.son_calisma ? `Son çalışma: ${fmtD(String(e.son_calisma).slice(0, 10))} ${String(new Date(e.son_calisma).toTimeString()).slice(0, 5)} · <span style="color:${String(e.son_durum || '').startsWith('Hata') ? 'var(--red)' : 'var(--green)'}">${esc(e.son_durum || '')}</span>` : 'Henüz çalışmadı'}</div>`
+      : `<p class="tiny" style="margin:6px 0 0">${pl} için ödeme tarihlerini veren servis doğrulanınca eklenecek. O zamana kadar ödemeleri Ödemeler → Platform ile girebilirsiniz.</p>`}
+    </div>`; }).join('')}`;
+  $$('.ent', el).forEach((box) => {
+    const pl = box.dataset.pl; if (!ENT_ALAN[pl]) return;
+    const kaydet = async () => {
+      const ayar = {}; $$('.ent-in', box).forEach((i) => { if (i.value.trim()) ayar[i.dataset.k] = i.value.trim(); });
+      const r = await api.rpc('entegrasyon_kaydet', { p_platform: pl, p_aktif: $('.ent-ak', box).checked, p_ayar: ayar });
+      return r || {};
+    };
+    $('.ent-kay', box).onclick = (e) => busy(e.currentTarget, async () => { const r = await kaydet(); const eks = ENT_ALAN[pl].filter(([k]) => !r[k]).map(([, l]) => l); toast(eks.length ? `Kaydedildi; eksik: ${eks.join(', ')}` : `${pl} bilgileri kaydedildi`, eks.length ? 'err' : 'ok'); entegrasyonKart(); }).catch(fail);
+    $('.ent-cal', box).onclick = (e) => busy(e.currentTarget, async () => {
+      if ($$('.ent-in', box).some((i) => i.value.trim())) await kaydet();
+      const r = await (await api.raw('functions/v1/platform-odemeler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform: pl }) })).json();
+      const s = r.sonuc?.[pl];
+      if (s?.hata) toast(`${pl}: ${s.hata}`, 'err'); else if (s) toast(`${pl}: ${s.gun} ödeme günü, toplam ${fmtTL(s.toplam)} Ödemeler’e işlendi`, 'ok'); else toast(r.hata || 'Yanıt alınamadı', 'err');
+      entegrasyonKart();
+    }).catch(fail);
+  });
+}
+
 async function yedekAl() {
   const T = [
     ['Urunler', 'v_stok', 'select=kod,ad,kategori,birim,satis_fiyati,min_stok,toplam_giris,toplam_cikis,real_stok,bekleyen_siparis,sevk_sonrasi_stok,son_alis_fiyati,durum,aktif&order=kod'],
@@ -2854,7 +2900,7 @@ function nakitRow(n) {
   const alt = n.tur === 'Platform' ? [n.aciklama] : [n.belge_no ? `No ${n.belge_no}` : '', n.kaynak, n.aciklama];
   return `<div class="row" data-nid="${n.id}">
     <div class="main-col"><div class="t"><span class="badge ${n.tur === 'Platform' ? 'b-purple' : 'b-blue'}" style="margin-right:6px">${esc(n.tur)}</span>${baslik}</div>
-      <div class="st">${alt.filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${n.durum !== 'Bekliyor' ? nakitBadge(n.durum) : ''}${n.cari_hareket_id ? '<span class="badge">cariye işlendi</span>' : ''}</div></div>
+      <div class="st">${alt.filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${n.durum !== 'Bekliyor' ? nakitBadge(n.durum) : ''}${n.cari_hareket_id ? '<span class="badge">cariye işlendi</span>' : ''}${n.otomatik ? '<span class="badge b-green">otomatik</span>' : ''}</div></div>
     <div class="end"><div class="amt">${fmtPB(n.tutar, n.para_birimi)}</div>
       <div class="tiny ${gec ? 'pos' : ''}">${n.durum === 'Tahsil edildi' ? `✓ ${fmtD(n.tahsil_tarihi)}` : n.durum === 'Ciro edildi' ? `ciro: ${esc(n.ciro_edilen || '')}` : `${gec ? 'GECİKTİ · ' : ''}vade ${fmtD(n.vade)}`}</div>
       ${n.durum === 'Bekliyor' ? `<button class="btn sm orange" data-nok="${n.id}" style="margin-top:6px">${n.tur === 'Platform' ? 'Yattı' : 'Tahsil edildi'}</button>` : ''}</div>
@@ -3089,7 +3135,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.25';
+const APP_V = '1.26';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
