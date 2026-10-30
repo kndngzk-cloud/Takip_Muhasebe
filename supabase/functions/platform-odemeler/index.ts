@@ -187,7 +187,13 @@ async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem
   }
   // son 10 gunde yatanlar
   const odenen = [...new Set((await getir({ Status: "Paid", PaymentDateStart: ekle(bugun, -10), PaymentDateEnd: bugun }).catch(() => [] as Record<string, unknown>[])).map((x) => String(x.paymentDate ?? "").slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))];
-  const kalemler = Object.entries(by).filter(([, v]) => v > 0.005).map(([vade, tutar]) => ({ vade, tutar: Math.round(tutar * 100) / 100, aciklama: "Hepsiburada hakediş" }));
+  // sadece kesinti olan (eksi) gunler bir sonraki odeme gunune devredilir (Hepsiburada sonraki odemeden duser)
+  const kalemler: Kalem[] = []; let devir = 0;
+  for (const d of Object.keys(by).sort()) {
+    const v = by[d] + devir;
+    if (v > 0.005) { kalemler.push({ vade: d, tutar: Math.round(v * 100) / 100, aciklama: devir < -0.005 ? `Hepsiburada hakediş (önceki kesinti ${Math.round(-devir * 100) / 100} ₺ düşüldü)` : "Hepsiburada hakediş" }); devir = 0; }
+    else devir = v;
+  }
   return { kalemler, odenen, ham: { kayit: bekleyen.length, gunler: by, tipler, ornek: bekleyen.slice(0, 3).map(({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate }) => ({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate })) } };
 }
 
