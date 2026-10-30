@@ -510,7 +510,8 @@ async function viewSiparisDetay(id) {
         <span class="k">Sevk şehri</span><span>${esc(s.sevk_sehri || '–')}</span>
         ${s.para_birimi && s.para_birimi !== 'TRY' ? `<span class="k">Para birimi</span><span><b>${s.para_birimi}</b> · kur ${fmtN(s.kur)} ₺ · döviz toplamı <b>${fmtPB(num(s.genel_toplam) / num(s.kur), s.para_birimi)}</b></span>` : ''}
         <span class="k">Kâr yöntemi</span><span><span class="seg" id="d-yon" style="display:inline-flex;padding:2px"><button type="button" data-v="FIFO" style="padding:4px 12px">FIFO</button><button type="button" data-v="LIFO" style="padding:4px 12px">LIFO</button></span></span>
-        ${s.cin_siparis_id ? `<span class="k">İthalat siparişi</span><span><a href="#/cin/${s.cin_siparis_id}"><b>${cinNo(s.cin_no)}</b></a> ${cinBadge(s.cin_durum)}</span>` : ''}
+        ${s.cin_siparis_id ? `<span class="k">İthalat siparişi</span><span><a href="#/cin/${s.cin_siparis_id}"><b>${cinNo(s.cin_no)}</b></a> ${cinBadge(s.cin_durum)} ${s.durum !== 'İptal' ? '<a href="#" id="cin-kaldir" class="tiny" style="margin-left:6px">bağlantıyı kaldır</a>' : ''}</span>`
+          : s.durum === 'Beklemede' ? `<span class="k">İthalat</span><span><a href="#" id="cin-bagla">İthalat siparişine bağla →</a></span>` : ''}
         ${s.aciklama ? `<span class="k">Açıklama</span><span>${esc(s.aciklama)}</span>` : ''}
       </div>
     </div>
@@ -533,6 +534,12 @@ async function viewSiparisDetay(id) {
   $('#b-sevk')?.addEventListener('click', async () => {
     if (s.cin_siparis_id && s.cin_durum !== 'Teslim Alındı' && !await confirmBox('Mal henüz depoya gelmedi', `Bu sipariş ${cinNo(s.cin_no)} ithalat siparişine bağlı ve o sipariş henüz teslim alınmadı. Yine de sevk edilsin mi?`, 'Devam et')) return;
     sevkEt(s.id, s.fis_no);
+  });
+  $('#cin-bagla')?.addEventListener('click', (e) => { e.preventDefault(); ithalataBagla(s); });
+  $('#cin-kaldir')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (!await confirmBox('Bağlantı kaldırılsın mı?', `Fiş ${s.fis_no}, ${cinNo(s.cin_no)} ithalat siparişinden ayrılacak. Sipariş ve cari kaydı değişmez.`, 'Kaldır')) return;
+    try { await api.update('siparisler', `id=eq.${s.id}`, { cin_siparis_id: null }); toast('Bağlantı kaldırıldı', 'ok'); render(); } catch (err) { fail(err); }
   });
   const tpCtx = { yon: 'Tahsilat', kategori: 'Müşteri', siparis_id: s.id, pb: 'TRY', toplam: num(s.genel_toplam), tetikler: s.cin_siparis_id ? ['Sipariş', 'Üretim Bitti', 'Yüklendi', 'Limanda', 'Teslim Alındı', 'Sevk', 'Tarih'] : ['Sipariş', 'Sevk', 'Tarih'] };
   api.get('v_odeme_takvimi', `select=*&siparis_id=eq.${s.id}&order=sira.asc,id.asc`).then((tp) => {
@@ -952,12 +959,22 @@ async function viewUrunDetay(id) {
     <div class="btn-row" style="margin-bottom:6px">
       <button class="btn green" id="b-al">${icon('inbox')}Mal alışı</button>
       <button class="btn" id="b-dz">${icon('edit')}Sayım / fire</button>
+      ${isAdmin() ? `<button class="btn red" id="b-usil">${icon('trash')}Ürünü sil</button>` : ''}
     </div>
     <div class="section-title">Stok hareketleri</div>
     <div class="list">${hareketTable(har, false)}</div>`;
   $('#ed').onclick = () => urunForm(u, null, () => { cache.dirty('urunler'); render(); });
   $('#b-al').onclick = () => malAlisi(u);
   $('#b-dz').onclick = () => stokDuzelt(u);
+  $('#b-usil')?.addEventListener('click', async () => {
+    if (!await confirmBox(`${esc(u.ad)} silinsin mi?`, 'Ürün kartı ve müşteri fiyatları silinir. Hareketi (alış, sipariş, ithalat) olan ürünler silinemez; onlar pasif yapılabilir.', 'Sil', true)) return;
+    try { await api.del('urunler', `id=eq.${u.id}`); cache.dirty('urunler'); toast(`${u.ad} silindi`, 'ok'); go('#/stok'); }
+    catch (e) {
+      if (!/kullanıldığı/.test(e.message)) return fail(e);
+      if (!await confirmBox('Bu ürün silinemiyor', `${esc(u.ad)} ürününün stok hareketleri, siparişleri ya da ithalat kayıtları var; silinirse geçmiş kayıtlar bozulur. Bunun yerine <b>pasif</b> yapılsın mı? Pasif ürünler listelerde ve seçimlerde görünmez, geçmiş kayıtlar korunur.`, 'Pasif yap')) return;
+      try { await api.update('urunler', `id=eq.${u.id}`, { aktif: false }); cache.dirty('urunler'); toast(`${u.ad} pasif yapıldı`, 'ok'); render(); } catch (e2) { fail(e2); }
+    }
+  });
   bindHareketEdit();
 }
 
@@ -1839,6 +1856,7 @@ const MASRAF_KAT = ['Navlun', 'Sigorta', 'Gümrük vergisi', 'İthalat KDV', 'Li
 const MASRAF_DAHIL = Object.fromEntries(MASRAF_KAT.map((k) => [k, k !== 'İthalat KDV']));
 const MASRAF_DAGITIM = Object.fromEntries(MASRAF_KAT.map((k) => [k, ['Navlun', 'Sigorta', 'Gümrük vergisi', 'İthalat KDV'].includes(k) ? 'Değer' : 'Adet']));
 const GENEL_KAT = ['Verilen çek', 'Tedarikçi', 'Kira', 'Maaş', 'Vergi / SGK', 'Kredi', 'Fatura / abonelik', 'Diğer'];
+const MASRAF_TETIK = { 'Navlun': 'Limanda', 'Sigorta': 'Yüklendi', 'Gümrük vergisi': 'Limanda', 'İthalat KDV': 'Limanda' };
 const TR_GIDER = [['Liman', 'Liman'], ['Ardiye', 'Ardiye'], ['Müşavirlik', 'Müşavirlik'], ['İç nakliye', 'İç nakliye'], ['TSE / test', 'TSE / test'], ['Diğer', 'Damga / diğer']];
 const PLAN_SABLON = {
   '30-70g35': [[30, 'Sipariş', 'Ön ödeme %30'], [70, 'Sipariş', 'Bakiye %70 (35. gün)', 35]],
@@ -1942,7 +1960,7 @@ function planForm(p, ctx) {
   const kat0 = p?.kategori || (masraf ? (ctx.kat0 || (ctx.genel ? 'Verilen çek' : 'Navlun')) : ctx.kategori);
   let dag = p?.dagitim || MASRAF_DAGITIM[kat0] || 'Değer';
   const pb0 = p?.para_birimi || ctx.pb || 'TRY';
-  const tetik0 = p?.tetik || (masraf ? 'Tarih' : 'Sipariş');
+  const tetik0 = p?.tetik || (masraf ? (!ctx.genel && MASRAF_TETIK[kat0]) || 'Tarih' : 'Sipariş');
   modal({
     title: p ? 'Ödeme kalemi' : masraf ? (ctx.genel ? 'Yeni ödeme' : 'Vergi / masraf ekle') : ctx.yon === 'Tahsilat' ? 'Tahsilat taksiti ekle' : 'Fabrika taksiti ekle',
     body: `
@@ -1982,7 +2000,7 @@ function planForm(p, ctx) {
       E('#pf-tk').onchange = vis; E('#pf-y').oninput = vis;
       E('#pf-tek')?.addEventListener('change', () => { E('#pf-tekf').style.display = E('#pf-tek').checked ? '' : 'none'; });
       if (E('#pf-md')) { E('#pf-md').onchange = vis; E('#pf-dg').onclick = (e) => { const b = e.target.closest('button'); if (b) { dag = b.dataset.v; vis(); } }; }
-      if (E('#pf-kat') && E('#pf-md')) E('#pf-kat').onchange = () => { E('#pf-md').checked = MASRAF_DAHIL[E('#pf-kat').value]; dag = MASRAF_DAGITIM[E('#pf-kat').value]; vis(); };
+      if (E('#pf-kat') && E('#pf-md')) E('#pf-kat').onchange = () => { const k = E('#pf-kat').value; E('#pf-md').checked = MASRAF_DAHIL[k]; dag = MASRAF_DAGITIM[k]; if (!p && MASRAF_TETIK[k] && [...E('#pf-tk').options].some((o) => o.value === MASRAF_TETIK[k])) E('#pf-tk').value = MASRAF_TETIK[k]; vis(); };
       vis();
       E('#pf-ok').onclick = async (e) => {
         const tetik = E('#pf-tk').value;
@@ -2312,7 +2330,7 @@ async function viewCinDetay(id) {
       ${mal.length && kur ? `<tfoot><tr><td class="w">Toplam maliyet</td><td></td><td></td><td class="r" data-l="FOB ₺">${fmtTL(fobTL)}</td><td></td><td class="r" data-l="Masraf ₺">+ ${fmtTL(masTL)}</td><td class="r" data-l="Toplam ₺"><b>${fmtTL(fobTL + masTL)}</b></td></tr></tfoot>` : ''}
     </table></div></div>
     <p class="tiny" style="margin:0 4px 10px">Birim maliyet = fabrika fiyatı × kur + gümrük vergisi (GV + İGV + indirilemeyen KDV) + “maliyete dahil” masrafların payı. ${teslim ? 'Depo girişi bu maliyetle yapıldı; masraf ya da kur değişirse stoktaki maliyet de otomatik güncellenir.' : 'Teslim alındığında ürünler bu maliyetle depo stoğuna girer.'}</p>
-    <div class="section-title">Müşteri siparişleri ${!iptal ? `<a href="#/siparis/yeni?cin=${c.id}">+ Müşteri siparişi</a>` : ''}</div>
+    <div class="section-title">Müşteri siparişleri ${!iptal ? `<span style="display:flex;gap:14px"><a href="#" id="ms-bagla">Mevcut siparişi bağla</a><a href="#/siparis/yeni?cin=${c.id}">+ Yeni müşteri siparişi</a></span>` : ''}</div>
     <div class="list" id="ms-lst">${msip.length ? msip.map((s) => siparisRow(s, teslim)).join('') : '<div class="empty">Bu ithalat siparişine bağlı müşteri siparişi yok</div>'}</div>
     <div class="section-title">Fabrika ödemeleri ${!iptal ? '<a href="#" id="pf-add">+ Taksit / plan</a>' : ''}</div>
     <div class="list" id="pf-lst">${fab.length ? fab.map((p) => planRow(p)).join('') + planOzet(fab, c.para_birimi, num(c.toplam)) : '<div class="empty">Ödeme planı yok</div>'}</div>
@@ -2320,6 +2338,7 @@ async function viewCinDetay(id) {
     ${!iptal ? `<div class="btn-row" style="margin-bottom:10px"><button class="btn sm" id="b-vergi">${icon('chart')}Gümrük vergisi hesapla</button><button class="btn sm" id="b-trg">${icon('plus')}Türkiye giderleri</button></div>` : ''}
     <div class="list" id="pm-lst">${mas.length ? mas.map((p) => planRow(p)).join('') : '<div class="empty">Gümrük vergisi, ithalat KDV, navlun, ardiye gibi kalemleri buraya girin. Son ödeme tarihleri takvimde görünür.</div>'}</div>`;
   bindRows($('#ms-lst'));
+  $('#ms-bagla')?.addEventListener('click', (e) => { e.preventDefault(); siparisBagla(c); });
   const ctxF = { yon: 'Ödeme', kategori: 'Fabrika', cin_siparis_id: c.id, pb: c.para_birimi, toplam: num(c.toplam), sira: fab.length, tetikler: ['Sipariş', 'Üretim Bitti', 'Yüklendi', 'Limanda', 'Teslim Alındı', 'Tarih'] };
   const ctxM = { yon: 'Ödeme', masraf: true, cin_siparis_id: c.id, pb: 'TRY', sira: mas.length, tetikler: ['Tarih', 'Yüklendi', 'Limanda', 'Teslim Alındı'] };
   bindPlanRows($('#pf-lst'), fab, ctxF);
@@ -2352,6 +2371,41 @@ async function viewCinDetay(id) {
       await api.update('cin_siparisler', `id=eq.${c.id}`, { durum: 'Limanda', teslim_tarihi: null });
       cache.dirty('urunler'); toast('Teslim geri alındı', 'ok'); render();
     } catch (e) { fail(e); }
+  });
+}
+
+/* Normal musteri siparisini ithalat siparisine bagla (iki yonden) */
+async function ithalataBagla(s) {
+  let cinler; try { cinler = (await api.get('v_cin_siparisler', `select=*&durum=neq.${encodeURIComponent('İptal')}&order=no.desc&limit=200`)); } catch (e) { return fail(e); }
+  modal({
+    title: `Fiş ${s.fis_no} · ithalata bağla`,
+    body: `<p class="small muted" style="margin-top:0">Hangi ithalat siparişiyle gelecek? Bağlanınca sipariş, ithalatın sayfasında “müşteri siparişleri” altında görünür; mal depoya gelmeden sevk edilirken uyarı verilir.</p>
+      <div class="list" style="margin:0">${cinler.length ? cinler.map((c) => `<div class="row" data-c="${c.id}"><div class="main-col"><div class="t">${cinNo(c.no)} · ${esc(c.fabrika_ad)}</div><div class="st">${cinBadge(c.durum)}${c.tahmini_varis ? `<span>tahmini varış ${fmtD(c.tahmini_varis)}</span>` : ''}</div></div><div class="end"><div class="amt">${fmtPB(c.toplam, c.para_birimi)}</div></div></div>`).join('') : '<div class="empty">İthalat siparişi yok</div>'}</div>`,
+    onMount: (m) => {
+      $$('[data-c]', m.el).forEach((el) => el.onclick = async () => {
+        try { await api.update('siparisler', `id=eq.${s.id}`, { cin_siparis_id: +el.dataset.c }); m.close(); toast('İthalat siparişine bağlandı', 'ok'); render(); } catch (e) { fail(e); }
+      });
+    }
+  });
+}
+async function siparisBagla(c) {
+  let sp; try { sp = await api.get('v_siparisler', `select=*&durum=eq.Beklemede&cin_siparis_id=is.null&order=fis_no.desc&limit=500`); } catch (e) { return fail(e); }
+  modal({
+    title: `${cinNo(c.no)} · mevcut siparişi bağla`,
+    body: `<p class="small muted" style="margin-top:0">Sevk bekleyen ve henüz bir ithalata bağlı olmayan siparişler.</p>
+      <div class="search" style="margin-bottom:10px">${icon('search')}<input id="sb-q" placeholder="Cari ya da fiş no ara…"></div>
+      <div class="list" style="margin:0" id="sb-l"></div>`,
+    onMount: (m) => {
+      const draw = () => {
+        const q = norm($('#sb-q', m.el).value);
+        const f = sp.filter((s) => !q || norm(`${s.cari_unvan} ${s.fis_no}`).includes(q)).slice(0, 100);
+        $('#sb-l', m.el).innerHTML = f.length ? f.map((s) => `<div class="row" data-s="${s.id}"><div class="main-col"><div class="t">${esc(s.cari_unvan)}</div><div class="st"><span>Fiş ${s.fis_no}</span><span>${fmtD(s.tarih)}</span>${tipBadge(s.fatura_tipi)}</div></div><div class="end"><div class="amt">${fmtTL(s.genel_toplam)}</div></div></div>`).join('') : '<div class="empty">Bağlanabilecek sipariş yok</div>';
+        $$('[data-s]', m.el).forEach((el) => el.onclick = async () => {
+          try { await api.update('siparisler', `id=eq.${el.dataset.s}`, { cin_siparis_id: c.id }); m.close(); toast('Sipariş bağlandı', 'ok'); render(); } catch (e) { fail(e); }
+        });
+      };
+      $('#sb-q', m.el).oninput = draw; draw();
+    }
   });
 }
 
@@ -2685,7 +2739,7 @@ async function vergiHesapla(c, kal, plan, kur0) {
             }
             if (E('#vh-nsk')?.checked) {
               const ek = [['Navlun', ctx.navlun], ['Sigorta', ctx.sigorta]].filter(([, v]) => v > 0)
-                .map(([kat, v], i) => ({ yon: 'Ödeme', kategori: kat, cin_siparis_id: c.id, aciklama: null, tetik: 'Yüklendi', gun_sonra: 0, tutar: Math.round(v * 100) / 100, para_birimi: c.para_birimi, maliyete_dahil: true, dagitim: 'Değer', sira: 50 + i }));
+                .map(([kat, v], i) => ({ yon: 'Ödeme', kategori: kat, cin_siparis_id: c.id, aciklama: null, tetik: MASRAF_TETIK[kat] || 'Yüklendi', gun_sonra: 0, tutar: Math.round(v * 100) / 100, para_birimi: c.para_birimi, maliyete_dahil: true, dagitim: 'Değer', sira: 50 + i }));
               if (ek.length) await api.insert('odeme_plani', ek);
             }
             for (const row of satirlar) {
@@ -2963,7 +3017,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.19';
+const APP_V = '1.20';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
