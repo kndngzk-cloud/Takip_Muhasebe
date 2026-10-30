@@ -115,6 +115,34 @@ async function trendyol(a: Record<string, string>): Promise<{ kalemler: Kalem[];
   return { kalemler, odenen: [], ham: { kayit: adet, gunler: by } };
 }
 
+/* Hepsiburada User-Agent'in birebir gitmesini istiyor; fetch() buna kendi ekini koydugu icin
+   istek TLS uzerinden elle yazilir (HTTP/1.1, chunked cozumlu). */
+async function hamGet(u: string, headers: Record<string, string>): Promise<{ status: number; text: string }> {
+  const url = new URL(u);
+  const conn = await Deno.connectTls({ hostname: url.hostname, port: 443 });
+  try {
+    const satir = [`GET ${url.pathname}${url.search} HTTP/1.1`, `Host: ${url.hostname}`, "Connection: close", ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`), "", ""];
+    await conn.write(new TextEncoder().encode(satir.join("\r\n")));
+    const parcalar: Uint8Array[] = []; let top = 0; const buf = new Uint8Array(65536);
+    while (true) { const n = await conn.read(buf).catch(() => null); if (!n) break; parcalar.push(buf.slice(0, n)); top += n; }
+    const tum = new Uint8Array(top); let o = 0; for (const p of parcalar) { tum.set(p, o); o += p.length; }
+    const ayir = (() => { for (let i = 0; i < tum.length - 3; i++) if (tum[i] === 13 && tum[i + 1] === 10 && tum[i + 2] === 13 && tum[i + 3] === 10) return i; return -1; })();
+    const bas = new TextDecoder().decode(tum.slice(0, ayir < 0 ? tum.length : ayir));
+    let govde = ayir < 0 ? new Uint8Array() : tum.slice(ayir + 4);
+    if (/transfer-encoding:\s*chunked/i.test(bas)) {
+      const out: Uint8Array[] = []; let i = 0, n = 0;
+      while (i < govde.length) {
+        let j = i; while (j < govde.length - 1 && !(govde[j] === 13 && govde[j + 1] === 10)) j++;
+        const boy = parseInt(new TextDecoder().decode(govde.slice(i, j)).split(";")[0].trim(), 16);
+        if (!boy) break; out.push(govde.slice(j + 2, j + 2 + boy)); n += boy; i = j + 2 + boy + 2;
+      }
+      const birlesik = new Uint8Array(n); let k = 0; for (const p of out) { birlesik.set(p, k); k += p.length; }
+      govde = birlesik;
+    }
+    return { status: Number(/^HTTP\/1\.[01] (\d+)/.exec(bas)?.[1] || 0), text: new TextDecoder().decode(govde) };
+  } finally { try { conn.close(); } catch { /* */ } }
+}
+
 /* ---------------- Hepsiburada ---------------- */
 // Muhasebe entegrasyonu: GET mpfinance-external.hepsiburada.com/transactions/merchantid/{id}
 // Basic auth (Magaza ID : Servis anahtari), User-Agent = entegrator kullanici adi. Tarih araligi en fazla 1 ay.
@@ -127,9 +155,9 @@ async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem
     for (let off = 0; off < 20000; off += 100) {
       const u = new URL(`https://mpfinance-external.hepsiburada.com/transactions/merchantid/${encodeURIComponent(a.merchant_id)}`);
       Object.entries({ Offset: String(off), Limit: "100", ...q }).forEach(([k, v]) => u.searchParams.set(k, v));
-      const r = await fetch(u, { headers: { Authorization: auth, "User-Agent": a.kullanici_adi, Accept: "application/json" } });
-      const t = await r.text();
-      if (!r.ok) throw new Error(`Hepsiburada ${r.status}: ${t.slice(0, 200)}`);
+      const r = await hamGet(u.toString(), { Authorization: auth, "User-Agent": a.kullanici_adi, Accept: "application/json" });
+      const t = r.text;
+      if (r.status < 200 || r.status >= 300) throw new Error(`Hepsiburada ${r.status}: ${t.slice(0, 200)}`);
       const j = JSON.parse(t);
       const items = (Array.isArray(j) ? j : j.items ?? j.data ?? []) as Record<string, unknown>[];
       out.push(...items);
@@ -149,7 +177,7 @@ async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem
   for (const x of bekleyen) {
     const id = String(x.id ?? ""); if (id && gorulen.has(id)) continue; if (id) gorulen.add(id);
     const tip = String(x.transactionType ?? "");
-    if (tip === "Payment" || tip === "TotalPayment") continue; // odeme kaydinin kendisi
+    if (tip === "TotalPayment") continue; // toplu odeme ozeti (cift sayilmasin); "Payment" = satis tutari, sayilir
     const d = String(x.dueDate ?? "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < bugun) continue;
     const v = Math.abs(deger(x.amount)); if (isNaN(v)) continue;
