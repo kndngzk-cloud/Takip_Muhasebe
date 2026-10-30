@@ -461,23 +461,77 @@ function bindRows(root = document) {
 
 async function viewSiparisler() {
   topbar('Siparişler', { actions: `<button class="tb-btn" onclick="go('#/siparis/yeni')">${icon('plus')}Yeni</button>` });
-  const ui = state.ui.sip ||= { durum: 'Tümü', tip: 'Tümü', q: '' };
+  const BOS = { donem: 'Tümü', bas: '', bit: '', gon: '', sehir: '', pb: '', cin: '', urun: '', min: '', max: '', sira: 'yeni' };
+  const ui = state.ui.sip ||= { durum: 'Tümü', tip: 'Tümü', q: '', ...BOS };
+  for (const [k, v] of Object.entries(BOS)) if (ui[k] === undefined) ui[k] = v;
   const data = await api.get('v_siparisler', 'select=*&order=fis_no.desc&limit=5000');
+  const uniq = (k) => [...new Set(data.map((s) => s[k]).filter(Boolean))].sort((x, y) => String(x).localeCompare(String(y), 'tr'));
+  const opt = (arr, sec, bos) => `<option value="">${bos}</option>` + arr.map((v) => `<option ${v === sec ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const DONEM = ['Tümü', 'Bugün', 'Bu hafta', 'Bu ay', 'Geçen ay', 'Son 3 ay', 'Bu yıl', 'Özel'];
   $('#view').innerHTML = `
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Cari, fiş no, şehir ara…" value="${esc(ui.q)}"></div></div>
     <div class="chips" id="c1">${['Tümü', 'Beklemede', 'Sevk Edildi', 'İptal'].map((d) => `<button class="chip ${ui.durum === d ? 'on' : ''}" data-d="${d}">${d}</button>`).join('')}
       <span style="width:8px"></span>${['Tümü', 'R', 'GR'].map((t) => `<button class="chip ${ui.tip === t ? 'on' : ''}" data-t="${t}">${t === 'Tümü' ? 'R + GR' : t}</button>`).join('')}</div>
+    <details class="gum" id="flt" style="margin:0 0 10px">
+      <summary>Filtrele <span id="flt-n" class="badge b-blue" style="margin-left:6px"></span></summary>
+      <div class="grid3">
+        <div class="field"><label>Dönem</label><select class="input" id="f-donem">${DONEM.map((d) => `<option ${d === ui.donem ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+        <div class="field f-ozel"><label>Başlangıç</label><input class="input" type="date" id="f-bas" value="${ui.bas}"></div>
+        <div class="field f-ozel"><label>Bitiş</label><input class="input" type="date" id="f-bit" value="${ui.bit}"></div>
+        <div class="field"><label>Gönderim şekli</label><select class="input" id="f-gon">${opt(uniq('gonderim_sekli'), ui.gon, 'Hepsi')}</select></div>
+        <div class="field"><label>Sevk şehri</label><select class="input" id="f-sehir">${opt(uniq('sevk_sehri'), ui.sehir, 'Hepsi')}</select></div>
+        <div class="field"><label>Para birimi</label><select class="input" id="f-pb">${opt(uniq('para_birimi'), ui.pb, 'Hepsi')}</select></div>
+        <div class="field"><label>İthalat</label><select class="input" id="f-cin"><option value="">Hepsi</option><option value="bagli" ${ui.cin === 'bagli' ? 'selected' : ''}>İthalata bağlı</option><option value="yolda" ${ui.cin === 'yolda' ? 'selected' : ''}>Bağlı, mal yolda</option><option value="yok" ${ui.cin === 'yok' ? 'selected' : ''}>Bağlı değil</option></select></div>
+        <div class="field"><label>Tutar en az (₺)</label><input class="input" inputmode="decimal" id="f-min" value="${esc(ui.min)}" placeholder="0"></div>
+        <div class="field"><label>Tutar en çok (₺)</label><input class="input" inputmode="decimal" id="f-max" value="${esc(ui.max)}" placeholder="sınırsız"></div>
+        <div class="field"><label>Sıralama</label><select class="input" id="f-sira">${[['yeni', 'Yeniden eskiye'], ['eski', 'Eskiden yeniye'], ['tutar', 'Tutar (büyükten)'], ['tutar_k', 'Tutar (küçükten)'], ['cari', 'Cari adı (A-Z)']].map(([k, l]) => `<option value="${k}" ${ui.sira === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="field" style="grid-column:1 / -1"><label>Ürün (kod veya ad)</label><input class="input" id="f-urun" value="${esc(ui.urun)}" placeholder="Bu ürünü içeren siparişler"></div>
+      </div>
+      <div class="btn-row" style="margin-top:4px"><button class="btn sm" id="f-temizle">Filtreleri temizle</button></div>
+    </details>
     <div id="sum" class="tiny" style="margin:0 4px 8px"></div>
     <div class="list" id="lst"></div>`;
+  let urunSip = null; // urun filtresi icin: siparis_id -> "kod ad ..." (ilk kullanimda yuklenir)
+  const urunYukle = async () => {
+    if (urunSip) return;
+    const k = await api.get('siparis_kalemleri', 'select=siparis_id,urunler(kod,ad)&limit=50000').catch(() => []);
+    urunSip = {}; k.forEach((x) => { urunSip[x.siparis_id] = (urunSip[x.siparis_id] || '') + ' ' + norm(`${x.urunler?.kod || ''} ${x.urunler?.ad || ''}`); });
+  };
+  const aralik = () => {
+    const t = new Date(), iso = (d) => d.toISOString().slice(0, 10), bugun = today();
+    const ay = (m) => new Date(Date.UTC(t.getFullYear(), t.getMonth() + m, 1));
+    switch (ui.donem) {
+      case 'Bugün': return [bugun, bugun];
+      case 'Bu hafta': { const d = new Date(bugun + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return [iso(d), bugun]; }
+      case 'Bu ay': return [iso(ay(0)), bugun];
+      case 'Geçen ay': { const e = ay(0); e.setUTCDate(0); return [iso(ay(-1)), iso(e)]; }
+      case 'Son 3 ay': return [iso(ay(-2)), bugun];
+      case 'Bu yıl': return [`${t.getFullYear()}-01-01`, bugun];
+      case 'Özel': return [ui.bas || '0000-01-01', ui.bit || '9999-12-31'];
+      default: return null;
+    }
+  };
   const draw = () => {
-    const q = norm(ui.q);
-    const f = data.filter((s) => (ui.durum === 'Tümü' || s.durum === ui.durum) && (ui.tip === 'Tümü' || s.fatura_tipi === ui.tip)
-      && (!q || norm(`${s.cari_unvan} ${s.fis_no} ${s.sevk_sehri || ''} ${s.gonderim_sekli || ''} ${s.aciklama || ''}`).includes(q)));
+    $$('.f-ozel').forEach((x) => (x.style.display = ui.donem === 'Özel' ? '' : 'none'));
+    const q = norm(ui.q), uq = norm(ui.urun), ar = aralik();
+    const mn = ui.min ? parseNum(ui.min) : null, mx = ui.max ? parseNum(ui.max) : null;
+    let f = data.filter((s) => (ui.durum === 'Tümü' || s.durum === ui.durum) && (ui.tip === 'Tümü' || s.fatura_tipi === ui.tip)
+      && (!q || norm(`${s.cari_unvan} ${s.cari_kod || ''} ${s.fis_no} ${s.sevk_sehri || ''} ${s.gonderim_sekli || ''} ${s.aciklama || ''}`).includes(q))
+      && (!ar || (s.tarih >= ar[0] && s.tarih <= ar[1]))
+      && (!ui.gon || s.gonderim_sekli === ui.gon) && (!ui.sehir || s.sevk_sehri === ui.sehir) && (!ui.pb || s.para_birimi === ui.pb)
+      && (!ui.cin || (ui.cin === 'yok' ? !s.cin_siparis_id : s.cin_siparis_id && (ui.cin === 'bagli' || s.cin_durum !== 'Teslim Alındı')))
+      && (mn == null || isNaN(mn) || num(s.genel_toplam) >= mn) && (mx == null || isNaN(mx) || num(s.genel_toplam) <= mx)
+      && (!uq || (urunSip && (urunSip[s.id] || '').includes(uq))));
+    const srt = { yeni: (x, y) => y.fis_no - x.fis_no, eski: (x, y) => x.fis_no - y.fis_no, tutar: (x, y) => num(y.genel_toplam) - num(x.genel_toplam), tutar_k: (x, y) => num(x.genel_toplam) - num(y.genel_toplam), cari: (x, y) => String(x.cari_unvan).localeCompare(String(y.cari_unvan), 'tr') }[ui.sira];
+    if (srt) f = [...f].sort(srt);
+    const n = ['gon', 'sehir', 'pb', 'cin', 'urun', 'min', 'max'].filter((k) => ui[k]).length + (ui.donem !== 'Tümü' ? 1 : 0) + (ui.sira !== 'yeni' ? 1 : 0);
+    $('#flt-n').textContent = n ? `${n} aktif` : ''; $('#flt-n').style.display = n ? '' : 'none';
     const tot = f.filter((s) => s.durum !== 'İptal').reduce((a, s) => a + num(s.genel_toplam), 0);
-    $('#sum').textContent = `${f.length} sipariş · toplam ${fmtTL(tot)}`;
-    $('#lst').innerHTML = f.length ? f.slice(0, 400).map((s) => siparisRow(s)).join('') + (f.length > 400 ? '<div class="empty">İlk 400 sipariş gösteriliyor, aramayı daraltın</div>' : '') : '<div class="empty">Sipariş bulunamadı</div>';
+    $('#sum').textContent = `${f.length} sipariş · toplam ${fmtTL(tot)}${ar && ui.donem !== 'Özel' ? ` · ${fmtD(ar[0])} – ${fmtD(ar[1])}` : ''}`;
+    $('#lst').innerHTML = f.length ? f.slice(0, 400).map((s) => siparisRow(s)).join('') + (f.length > 400 ? '<div class="empty">İlk 400 sipariş gösteriliyor, filtreyi daraltın</div>' : '') : '<div class="empty">Sipariş bulunamadı</div>';
     bindRows($('#lst'));
   };
+  if (ui.urun || ui.donem !== 'Tümü' || ['gon', 'sehir', 'pb', 'cin', 'min', 'max'].some((k) => ui[k])) $('#flt').open = true;
   $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
   $('#c1').onclick = (e) => {
     const b = e.target.closest('.chip'); if (!b) return;
@@ -485,6 +539,11 @@ async function viewSiparisler() {
     $$('#c1 .chip').forEach((c) => c.classList.toggle('on', (c.dataset.d && c.dataset.d === ui.durum) || (c.dataset.t && c.dataset.t === ui.tip)));
     draw();
   };
+  [['f-donem', 'donem'], ['f-bas', 'bas'], ['f-bit', 'bit'], ['f-gon', 'gon'], ['f-sehir', 'sehir'], ['f-pb', 'pb'], ['f-cin', 'cin'], ['f-sira', 'sira']].forEach(([id, k]) => ($('#' + id).onchange = (e) => { ui[k] = e.target.value; draw(); }));
+  [['f-min', 'min'], ['f-max', 'max']].forEach(([id, k]) => ($('#' + id).oninput = (e) => { ui[k] = e.target.value.trim(); draw(); }));
+  let zt; $('#f-urun').oninput = (e) => { ui.urun = e.target.value.trim(); clearTimeout(zt); zt = setTimeout(async () => { if (ui.urun) await urunYukle(); draw(); }, 250); };
+  $('#f-temizle').onclick = () => { Object.assign(ui, BOS); viewSiparisler(); };
+  if (ui.urun) await urunYukle();
   draw();
 }
 
@@ -3140,7 +3199,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.28';
+const APP_V = '1.29';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
