@@ -293,6 +293,7 @@ const ROUTES = [
   [/^#\/siparis\/yeni(?:\?cari=(\d+))?$/, 'siparis', viewSiparisYeni],
   [/^#\/siparis\/(\d+)\/duzenle$/, 'siparis', viewSiparisDuzenle],
   [/^#\/siparis\/(\d+)$/, 'siparis', viewSiparisDetay],
+  [/^#\/platform-siparisler$/, 'siparis', viewPlatformSiparisler],
   [/^#\/stok$/, 'stok', viewStok],
   [/^#\/stok\/hareketler$/, 'stok', viewStokHareketleri],
   [/^#\/alis\/yeni(?:\?urun=(\d+))?$/, 'stok', viewMalAlisi],
@@ -467,11 +468,11 @@ async function viewSiparisler() {
   const BOS = { donem: 'Tümü', bas: '', bit: '', gon: '', sehir: '', pb: '', cin: '', urun: '', min: '', max: '', sira: 'yeni' };
   const ui = state.ui.sip ||= { durum: 'Tümü', tip: 'Tümü', q: '', ...BOS };
   for (const [k, v] of Object.entries(BOS)) if (ui[k] === undefined) ui[k] = v;
-  const data = await api.get('v_siparisler', 'select=*&order=fis_no.desc&limit=5000');
+  const [data, plSorun] = await Promise.all([api.get('v_siparisler', 'select=*&order=fis_no.desc&limit=5000'), api.get('platform_siparisler', 'select=id&durum=in.(Eşleşmedi,Hata)').then((r) => r.length).catch(() => 0)]);
   const uniq = (k) => [...new Set(data.map((s) => s[k]).filter(Boolean))].sort((x, y) => String(x).localeCompare(String(y), 'tr'));
   const opt = (arr, sec, bos) => `<option value="">${bos}</option>` + arr.map((v) => `<option ${v === sec ? 'selected' : ''}>${esc(v)}</option>`).join('');
   const DONEM = ['Tümü', 'Bugün', 'Bu hafta', 'Bu ay', 'Geçen ay', 'Son 3 ay', 'Bu yıl', 'Özel'];
-  $('#view').innerHTML = `
+  $('#view').innerHTML = `${siparisTabs('sip', plSorun)}
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Cari, fiş no, şehir ara…" value="${esc(ui.q)}"></div></div>
     <div class="chips" id="c1">${['Tümü', 'Beklemede', 'Sevk Edildi', 'İptal'].map((d) => `<button class="chip ${ui.durum === d ? 'on' : ''}" data-d="${d}">${d}</button>`).join('')}
       <span style="width:8px"></span>${['Tümü', 'R', 'GR'].map((t) => `<button class="chip ${ui.tip === t ? 'on' : ''}" data-t="${t}">${t === 'Tümü' ? 'R + GR' : t}</button>`).join('')}</div>
@@ -552,9 +553,10 @@ async function viewSiparisler() {
 
 async function viewSiparisDetay(id) {
   topbar('Sipariş', { back: true });
-  const [[s], kal] = await Promise.all([
+  const [[s], kal, pls] = await Promise.all([
     api.get('v_siparisler', `select=*&id=eq.${id}`),
-    api.get('siparis_kalemleri', `select=*,urunler(ad,kod,birim)&siparis_id=eq.${id}&order=id.asc`)
+    api.get('siparis_kalemleri', `select=*,urunler(ad,kod,birim)&siparis_id=eq.${id}&order=id.asc`),
+    api.get('platform_siparisler', `select=*&siparis_id=eq.${id}`).catch(() => [])
   ]);
   if (!s) { $('#view').innerHTML = '<div class="card empty">Sipariş bulunamadı</div>'; return; }
   topbar(`Fiş ${s.fis_no}`, { back: true, actions: `<button class="tb-btn" id="prt">${icon('print')}</button>` });
@@ -577,6 +579,7 @@ async function viewSiparisDetay(id) {
         ${s.aciklama ? `<span class="k">Açıklama</span><span>${esc(s.aciklama)}</span>` : ''}
       </div>
     </div>
+    ${pls.map((p) => platformKart(p)).join('')}
     <div class="list"><div class="table-wrap"><table class="tbl">
       <thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim fiyat</th><th class="r">Tutar</th></tr></thead>
       <tbody>${kal.map((k) => `<tr><td>${esc(k.urunler?.ad)}<div class="tiny">${esc(k.urunler?.kod)}</div></td><td class="r">${fmtN(k.miktar)} ${esc(k.urunler?.birim || '')}</td><td class="r">${fmtTL(k.birim_fiyat)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(k.doviz_fiyat, s.para_birimi)}</div>` : ''}</td><td class="r">${fmtTL(k.tutar)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(num(k.doviz_fiyat) * num(k.miktar), s.para_birimi)}</div>` : ''}</td></tr>`).join('')}</tbody>
@@ -597,6 +600,7 @@ async function viewSiparisDetay(id) {
     if (s.cin_siparis_id && s.cin_durum !== 'Teslim Alındı' && !await confirmBox('Mal henüz depoya gelmedi', `Bu sipariş ${cinNo(s.cin_no)} ithalat siparişine bağlı ve o sipariş henüz teslim alınmadı. Yine de sevk edilsin mi?`, 'Devam et')) return;
     sevkEt(s.id, s.fis_no);
   });
+  platformKartBagla($('#view'), render);
   $('#cin-bagla')?.addEventListener('click', (e) => { e.preventDefault(); ithalataBagla(s); });
   $('#cin-kaldir')?.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -1932,6 +1936,178 @@ async function entegrasyonKart() {
 /* ------------------------------------------------------------------ */
 /* PayTR tahsilatlari: kart odemelerini cariye tahsilat olarak isle      */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* PLATFORM SIPARISLERI (Hepsiburada / Trendyol / Koctas)               */
+/* ------------------------------------------------------------------ */
+const PL_RENK = { Hepsiburada: '#ff6000', Trendyol: '#f27a1a', 'Koçtaş': '#c8102e' };
+const plBadge = (p) => `<span class="badge" style="background:${PL_RENK[p] || 'var(--brand)'};color:#fff">${esc(p)}</span>`;
+const PL_DURUM = { 'Aktarıldı': 'b-green', 'Eşleşmedi': 'b-red', 'Hata': 'b-red', 'Bekliyor': 'b-orange', 'Eski': '', 'İptal': '' };
+const plDurumBadge = (p) => `<span class="badge ${PL_DURUM[p.durum] || ''}">${p.durum === 'Eski' ? 'Programda yok' : p.durum === 'Aktarıldı' && p.elle ? 'Elle girilene bağlı' : esc(p.durum)}</span>`;
+const plKargoDurum = (p) => p.teslim_tarihi ? `Teslim edildi ${fmtD(p.teslim_tarihi)}` : p.sevk_tarihi ? `Kargoda · ${fmtD(p.sevk_tarihi)}` : p.durum === 'İptal' ? 'İptal' : 'Kargoya verilmedi';
+
+/* Code 128 barkod (SVG) */
+const C128 = '212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112'.split(' ');
+function barkodSvg(t) {
+  t = String(t || '').trim(); if (!t) return '';
+  let kod;
+  if (/^\d+$/.test(t) && t.length % 2 === 0) { kod = [105]; for (let i = 0; i < t.length; i += 2) kod.push(+t.slice(i, i + 2)); }
+  else { kod = [104]; for (const ch of t) { const c = ch.charCodeAt(0) - 32; if (c < 0 || c > 94) return ''; kod.push(c); } }
+  kod.push(kod.reduce((a, v, i) => a + (i ? v * i : v), 0) % 103, 106);
+  const w = kod.map((v) => C128[v]).join('');
+  let x = 10, bars = '';
+  for (let i = 0; i < w.length; i++) { const n = +w[i]; if (i % 2 === 0) bars += `<rect x="${x}" y="0" width="${n}" height="60"/>`; x += n; }
+  return `<svg class="barkod" viewBox="0 0 ${x + 10} 60" preserveAspectRatio="none" role="img" aria-label="Barkod ${esc(t)}"><rect width="${x + 10}" height="60" fill="#fff"/><g fill="#000">${bars}</g></svg>`;
+}
+
+function platformKart(p, siparisSayfasi = true) {
+  const tahmin = !p.kesinti_kesin;
+  const net = p.net != null ? num(p.net) : num(p.brut) - num(p.komisyon) - num(p.kargo_kesinti);
+  return `<div class="card pl-kart">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <div>${plBadge(p.platform)} <b class="num" style="margin-left:4px">${esc(p.siparis_no)}</b></div>
+      <div class="tiny">${esc(plKargoDurum(p))}</div>
+    </div>
+    <div class="kv" style="margin-top:12px">
+      <span class="k">Kargo firması</span><span>${esc(p.kargo_firma || '–')}</span>
+      <span class="k">Takip no</span><span>${p.kargo_takip ? `<b class="num">${esc(p.kargo_takip)}</b> <a href="#" class="tiny pl-kopya" data-v="${esc(p.kargo_takip)}" style="margin-left:6px">kopyala</a>` : '<span class="muted">Henüz kargoya verilmedi</span>'}</span>
+      ${p.sevk_tarihi ? `<span class="k">Kargoya verildi</span><span>${fmtD(p.sevk_tarihi)}</span>` : ''}
+      ${p.teslim_tarihi ? `<span class="k">Teslim edildi</span><span>${fmtD(p.teslim_tarihi)}</span>` : ''}
+      ${p.sehir ? `<span class="k">Teslimat</span><span>${esc([p.musteri, p.sehir].filter(Boolean).join(' · '))}</span>` : ''}
+    </div>
+    ${p.barkod ? `<div class="pl-barkod">${barkodSvg(p.barkod)}<div class="num tiny" style="text-align:center;letter-spacing:2px">${esc(p.barkod)}</div></div>` : ''}
+    ${p.kargo_link ? `<div class="btn-row" style="margin-top:10px"><a class="btn sm" href="${esc(p.kargo_link)}" target="_blank" rel="noopener">${icon('truck')}Kargoyu takip et</a></div>` : ''}
+    <div class="pl-dokum">
+      <div><span>Satış (KDV dahil)</span><b class="num">${fmtTL(p.brut)}</b></div>
+      <div><span>Komisyon${tahmin && p.komisyon != null ? ' (tahmini)' : ''}</span><b class="num">${p.komisyon != null ? '−' + fmtTL(p.komisyon) : '–'}</b></div>
+      <div><span>Kargo kesintisi${tahmin ? ' (henüz kesinleşmedi)' : ''}</span><b class="num">${p.kargo_kesinti != null ? '−' + fmtTL(p.kargo_kesinti) : '–'}</b></div>
+      <div class="tot"><span>Size kalan</span><b class="num">${fmtTL(net)}</b></div>
+    </div>
+    ${p.elle && siparisSayfasi ? `<div class="tiny" style="margin-top:8px">Bu sipariş elle girilmişti; platform siparişine bağlandı. Tutarına dokunulmaz, kargo ve iptal bilgisi buradan izlenir.${isAdmin() ? ` <a href="#" class="pl-ayir" data-id="${p.id}">Bağlantıyı kaldır</a>` : ''}</div>` : ''}
+    ${tahmin && !p.elle && siparisSayfasi && p.durum === 'Aktarıldı' ? '<div class="tiny" style="margin-top:8px">Kesintiler platformdan kesinleşince sipariş tutarı otomatik güncellenir.</div>' : ''}
+  </div>`;
+}
+function platformKartBagla(root, yenile) {
+  $$('.pl-kopya', root).forEach((a) => a.addEventListener('click', async (e) => { e.preventDefault(); try { await navigator.clipboard.writeText(a.dataset.v); toast('Takip no kopyalandı', 'ok'); } catch { toast(a.dataset.v); } }));
+  $$('.pl-ayir', root).forEach((a) => a.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (!await confirmBox('Bağlantı kaldırılsın mı?', 'Elle girilmiş sipariş platform siparişinden ayrılır. Sipariş ve cari kaydı değişmez.', 'Kaldır')) return;
+    try { await api.rpc('platform_siparis_bagla_kaldir', { p_id: +a.dataset.id }); toast('Bağlantı kaldırıldı', 'ok'); yenile(); } catch (err) { fail(err); }
+  }));
+}
+
+const siparisTabs = (k, n = 0) => `<div class="chips" style="margin-bottom:10px">${[['#/siparisler', 'sip', 'Siparişler'], ['#/platform-siparisler', 'pl', 'Platform siparişleri']].map(([h, kk, t]) => `<a class="chip ${k === kk ? 'on' : ''}" href="${h}">${t}${kk === 'pl' && n ? ` <span class="badge b-red" style="margin-left:6px">${n}</span>` : ''}</a>`).join('')}</div>`;
+
+async function viewPlatformSiparisler() {
+  topbar('Platform Siparişleri', { back: !wideScr(), actions: isAdmin() ? `<button class="tb-btn" id="pl-cek">${icon('download')}Şimdi çek</button>` : '' });
+  const ui = state.ui.pl ||= { f: 'Tümü', pl: '', q: '' };
+  const data = await api.get('v_platform_siparisler', 'select=*&order=tarih.desc,id.desc&limit=3000');
+  const sorun = data.filter((p) => p.durum === 'Eşleşmedi' || p.durum === 'Hata').length;
+  const son = data.reduce((m, p) => (p.guncelleme > m ? p.guncelleme : m), '');
+  const platformlar = [...new Set(data.map((p) => p.platform))].sort();
+  $('#view').innerHTML = `${siparisTabs('pl', sorun)}
+    <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Müşteri, sipariş no, takip no ara…" value="${esc(ui.q)}"></div></div>
+    <div class="chips" id="pl-c">${['Tümü', 'İşlem bekleyen', 'Aktarıldı', 'Programda yok', 'İptal'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}
+      ${platformlar.length > 1 ? `<span style="width:8px"></span>${[['', 'Tüm platformlar'], ...platformlar.map((x) => [x, x])].map(([v, t]) => `<button class="chip ${ui.pl === v ? 'on' : ''}" data-p="${esc(v)}">${t}</button>`).join('')}` : ''}</div>
+    <div id="sum" class="tiny" style="margin:0 4px 8px"></div>
+    <div class="list" id="lst"></div>
+    <div class="tiny" style="margin:10px 4px">Siparişler 15 dakikada bir otomatik kontrol edilir${son ? ` · son kontrol ${new Date(son).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}. Yeni siparişler perakende cari açılarak R faturalı, KDV dahil (komisyon ve kargo düşülmüş) olarak programa girer ve tahsilatı işlenir; kargoya verilince stoktan düşer.</div>`;
+  const grup = (p) => p.durum === 'Aktarıldı' ? 'Aktarıldı' : p.durum === 'İptal' ? 'İptal' : p.durum === 'Eski' ? 'Programda yok' : 'İşlem bekleyen';
+  const draw = () => {
+    const q = norm(ui.q);
+    const f = data.filter((p) => (ui.f === 'Tümü' || grup(p) === ui.f) && (!ui.pl || p.platform === ui.pl)
+      && (!q || norm(`${p.musteri || ''} ${p.siparis_no} ${p.kargo_takip || ''} ${p.sehir || ''} ${p.fis_no ? 'fis ' + p.fis_no : ''} ${(p.satirlar || []).map((s) => s.ad + ' ' + s.kod).join(' ')}`).includes(q)));
+    $('#sum').innerHTML = `${f.length} sipariş${sorun ? ` · <b style="color:var(--red)">${sorun} sipariş sizden ürün seçimi / kontrol bekliyor</b>` : ''}`;
+    $('#lst').innerHTML = f.length ? f.slice(0, 400).map((p) => `<div class="row" data-pl="${p.id}">
+        <div class="main-col"><div class="t">${esc(p.musteri || '–')}</div>
+          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${p.fis_no ? ` <span class="tiny">Fiş ${p.fis_no}</span>` : ''}</div>
+          <div class="tiny" style="margin-top:3px">${esc((p.satirlar || []).map((s) => `${s.miktar > 1 ? s.miktar + ' × ' : ''}${s.ad}`).join(', ').slice(0, 90))}</div>
+          <div class="tiny" style="margin-top:2px"><span class="ic-s">${icon('truck')}</span> ${esc(p.kargo_firma || '')} ${p.kargo_takip ? `<span class="num">${esc(p.kargo_takip)}</span> · ` : ''}${esc(plKargoDurum(p))}</div>
+          ${p.hata && p.durum !== 'Aktarıldı' ? `<div class="tiny" style="color:var(--red);margin-top:2px">${esc(p.hata)}</div>` : ''}</div>
+        <div class="end"><div class="amt">${fmtTL(p.net != null ? p.net : num(p.brut) - num(p.komisyon) - num(p.kargo_kesinti))}</div><div class="tiny">satış ${fmtTL(p.brut)}</div></div>
+      </div>`).join('') : `<div class="empty">${data.length ? 'Kayıt bulunamadı' : 'Henüz platform siparişi çekilmedi.'}</div>`;
+    $$('[data-pl]', $('#lst')).forEach((el) => el.addEventListener('click', () => plDetay(data.find((x) => x.id === +el.dataset.pl), data)));
+  };
+  $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
+  $('#pl-c').onclick = (e) => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    if (b.dataset.f) ui.f = b.dataset.f; if (b.dataset.p !== undefined) ui.pl = b.dataset.p;
+    $$('#pl-c .chip').forEach((c) => c.classList.toggle('on', (c.dataset.f && c.dataset.f === ui.f) || (c.dataset.p !== undefined && c.dataset.p === ui.pl)));
+    draw();
+  };
+  $('#pl-cek')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget; btn.disabled = true; btn.innerHTML = 'Çekiliyor… (1-2 dk)';
+    try {
+      const r = await (await api.raw('functions/v1/platform-siparisler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+      if (r.hata) throw new Error(r.hata);
+      const ozet = Object.entries(r.sonuc || {}).map(([k, v]) => v.hata ? `${k}: hata` : `${k}: ${v.yeni} yeni, ${v.aktarilan} aktarıldı`).join(' · ');
+      toast(ozet || 'Tamamlandı', 'ok'); cache.dirty('urunler', 'cariler'); render();
+    } catch (err) { fail(err); btn.disabled = false; btn.innerHTML = `${icon('download')}Şimdi çek`; }
+  });
+  draw();
+}
+
+async function plDetay(p, data) {
+  if (p.siparis_id && p.durum === 'Aktarıldı') { go(`#/siparis/${p.siparis_id}`); return; }
+  const urunler = await cache.urunler();
+  const satirlar = (p.satirlar || []).map((s) => ({ ...s, bul: s.urun_id || null }));
+  const acik = p.durum !== 'İptal';
+  modal({
+    title: `${p.platform} · ${p.siparis_no}`, wide: true,
+    body: `<div class="kv">
+        <span class="k">Müşteri</span><span><b>${esc(p.musteri || '–')}</b>${p.sehir ? ` · ${esc(p.sehir)}` : ''}</span>
+        <span class="k">Sipariş tarihi</span><span>${fmtD(p.tarih)}</span>
+        <span class="k">Platform durumu</span><span>${esc(p.platform_durum || '–')} ${plDurumBadge(p)}</span>
+        ${p.hata ? `<span class="k">Not</span><span style="color:var(--red)">${esc(p.hata)}</span>` : ''}
+      </div>
+      <div class="section-title">Ürünler</div>
+      <div id="pl-sat">${satirlar.map((s, i) => `<div class="card" style="padding:10px 12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;gap:8px"><div><b>${esc(s.ad)}</b><div class="tiny">Platform kodu: ${esc(s.kod || '–')} · ${fmtN(s.miktar)} adet</div></div><div class="num">${fmtTL(s.tutar)}</div></div>
+          ${acik ? `<div class="field picker" style="margin:8px 0 0"><label>Bizdeki ürün</label><input class="input pl-u" data-i="${i}" placeholder="Ürün seçin…" autocomplete="off"></div>` : ''}
+        </div>`).join('')}</div>
+      ${platformKart(p, false)}
+      ${p.durum === 'Eski' ? '<div class="tiny" style="margin-top:8px">Bu sipariş otomatik aktarım başlamadan önce verilmiş. Elle girdiyseniz “Elle girilmiş siparişe bağla” ile eşleyin; girmediyseniz “Programa aktar” ile oluşturun.</div>' : ''}`,
+    foot: `<button class="btn" data-close>Kapat</button>${acik ? `<button class="btn" id="pl-bag">Elle girilmiş siparişe bağla</button><button class="btn primary" id="pl-ak">Programa aktar</button>` : ''}`,
+    onMount: (m) => {
+      platformKartBagla(m.el, () => {});
+      $$('.pl-u', m.el).forEach((inp) => {
+        const s = satirlar[+inp.dataset.i];
+        const mevcut = s.bul ? urunler.find((u) => u.id === s.bul) : null;
+        if (mevcut) inp.value = `${mevcut.kod} · ${mevcut.ad}`;
+        picker(inp, { items: urunler, label: (u) => `${u.kod} · ${u.ad}`, sub: (u) => `stok ${fmtN(u.real_stok ?? 0)}`, onPick: (u) => { s.bul = u.id; s.secildi = true; inp.value = `${u.kod} · ${u.ad}`; } });
+      });
+      $('#pl-ak', m.el)?.addEventListener('click', async (e) => {
+        try {
+          await busy(e.currentTarget, async () => {
+            for (const s of satirlar.filter((x) => x.secildi)) await api.rpc('platform_urun_sec', { p_id: p.id, p_kod: s.kod || '', p_ad: s.ad || '', p_urun_id: s.bul });
+            const r = await api.rpc('platform_siparis_aktar', { p_id: p.id, p_zorla: true });
+            if (r?.eslesmedi) throw new Error(`“${r.eslesmedi}” için bizdeki ürünü seçin`);
+            m.close(); cache.dirty('urunler', 'cariler');
+            toast(r?.elle ? 'Elle girilmiş siparişe bağlandı' : 'Sipariş programa aktarıldı', 'ok');
+            if (r?.id) go(`#/siparis/${r.id}`); else render();
+          });
+        } catch (err) { fail(err); }
+      });
+      $('#pl-bag', m.el)?.addEventListener('click', async () => {
+        const t = new Date((p.tarih || new Date().toISOString()).slice(0, 10) + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() - 3);
+        const bagli = new Set(data.filter((x) => x.siparis_id).map((x) => x.siparis_id));
+        const sip = (await api.get('v_siparisler', `select=id,fis_no,tarih,cari_unvan,genel_toplam,durum&durum=neq.İptal&tarih=gte.${t.toISOString().slice(0, 10)}&order=tarih.asc&limit=500`)).filter((s) => !bagli.has(s.id));
+        modal({
+          title: 'Hangi siparişe bağlansın?',
+          body: `<p class="tiny" style="margin:0 0 8px">${esc(p.musteri || '')} · ${fmtD(p.tarih)} · ${fmtTL(p.brut)}. Elle girdiğiniz siparişi seçin; tutarı değişmez, kargo bilgisi o siparişte görünür.</p>
+            <div class="field picker"><input class="input" id="bg-q" placeholder="Cari adı veya fiş no…" autocomplete="off"></div>`,
+          foot: '<button class="btn" data-close>Vazgeç</button>',
+          onMount: (m2) => picker($('#bg-q', m2.el), {
+            items: sip, label: (s) => `${s.cari_unvan} · Fiş ${s.fis_no}`, sub: (s) => `${fmtD(s.tarih)} · ${fmtTL(s.genel_toplam)} · ${esc(s.durum)}`,
+            onPick: async (s) => {
+              try { await api.rpc('platform_siparis_bagla', { p_id: p.id, p_siparis_id: s.id }); m2.close(); m.close(); toast(`Fiş ${s.fis_no} ile bağlandı`, 'ok'); go(`#/siparis/${s.id}`); } catch (err) { fail(err); }
+            }
+          })
+        });
+      });
+    }
+  });
+}
+
 const odemeTabs = (k) => `<div class="chips" style="margin-bottom:10px">${[['#/odemeler', 'odeme', 'Ödeme takvimi'], ['#/paytr', 'paytr', 'PayTR tahsilatları']].map(([h, kk, t]) => `<a class="chip ${k === kk ? 'on' : ''}" href="${h}">${t}</a>`).join('')}</div>`;
 const ptHesap = (h) => (h === 'PayTR 2' ? 'PayTR · 2. hesap' : 'PayTR · 1. hesap');
 const ptSaat = (p) => (/\d{1,2}:\d{2}/.exec(p.islem_zamani || '') || [''])[0];
@@ -3437,7 +3613,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.33';
+const APP_V = '1.34';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

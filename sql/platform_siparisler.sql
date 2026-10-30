@@ -1,0 +1,10 @@
+-- Platform siparisleri (Hepsiburada / Trendyol / Koctas) - Supabase'e migration olarak uygulandi:
+--   platform_siparisler, platform_siparis_elle_eslesme, platform_siparis_bagla
+-- Tablolar: platform_siparisler, platform_urun_eslesme
+-- Fonksiyonlar: platform_siparis_aktar(p_id, p_zorla), platform_siparis_senkron(p_id) [servis],
+--   platform_urun_sec, platform_siparis_bagla, platform_siparis_bagla_kaldir,
+--   private.platform_urun_bul, private.platform_elle_bul, private.ad_norm
+-- Edge function: platform-siparisler (pg_cron 'platform-siparisler', */15 * * * *)
+-- Kurallar: perakende cari (telefon/e-posta/ad ile taninir), R + KDV dahil, tutar = satis - komisyon - kargo,
+--   tahsilat otomatik, kargoya verilince stoktan duser, iptal -> siparis_iptal.
+--   Ayni musteri adina elle girilmis siparis varsa yenisi acilmaz, ona baglanir (elle=true, tutara dokunulmaz).
