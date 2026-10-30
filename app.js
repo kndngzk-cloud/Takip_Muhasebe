@@ -855,10 +855,11 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
     const dv = dvz.check(); if (!dv) return;
     const tlF = (l) => Math.round(num(l.fiyat) * dv.kur * 100) / 100;
     const eksik = lines.filter((l) => num(l.miktar) > avail(l.urun));
-    if (eksik.length && !await confirmBox('Stok yetersiz', `Şu ürünlerde yeterli stok yok:<br>${eksik.map((l) => `• ${esc(l.urun.ad)} (kullanılabilir ${fmtN(avail(l.urun))}, istenen ${fmtN(l.miktar)})`).join('<br>')}<br><br>Yine de kaydedilsin mi?`, 'Kaydet')) return;
+    // stok yetersiz olsa da kaydedilir (sonradan tedarik edilecek); sadece bilgi verilir
     const sevk = !editId && $('#f-sevk').checked;
+    const btn = e.currentTarget;
     try {
-      const r = await busy(e.currentTarget, async () => {
+      const r = await busy(btn, async () => {
         const ortak = {
           p_kalemler: lines.map((l) => ({ urun_id: l.urun.id, miktar: num(l.miktar), birim_fiyat: tlF(l) })),
           p_fatura_tipi: f.tip, p_gonderim_sekli: $('#f-gon').value || null, p_tarih: $('#f-tarih').value || today(),
@@ -879,7 +880,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
         return res;
       });
       cache.dirty('urunler', 'cariler');
-      toast(`Fiş ${r.fis_no} ${editId ? 'güncellendi' : 'kaydedildi'} · ${fmtTL(r.genel_toplam)}`, 'ok');
+      toast(`Fiş ${r.fis_no} ${editId ? 'güncellendi' : 'kaydedildi'} · ${fmtTL(r.genel_toplam)}${eksik.length ? ` · ${eksik.length} üründe stok yetersiz, tedarik edilince sevk edin` : ''}`, 'ok');
       go(`#/siparis/${r.id}`);
     } catch (err) { fail(err); }
   };
@@ -3017,7 +3018,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.20';
+const APP_V = '1.21';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
