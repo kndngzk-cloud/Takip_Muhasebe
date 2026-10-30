@@ -1819,11 +1819,13 @@ async function viewAyarlar() {
 const ENT_ALAN = {
   PayTR: [['merchant_id', 'Mağaza no (merchant_id)'], ['merchant_key', 'Mağaza parola (merchant_key)'], ['merchant_salt', 'Mağaza gizli anahtar (merchant_salt)']],
   'PayTR 2': [['merchant_id', 'Mağaza no (merchant_id)'], ['merchant_key', 'Mağaza parola (merchant_key)'], ['merchant_salt', 'Mağaza gizli anahtar (merchant_salt)']],
-  Trendyol: [['seller_id', 'Satıcı ID'], ['api_key', 'API key'], ['api_secret', 'API secret']]
+  Trendyol: [['seller_id', 'Satıcı ID'], ['api_key', 'API key'], ['api_secret', 'API secret']],
+  Hepsiburada: [['merchant_id', 'Mağaza ID'], ['servis_anahtari', 'Servis anahtarı'], ['kullanici_adi', 'Entegratör kullanıcı adı']]
 };
 const ENT_NOT = {
   PayTR: 'PayTR Mağaza Paneli → <b>Destek &amp; Kurulum → Entegrasyon Bilgileri</b> (Mağaza No, Mağaza Parola, Mağaza Gizli Anahtar). Her sabah 07:15’te ödeme özeti çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur. Otomatik veri gelince elle girilmiş gelecek PayTR kayıtları silinir.',
   'PayTR 2': 'İkinci PayTR mağazanızın bilgileri (aynı yerden). Ödemeler’de “PayTR … · 2. hesap” olarak görünür.',
+  Hepsiburada: 'Hepsiburada satıcı paneli → Hesabım → <b>Entegrasyon → Entegratör Bilgileri</b>: Mağaza ID, entegratör kartındaki <b>Servis Anahtarı</b> ve o entegratörün kullanıcı adı (…_dev). Vadesi gelecek hakedişler (satış − komisyon/kargo vb.) günlük toplanarak eklenir.',
   Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.'
 };
 async function entegrasyonKart() {
@@ -1839,7 +1841,7 @@ async function entegrasyonKart() {
     ${sira.map((pl) => { const e = ent.find((x) => x.platform === pl) || {}; const f = ENT_ALAN[pl]; return `<div class="ent" data-pl="${pl}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${f ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : '<span class="badge">yakında</span>'}</div>
       ${f ? `<p class="tiny" style="margin:6px 0 10px">${ENT_NOT[pl]}</p>
-        <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${k === 'merchant_id' || k === 'seller_id' ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
+        <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${['merchant_id', 'seller_id', 'kullanici_adi'].includes(k) ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
         <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button><button class="btn sm ent-cal">Şimdi çalıştır</button></div>
         <div class="tiny ent-dur" style="margin-top:8px">${e.son_calisma ? `Son çalışma: ${fmtD(String(e.son_calisma).slice(0, 10))} ${String(new Date(e.son_calisma).toTimeString()).slice(0, 5)} · <span style="color:${String(e.son_durum || '').startsWith('Hata') ? 'var(--red)' : 'var(--green)'}">${esc(e.son_durum || '')}</span>` : 'Henüz çalışmadı'}</div>`
       : `<p class="tiny" style="margin:6px 0 0">${pl} için ödeme tarihlerini veren servis doğrulanınca eklenecek. O zamana kadar ödemeleri Ödemeler → Platform ile girebilirsiniz.</p>`}
@@ -3138,7 +3140,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.27';
+const APP_V = '1.28';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

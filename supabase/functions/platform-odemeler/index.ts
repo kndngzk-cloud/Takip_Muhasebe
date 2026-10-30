@@ -115,7 +115,55 @@ async function trendyol(a: Record<string, string>): Promise<{ kalemler: Kalem[];
   return { kalemler, odenen: [], ham: { kayit: adet, gunler: by } };
 }
 
-const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol };
+/* ---------------- Hepsiburada ---------------- */
+// Muhasebe entegrasyonu: GET mpfinance-external.hepsiburada.com/transactions/merchantid/{id}
+// Basic auth (Magaza ID : Servis anahtari), User-Agent = entegrator kullanici adi. Tarih araligi en fazla 1 ay.
+async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }> {
+  if (!a.merchant_id || !a.servis_anahtari || !a.kullanici_adi) throw new Error("Hepsiburada mağaza ID, servis anahtarı ve entegratör kullanıcı adı girilmeli");
+  const auth = "Basic " + btoa(`${a.merchant_id}:${a.servis_anahtari}`);
+  const bugun = gun(new Date());
+  const getir = async (q: Record<string, string>) => {
+    const out: Record<string, unknown>[] = [];
+    for (let off = 0; off < 20000; off += 100) {
+      const u = new URL(`https://mpfinance-external.hepsiburada.com/transactions/merchantid/${encodeURIComponent(a.merchant_id)}`);
+      Object.entries({ Offset: String(off), Limit: "100", ...q }).forEach(([k, v]) => u.searchParams.set(k, v));
+      const r = await fetch(u, { headers: { Authorization: auth, "User-Agent": a.kullanici_adi, Accept: "application/json" } });
+      const t = await r.text();
+      if (!r.ok) throw new Error(`Hepsiburada ${r.status}: ${t.slice(0, 200)}`);
+      const j = JSON.parse(t);
+      const items = (Array.isArray(j) ? j : j.items ?? j.data ?? []) as Record<string, unknown>[];
+      out.push(...items);
+      if (items.length < 100) break;
+    }
+    return out;
+  };
+  const deger = (x: unknown) => sayi((x as Record<string, unknown>)?.value ?? x);
+  // odenecekler: vadesi bugunden itibaren 2 ay (1'er aylik pencere)
+  const bekleyen = [
+    ...(await getir({ Status: "WillBePaid", DueDateStart: bugun, DueDateEnd: ekle(bugun, 30) })),
+    ...(await getir({ Status: "WillBePaid", DueDateStart: ekle(bugun, 31), DueDateEnd: ekle(bugun, 61) })),
+  ];
+  const by: Record<string, number> = {};
+  const tipler: Record<string, number> = {};
+  const gorulen = new Set<string>();
+  for (const x of bekleyen) {
+    const id = String(x.id ?? ""); if (id && gorulen.has(id)) continue; if (id) gorulen.add(id);
+    const tip = String(x.transactionType ?? "");
+    if (tip === "Payment" || tip === "TotalPayment") continue; // odeme kaydinin kendisi
+    const d = String(x.dueDate ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < bugun) continue;
+    const v = Math.abs(deger(x.amount)); if (isNaN(v)) continue;
+    const isaretli = x.isIncome === false ? -v : v;
+    by[d] = (by[d] || 0) + isaretli;
+    tipler[tip] = Math.round(((tipler[tip] || 0) + isaretli) * 100) / 100;
+  }
+  // son 10 gunde yatanlar
+  const odenen = [...new Set((await getir({ Status: "Paid", PaymentDateStart: ekle(bugun, -10), PaymentDateEnd: bugun }).catch(() => [] as Record<string, unknown>[])).map((x) => String(x.paymentDate ?? "").slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))];
+  const kalemler = Object.entries(by).filter(([, v]) => v > 0.005).map(([vade, tutar]) => ({ vade, tutar: Math.round(tutar * 100) / 100, aciklama: "Hepsiburada hakediş" }));
+  return { kalemler, odenen, ham: { kayit: bekleyen.length, gunler: by, tipler, ornek: bekleyen.slice(0, 3).map(({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate }) => ({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate })) } };
+}
+
+const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol, Hepsiburada: hepsiburada };
 // "PayTR 2" -> kaynak "PayTR" (Odemeler'de ayni platform), dis_ref "paytr2:..." (hesaplar karismasin)
 const REF = (p: string) => p.toLowerCase().replace(/[^a-z0-9]/g, "");
 const KAYNAK = (p: string) => p.replace(/\s+\d+$/, "");
