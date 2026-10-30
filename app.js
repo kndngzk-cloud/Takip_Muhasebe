@@ -733,8 +733,9 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
       <div class="field" style="margin-top:12px"><label>Açıklama</label><textarea class="input" id="f-acik" placeholder="İsteğe bağlı not"></textarea></div>
       ${editId ? `<p class="tiny" style="margin:4px 0">Durum: <b>${esc(es.durum)}</b>${es.durum === 'Sevk Edildi' ? ' · stok çıkışları yeni miktarlara göre düzeltilir' : ''}. Cari değiştirmek için siparişi iptal edip yenisini açın.</p>` : '<label class="check"><input type="checkbox" id="f-sevk"> Sevk edildi olarak kaydet (stoktan hemen düşer)</label>'}
       <label class="check"><input type="checkbox" id="f-mf" checked> Değişen fiyatları bu müşterinin fiyatı olarak kaydet</label>
-      ${editId ? '' : `<div class="field" style="margin:10px 0 0"><label>Tahsilat planı</label><select class="input" id="f-plan"><option value="">Plan yok</option>${Object.keys(sablonlar).map((k) => `<option value="${k}" ${cin && k === '30-30-40' ? 'selected' : ''}>${esc(SABLON_AD[k])}</option>`).join('')}</select>
-        <div class="hint">Taksitlerin vadeleri ${cin ? 'ithalat siparişinin aşamalarına göre ' : ''}otomatik hesaplanır; sipariş sayfasından değiştirebilirsiniz.</div></div>`}
+      ${editId ? '' : `<div class="field" style="margin:10px 0 0"><label>Tahsilat planı</label><select class="input" id="f-plan"><option value="">Plan yok</option><option value="elle">Tarih ve oranları kendim gireceğim</option>${Object.keys(sablonlar).map((k) => `<option value="${k}" ${cin && k === '30-30-40' ? 'selected' : ''}>${esc(SABLON_AD[k])}</option>`).join('')}</select>
+        <div class="hint" id="f-plan-h">Taksitlerin vadeleri ${cin ? 'ithalat siparişinin aşamalarına göre ' : ''}otomatik hesaplanır; sipariş sayfasından değiştirebilirsiniz.</div>
+        <div id="f-planel" style="display:none;margin-top:8px"></div></div>`}
     </div>
     <button class="btn primary block" id="save" style="padding:14px;font-size:16px">${editId ? 'Değişiklikleri kaydet' : 'Siparişi kaydet'}</button>`;
 
@@ -844,6 +845,32 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
   }
   f.lines.push({ urun: null, miktar: '', fiyat: '' });
   setTip(f.tip); drawLines();
+  /* Elle tahsilat plani: tarih + oran */
+  const pRows = [{ tarih: '', yuzde: '' }];
+  const drawPlan = () => {
+    const el = $('#f-planel'); if (!el) return;
+    const top = pRows.reduce((a, r) => a + (num(r.yuzde) || 0), 0);
+    const genel = () => { const t = $('#totals .tr.big span:last-child')?.textContent || ''; return parseNum(t.replace('₺', '')) || 0; };
+    el.innerHTML = pRows.map((r, i) => `<div class="grid3" data-pi="${i}" style="align-items:end">
+        <div class="field" style="margin-bottom:6px"><label>${i + 1}. taksit tarihi</label><input class="input pp-t" type="date" value="${r.tarih}"></div>
+        <div class="field" style="margin-bottom:6px"><label>Oran %</label><input class="input pp-y" inputmode="decimal" value="${r.yuzde === '' ? '' : fmtN(r.yuzde)}" placeholder="%"></div>
+        <div class="field" style="margin-bottom:6px;display:flex;gap:6px;align-items:center"><span class="small pp-tut" style="flex:1">${r.yuzde ? fmtTL((genel() * num(r.yuzde)) / 100) : ''}</span><button type="button" class="icon-btn pp-del" title="Kaldır">${icon('trash')}</button></div></div>`).join('')
+      + `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px"><button type="button" class="btn sm" id="pp-add">${icon('plus')}Taksit ekle</button>
+         <span class="small ${Math.abs(top - 100) < 0.01 ? 'zero' : 'pos'}">Toplam %${fmtN(top)}${Math.abs(top - 100) < 0.01 ? ' ✓' : ` · kalan %${fmtN(100 - top)}`}</span></div>`;
+    $$('[data-pi]', el).forEach((row) => {
+      const r = pRows[+row.dataset.pi];
+      $('.pp-t', row).onchange = (e) => { r.tarih = e.target.value; };
+      $('.pp-y', row).onchange = (e) => { const v = parseNum(e.target.value); r.yuzde = isNaN(v) ? '' : v; drawPlan(); };
+      $('.pp-del', row).onclick = () => { pRows.splice(+row.dataset.pi, 1); if (!pRows.length) pRows.push({ tarih: '', yuzde: '' }); drawPlan(); };
+    });
+    $('#pp-add', el).onclick = () => { const kalan = 100 - pRows.reduce((a, r) => a + (num(r.yuzde) || 0), 0); pRows.push({ tarih: '', yuzde: kalan > 0 ? Math.round(kalan * 1000) / 1000 : '' }); drawPlan(); };
+  };
+  $('#f-plan')?.addEventListener('change', (e) => {
+    const elle = e.target.value === 'elle';
+    $('#f-planel').style.display = elle ? '' : 'none';
+    $('#f-plan-h').style.display = elle ? 'none' : '';
+    if (elle) drawPlan();
+  });
   if (editId) { const c = cariler.find((x) => x.id === es.cari_id); if (c) { await setCari(c); $('#f-mf').checked = false; } }
   if (cariId) { const c = cariler.find((x) => x.id === +cariId); if (c) setCari(c); }
 
@@ -860,6 +887,13 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
     const eksik = lines.filter((l) => num(l.miktar) > avail(l.urun));
     // stok yetersiz olsa da kaydedilir (sonradan tedarik edilecek); sadece bilgi verilir
     const sevk = !editId && $('#f-sevk').checked;
+    if (!editId && $('#f-plan')?.value === 'elle') {
+      const dolu = pRows.filter((r) => num(r.yuzde) > 0);
+      if (!dolu.length) return toast('Tahsilat planına en az bir taksit girin', 'err');
+      if (dolu.some((r) => !r.tarih)) return toast('Her taksitin tarihini girin', 'err');
+      const t = dolu.reduce((a, r) => a + num(r.yuzde), 0);
+      if (t > 100.001) return toast(`Taksit oranları toplamı %${fmtN(t)}; %100'ü geçemez`, 'err');
+    }
     const btn = e.currentTarget;
     try {
       const r = await busy(btn, async () => {
@@ -872,7 +906,10 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
         if (dv.pb !== 'TRY' || (editId && es.para_birimi !== 'TRY')) await api.rpc('siparis_doviz', { p_siparis_id: res.id, p_para_birimi: dv.pb, p_kur: dv.kur, p_fiyatlar: lines.map((l) => num(l.fiyat)) });
         if (cin) await api.update('siparisler', `id=eq.${res.id}`, { cin_siparis_id: cin.id });
         const plan = !editId && $('#f-plan')?.value;
-        if (plan) await api.insert('odeme_plani', sablonlar[plan].map(([y, t, a, g], i) => ({ yon: 'Tahsilat', kategori: 'Müşteri', siparis_id: res.id, aciklama: a, tetik: t, gun_sonra: g || 0, yuzde: y, para_birimi: 'TRY', sira: i })));
+        if (plan === 'elle') {
+          const rows = pRows.filter((r) => num(r.yuzde) > 0 && r.tarih).map((r, i) => ({ yon: 'Tahsilat', kategori: 'Müşteri', siparis_id: res.id, aciklama: `${i + 1}. taksit %${fmtN(r.yuzde)}`, tetik: 'Tarih', vade_tarihi: r.tarih, gun_sonra: 0, yuzde: num(r.yuzde), para_birimi: 'TRY', sira: i }));
+          if (rows.length) await api.insert('odeme_plani', rows);
+        } else if (plan) await api.insert('odeme_plani', sablonlar[plan].map(([y, t, a, g], i) => ({ yon: 'Tahsilat', kategori: 'Müşteri', siparis_id: res.id, aciklama: a, tetik: t, gun_sonra: g || 0, yuzde: y, para_birimi: 'TRY', sira: i })));
         if (sevk) await api.rpc('siparis_sevk', { p_siparis_id: res.id, p_sevk_tarihi: $('#f-tarih').value || today() });
         if ($('#f-mf').checked) {
           const ups = lines.filter((l) => { const m = f.mf[l.urun.id]; return !m ? !(dv.pb === 'TRY' && num(l.fiyat) === num(l.urun.satis_fiyati)) : (m.pb !== dv.pb || num(l.fiyat) !== m.fiyat); })
@@ -3021,7 +3058,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.22';
+const APP_V = '1.23';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
