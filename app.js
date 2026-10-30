@@ -1703,23 +1703,59 @@ async function musteriFiyat(c, x = null) {
 /* ------------------------------------------------------------------ */
 /* RAPORLAR                                                            */
 /* ------------------------------------------------------------------ */
+const RAPORLAR = [
+  ['kar', 'Kâr', 'Ürün bazında satış, maliyet (FIFO/LIFO) ve brüt kâr'],
+  ['platform', 'Platform kârlılığı', 'Hepsiburada, Trendyol, Koçtaş ve doğrudan satışın karşılaştırması'],
+  ['satis', 'Satış analizi', 'Aylık satış, en çok satan ürünler, müşteriler, şehirler'],
+  ['alacak', 'Alacak yaşlandırma', 'Kimden ne kadar alacak var, ne kadar süredir bekliyor'],
+  ['stok', 'Stok ve sipariş önerisi', 'Stok değeri, satış hızı, stok kaç gün yeter, ne zaman sipariş verilmeli'],
+  ['tahsilat', 'Tahsilatlar', 'Aylık tahsilatlar, ödeme şekline ve kaynağa göre']
+];
+const yuzde = (a, b) => (b ? fmtN(Math.round((a / b) * 1000) / 10) + '%' : '–');
+function tarihAraligiHtml(ui) {
+  return `<div class="grid3">
+      <div class="field"><label>Başlangıç</label><input class="input" type="date" id="r-b" value="${ui.bas}"></div>
+      <div class="field"><label>Bitiş</label><input class="input" type="date" id="r-e" value="${ui.bit}"></div>
+      <div class="field" id="r-ek"></div>
+    </div>
+    <div class="chips" id="r-p" style="margin-bottom:0"><button class="chip" data-p="ay">Bu ay</button><button class="chip" data-p="gecen">Geçen ay</button><button class="chip" data-p="3ay">Son 3 ay</button><button class="chip" data-p="yil">Bu yıl</button><button class="chip" data-p="hepsi">Tümü</button></div>`;
+}
+function tarihAraligiBagla(ui, run) {
+  $('#r-b').onchange = (e) => { ui.bas = e.target.value; run(); };
+  $('#r-e').onchange = (e) => { ui.bit = e.target.value; run(); };
+  $('#r-p').onclick = (e) => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    const d = new Date(); const y = d.getFullYear(), mo = d.getMonth();
+    const iso = (dt) => { dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset()); return dt.toISOString().slice(0, 10); };
+    if (b.dataset.p === 'ay') { ui.bas = monthStart(); ui.bit = today(); }
+    if (b.dataset.p === 'gecen') { ui.bas = iso(new Date(y, mo - 1, 1)); ui.bit = iso(new Date(y, mo, 0)); }
+    if (b.dataset.p === '3ay') { ui.bas = iso(new Date(y, mo - 2, 1)); ui.bit = today(); }
+    if (b.dataset.p === 'yil') { ui.bas = `${y}-01-01`; ui.bit = today(); }
+    if (b.dataset.p === 'hepsi') { ui.bas = ''; ui.bit = ''; }
+    $('#r-b').value = ui.bas; $('#r-e').value = ui.bit; run();
+  };
+}
+const aralikta = (t, ui) => !!t && (!ui.bas || t >= ui.bas) && (!ui.bit || t <= ui.bit);
+
 async function viewRaporlar() {
   topbar('Raporlar', { back: !window.matchMedia('(min-width: 900px)').matches });
-  const ayar = await cache.ayarlar();
-  const ui = state.ui.rapor ||= { bas: monthStart(), bit: today(), yontem: 'SIP' };
+  await cache.ayarlar();
+  const ui = state.ui.rapor ||= { bas: monthStart(), bit: today(), yontem: 'SIP', tur: 'kar' };
+  ui.tur ||= 'kar';
   $('#view').innerHTML = `
-    <div class="card">
-      <h2>Kâr raporu</h2>
-      <div class="grid3">
-        <div class="field"><label>Başlangıç</label><input class="input" type="date" id="r-b" value="${ui.bas}"></div>
-        <div class="field"><label>Bitiş</label><input class="input" type="date" id="r-e" value="${ui.bit}"></div>
-        <div class="field"><label>Maliyet yöntemi</label><div class="seg" id="r-y"><button type="button" data-v="SIP">Siparişe göre</button><button type="button" data-v="FIFO">FIFO</button><button type="button" data-v="LIFO">LIFO</button></div></div>
-      </div>
-      <div class="chips" id="r-p" style="margin-bottom:0"><button class="chip" data-p="ay">Bu ay</button><button class="chip" data-p="gecen">Geçen ay</button><button class="chip" data-p="yil">Bu yıl</button><button class="chip" data-p="hepsi">Tümü</button></div>
-    </div>
-    <div id="r-out"><div class="loading"><div class="spinner"></div></div></div>
-    <div class="section-title">Aylık satış özeti</div>
-    <div class="list" id="r-ay"><div class="loading"><div class="spinner"></div></div></div>`;
+    <div class="rapor-sec" id="r-tur">${RAPORLAR.map(([k, t, d]) => `<button class="rapor-k ${ui.tur === k ? 'on' : ''}" data-k="${k}"><b>${t}</b><span>${d}</span></button>`).join('')}</div>
+    <div id="r-icerik"></div>`;
+  const ciz = () => { const el = $('#r-icerik'); el.innerHTML = '<div class="loading"><div class="spinner"></div></div>'; ({ kar: raporKar, platform: raporPlatform, satis: raporSatis, alacak: raporAlacak, stok: raporStok, tahsilat: raporTahsilat })[ui.tur](el, ui).catch((e) => { el.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; }); };
+  $('#r-tur').onclick = (e) => { const b = e.target.closest('.rapor-k'); if (!b) return; ui.tur = b.dataset.k; $$('#r-tur .rapor-k').forEach((x) => x.classList.toggle('on', x === b)); ciz(); };
+  ciz();
+}
+
+/* ---- 1) Kar raporu ---- */
+async function raporKar(el, ui) {
+  el.innerHTML = `
+    <div class="card"><h2>Kâr raporu</h2>${tarihAraligiHtml(ui)}</div>
+    <div id="r-out"><div class="loading"><div class="spinner"></div></div></div>`;
+  $('#r-ek').innerHTML = '<label>Maliyet yöntemi</label><div class="seg" id="r-y"><button type="button" data-v="SIP">Siparişe göre</button><button type="button" data-v="FIFO">FIFO</button><button type="button" data-v="LIFO">LIFO</button></div>';
   const segY = () => $$('#r-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === ui.yontem));
   segY();
   const run = async () => {
@@ -1748,30 +1784,215 @@ async function viewRaporlar() {
         <p class="tiny" style="margin:0 4px 10px">Kâr, sevk tarihine göre ve sevk edilmiş satışlar üzerinden hesaplanır. Satış tutarları KDV hariçtir. “Siparişe göre”: her satış kendi siparişinde seçilen FIFO/LIFO ile hesaplanır; FIFO veya LIFO seçerseniz tüm satışlar o yöntemle yeniden hesaplanır (karşılaştırma için).</p>`;
     } catch (e) { $('#r-out').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; }
   };
-  $('#r-b').onchange = (e) => { ui.bas = e.target.value; run(); };
-  $('#r-e').onchange = (e) => { ui.bit = e.target.value; run(); };
+  tarihAraligiBagla(ui, run);
   $('#r-y').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; ui.yontem = b.dataset.v; segY(); run(); };
-  $('#r-p').onclick = (e) => {
-    const b = e.target.closest('.chip'); if (!b) return;
-    const d = new Date(); const y = d.getFullYear(), mo = d.getMonth();
-    const iso = (dt) => { dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset()); return dt.toISOString().slice(0, 10); };
-    if (b.dataset.p === 'ay') { ui.bas = monthStart(); ui.bit = today(); }
-    if (b.dataset.p === 'gecen') { ui.bas = iso(new Date(y, mo - 1, 1)); ui.bit = iso(new Date(y, mo, 0)); }
-    if (b.dataset.p === 'yil') { ui.bas = `${y}-01-01`; ui.bit = today(); }
-    if (b.dataset.p === 'hepsi') { ui.bas = ''; ui.bit = ''; }
-    $('#r-b').value = ui.bas; $('#r-e').value = ui.bit; run();
-  };
   run();
-  try {
-    const sp = await api.get('siparisler', `select=tarih,fatura_tipi,ara_toplam,kdv_tutari,genel_toplam&durum=neq.${encodeURIComponent('İptal')}&limit=20000`);
-    const by = {};
-    sp.forEach((s) => { const k = s.tarih.slice(0, 7); const o = by[k] ||= { n: 0, r: 0, gr: 0, kdv: 0, top: 0 }; o.n++; o[s.fatura_tipi === 'R' ? 'r' : 'gr'] += num(s.ara_toplam); o.kdv += num(s.kdv_tutari); o.top += num(s.genel_toplam); });
-    const AY = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-    $('#r-ay').innerHTML = `<div class="table-wrap"><table class="tbl stack"><thead><tr><th>Ay</th><th class="r">Sipariş</th><th class="r">R (KDV hariç)</th><th class="r">GR</th><th class="r">KDV</th><th class="r">Toplam</th></tr></thead>
-      <tbody>${Object.keys(by).sort().reverse().map((k) => `<tr><td class="w"><b>${AY[+k.slice(5) - 1]} ${k.slice(0, 4)}</b> <span class="tiny show-m">· ${by[k].n} sipariş</span></td><td class="r hidden-m">${by[k].n}</td><td class="r" data-l="R">${fmtTL(by[k].r)}</td><td class="r" data-l="GR">${fmtTL(by[k].gr)}</td><td class="r" data-l="KDV">${fmtTL(by[k].kdv)}</td><td class="r" data-l="Toplam"><b>${fmtTL(by[k].top)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Satış yok</td></tr>'}</tbody></table></div>`;
-  } catch (e) { $('#r-ay').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
 
+/* ---- ortak tablo ---- */
+function rTablo(baslik, kolonlar, satirlar, alt = null, not = '') {
+  return `${baslik ? `<div class="section-title">${baslik}</div>` : ''}<div class="list"><div class="table-wrap"><table class="tbl stack"><thead><tr>${kolonlar.map((k, i) => `<th class="${i ? 'r' : ''}">${k}</th>`).join('')}</tr></thead>
+    <tbody>${satirlar.length ? satirlar.map((r) => `<tr>${r.map((h, i) => `<td class="${i ? 'r' : 'w'}" ${i ? `data-l="${esc(String(kolonlar[i]).replace(/<[^>]+>/g, ''))}"` : ''}>${h}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${kolonlar.length}" class="empty">Kayıt yok</td></tr>`}</tbody>
+    ${alt ? `<tfoot><tr>${alt.map((h, i) => `<td class="${i ? 'r' : 'w'}">${h}</td>`).join('')}</tr></tfoot>` : ''}</table></div></div>${not ? `<p class="tiny" style="margin:0 4px 10px">${not}</p>` : ''}`;
+}
+const kpi = (l, v, sAlt = '', renk = '') => `<div class="kpi ${renk}"><div class="l">${l}</div><div class="v num">${v}</div><div class="s">${sAlt}</div></div>`;
+
+/* ---- 2) Platform karliligi ---- */
+async function raporPlatform(el, ui) {
+  el.innerHTML = `<div class="card"><h2>Platform kârlılığı</h2>${tarihAraligiHtml(ui)}</div><div id="r-out"><div class="loading"><div class="spinner"></div></div></div>`;
+  $('#r-ek').innerHTML = '';
+  const kdv = num(state.ayarlar?.kdv_orani ?? 0.2) || 0.2;
+  const run = async () => {
+    $('#r-out').innerHTML = '<div class="loading"><div class="spinner"></div>Hesaplanıyor…</div>';
+    const [rows, pls] = await Promise.all([
+      api.rpc('kar_raporu', { p_baslangic: ui.bas || null, p_bitis: ui.bit || null, p_yontem: null }),
+      api.get('platform_siparisler', 'select=siparis_id,platform,brut,komisyon,kargo_kesinti,kargo_tahmin&siparis_id=not.is.null&limit=20000')
+    ]);
+    const pm = {}; pls.forEach((p) => { pm[p.siparis_id] = p; });
+    const sip = {};
+    rows.forEach((r) => { const o = sip[r.siparis_id] ||= { id: r.siparis_id, satis: 0, maliyet: 0, adet: 0, urunler: {} }; o.satis += num(r.satis_tutari); o.maliyet += num(r.maliyet); o.adet += num(r.miktar); o.urunler[r.urun_ad] = (o.urunler[r.urun_ad] || 0) + num(r.miktar); });
+    const K = {}; const KU = {};
+    Object.values(sip).forEach((o) => {
+      const p = pm[o.id]; const kanal = p ? p.platform : 'Doğrudan satış';
+      const brut = p ? num(p.brut) : o.satis * (1 + kdv);
+      const kom = p ? num(p.komisyon) : 0;
+      const kargo = p ? (p.kargo_kesinti != null ? num(p.kargo_kesinti) : num(p.kargo_tahmin)) : 0;
+      const netH = p ? (brut - kom - kargo) / (1 + kdv) : o.satis;
+      const k = K[kanal] ||= { kanal, n: 0, adet: 0, brut: 0, kom: 0, kargo: 0, net: 0, mal: 0 };
+      k.n++; k.adet += o.adet; k.brut += brut; k.kom += kom; k.kargo += kargo; k.net += netH; k.mal += o.maliyet;
+      const pay = o.adet || 1;
+      for (const [ad, m] of Object.entries(o.urunler)) { const u = KU[kanal + '|' + ad] ||= { kanal, ad, adet: 0, brut: 0, net: 0, mal: 0 }; const oran = m / pay; u.adet += m; u.brut += brut * oran; u.net += netH * oran; u.mal += o.maliyet * oran; }
+    });
+    const kl = Object.values(K).sort((a, b) => b.net - a.net);
+    const T = kl.reduce((t, k) => ({ n: t.n + k.n, brut: t.brut + k.brut, kom: t.kom + k.kom, kargo: t.kargo + k.kargo, net: t.net + k.net, mal: t.mal + k.mal }), { n: 0, brut: 0, kom: 0, kargo: 0, net: 0, mal: 0 });
+    $('#r-out').innerHTML = `
+      <div class="kpis">
+        ${kpi('Satış (KDV dahil)', fmtTL(T.brut), `${T.n} sipariş`)}
+        ${kpi('Platform kesintileri', fmtTL(T.kom + T.kargo), `komisyon ${fmtTL(T.kom)} · kargo ${fmtTL(T.kargo)}`, 'orange')}
+        ${kpi('Kâr', fmtTL(T.net - T.mal), `KDV hariç net ${fmtTL(T.net)} − maliyet ${fmtTL(T.mal)}`, 'green')}
+        ${kpi('Kâr marjı', yuzde(T.net - T.mal, T.brut / (1 + kdv)), 'kâr / KDV hariç satış', 'purple')}
+      </div>
+      ${rTablo('Kanallara göre', ['Kanal', 'Sipariş', 'Satış (KDV dahil)', 'Komisyon', 'Kargo', 'Net (KDV hariç)', 'Maliyet', 'Kâr', 'Marj', 'Sipariş başı kâr'],
+        kl.map((k) => [`<b>${k.kanal === 'Doğrudan satış' ? 'Doğrudan satış' : plBadge(k.kanal)}</b>`, fmtN(k.n), fmtTL(k.brut), fmtTL(k.kom), fmtTL(k.kargo), fmtTL(k.net), fmtTL(k.mal), `<b>${fmtTL(k.net - k.mal)}</b>`, yuzde(k.net - k.mal, k.brut / (1 + kdv)), fmtTL((k.net - k.mal) / (k.n || 1))]),
+        ['Toplam', fmtN(T.n), fmtTL(T.brut), fmtTL(T.kom), fmtTL(T.kargo), fmtTL(T.net), fmtTL(T.mal), `<b>${fmtTL(T.net - T.mal)}</b>`, yuzde(T.net - T.mal, T.brut / (1 + kdv)), ''])}
+      ${rTablo('Ürün ve kanala göre (adet başı)', ['Ürün · kanal', 'Adet', 'Ort. satış fiyatı', 'Ort. kalan (KDV hariç)', 'Ort. maliyet', 'Adet başı kâr', 'Toplam kâr'],
+        Object.values(KU).sort((a, b) => a.ad.localeCompare(b.ad, 'tr') || (b.net - b.mal) - (a.net - a.mal)).map((u) => [`<b>${esc(u.ad)}</b> <span class="tiny">· ${esc(u.kanal)}</span>`, fmtN(u.adet), fmtTL(u.brut / u.adet), fmtTL(u.net / u.adet), fmtTL(u.mal / u.adet), `<b>${fmtTL((u.net - u.mal) / u.adet)}</b>`, fmtTL(u.net - u.mal)]),
+        null, `Sevk edilmiş siparişler, sevk tarihine göre. Platform siparişlerinde satış, platformdaki satış fiyatıdır (elle girilen siparişlerde de); komisyon ve kargo platformdan gelen rakamlardır, kargo kesinleşmemişse geçmiş siparişlerden tahmindir. Doğrudan satışta tutar programdaki sipariş tutarıdır, kargo ve kesinti düşülmez. Maliyet: siparişte seçilen FIFO/LIFO yöntemiyle. KDV oranı %${fmtN(kdv * 100)}.`)}`;
+  };
+  tarihAraligiBagla(ui, run);
+  await run();
+}
+
+/* ---- 3) Satis analizi ---- */
+async function raporSatis(el, ui) {
+  el.innerHTML = `<div class="card"><h2>Satış analizi</h2>${tarihAraligiHtml(ui)}</div><div id="r-out"><div class="loading"><div class="spinner"></div></div></div>`;
+  $('#r-ek').innerHTML = '';
+  const [sp, kal] = await Promise.all([
+    api.get('v_siparisler', `select=id,tarih,fis_no,cari_id,cari_unvan,cari_tip,sevk_sehri,gonderim_sekli,fatura_tipi,ara_toplam,genel_toplam,platform&durum=neq.${encodeURIComponent('İptal')}&limit=20000`),
+    api.get('siparis_kalemleri', 'select=siparis_id,miktar,tutar,urunler(kod,ad)&limit=50000')
+  ]);
+  const AY = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+  const run = () => {
+    const f = sp.filter((s) => aralikta(s.tarih, ui));
+    const ids = new Set(f.map((s) => s.id));
+    const kanal = (s) => (s.platform ? s.platform : s.cari_tip === 'Perakende' ? 'Perakende (doğrudan)' : 'Toptan');
+    const top = f.reduce((a, s) => a + num(s.genel_toplam), 0);
+    const grp = (keyFn) => { const o = {}; f.forEach((s) => { const k = keyFn(s) || '—'; const x = o[k] ||= { k, n: 0, t: 0 }; x.n++; x.t += num(s.genel_toplam); }); return Object.values(o).sort((a, b) => b.t - a.t); };
+    const U = {}; kal.forEach((k) => { if (!ids.has(k.siparis_id)) return; const ad = k.urunler?.ad || '?'; const u = U[ad] ||= { ad, kod: k.urunler?.kod, adet: 0, t: 0, n: new Set() }; u.adet += num(k.miktar); u.t += num(k.tutar); u.n.add(k.siparis_id); });
+    const ay = {}; sp.forEach((s) => { const k = s.tarih.slice(0, 7); const o = ay[k] ||= { n: 0, r: 0, gr: 0, top: 0, p: 0 }; o.n++; o[s.fatura_tipi === 'R' ? 'r' : 'gr'] += num(s.ara_toplam); o.top += num(s.genel_toplam); if (s.platform) o.p += num(s.genel_toplam); });
+    const kn = grp(kanal);
+    $('#r-out').innerHTML = `
+      <div class="kpis">
+        ${kpi('Satış (KDV dahil)', fmtTL(top), `${f.length} sipariş`)}
+        ${kpi('Ortalama sipariş', fmtTL(f.length ? top / f.length : 0), 'sipariş başına', 'purple')}
+        ${kpi('Toptan', fmtTL(kn.find((x) => x.k === 'Toptan')?.t || 0), `${kn.find((x) => x.k === 'Toptan')?.n || 0} sipariş`, 'orange')}
+        ${kpi('Perakende + platform', fmtTL(top - (kn.find((x) => x.k === 'Toptan')?.t || 0)), `${f.length - (kn.find((x) => x.k === 'Toptan')?.n || 0)} sipariş`, 'green')}
+      </div>
+      ${rTablo('Satış kanalları', ['Kanal', 'Sipariş', 'Tutar (KDV dahil)', 'Pay'], kn.map((x) => [`<b>${esc(x.k)}</b>`, fmtN(x.n), fmtTL(x.t), yuzde(x.t, top)]))}
+      ${rTablo('En çok satan ürünler', ['Ürün', 'Adet', 'Sipariş', 'Tutar (KDV hariç)', 'Ort. fiyat'], Object.values(U).sort((a, b) => b.adet - a.adet).slice(0, 25).map((u) => [`<b>${esc(u.ad)}</b> <span class="tiny">${esc(u.kod || '')}</span>`, fmtN(u.adet), fmtN(u.n.size), fmtTL(u.t), fmtTL(u.adet ? u.t / u.adet : 0)]))}
+      ${rTablo('En çok alım yapan müşteriler', ['Müşteri', 'Sipariş', 'Tutar (KDV dahil)', 'Pay'], grp((s) => s.cari_unvan).slice(0, 20).map((x) => { const c = f.find((s) => s.cari_unvan === x.k); return [`<a href="#/cari/${c?.cari_id}"><b>${esc(x.k)}</b></a> <span class="tiny">${esc(c?.cari_tip || '')}</span>`, fmtN(x.n), fmtTL(x.t), yuzde(x.t, top)]; }))}
+      ${rTablo('Şehirler', ['Şehir', 'Sipariş', 'Tutar (KDV dahil)', 'Pay'], grp((s) => (s.sevk_sehri || '').toLocaleUpperCase('tr')).slice(0, 20).map((x) => [`<b>${esc(x.k)}</b>`, fmtN(x.n), fmtTL(x.t), yuzde(x.t, top)]))}
+      ${rTablo('Gönderim şekli', ['Gönderim', 'Sipariş', 'Tutar (KDV dahil)'], grp((s) => s.gonderim_sekli).map((x) => [`<b>${esc(x.k)}</b>`, fmtN(x.n), fmtTL(x.t)]))}
+      ${rTablo('Aylık satış (tüm zamanlar)', ['Ay', 'Sipariş', 'R (KDV hariç)', 'GR', 'Platform (KDV dahil)', 'Toplam (KDV dahil)'], Object.keys(ay).sort().reverse().map((k) => [`<b>${AY[+k.slice(5) - 1]} ${k.slice(0, 4)}</b>`, fmtN(ay[k].n), fmtTL(ay[k].r), fmtTL(ay[k].gr), fmtTL(ay[k].p), `<b>${fmtTL(ay[k].top)}</b>`]), null, 'İptal edilen siparişler hariç, sipariş tarihine göre. Platform siparişlerinde tutar komisyon ve kargo düşülmüş net tutardır.')}`;
+  };
+  tarihAraligiBagla(ui, run);
+  run();
+}
+
+/* ---- 4) Alacak yaslandirma ---- */
+async function raporAlacak(el) {
+  const cariler = await api.get('v_cariler', 'select=id,kod,unvan,tip,sehir,telefon,bakiye,bakiye_r,bakiye_gr&bakiye=gt.0.005&order=bakiye.desc&limit=2000');
+  const ids = cariler.map((c) => c.id);
+  const har = ids.length ? await api.get('cari_hareketler', `select=cari_id,tarih,borc,alacak&cari_id=in.(${ids.join(',')})&order=tarih.asc,id.asc&limit=50000`) : [];
+  const bugun = new Date(today() + 'T12:00:00Z');
+  const D = ['0-30 gün', '31-60 gün', '61-90 gün', '90+ gün'];
+  const satir = cariler.map((c) => {
+    const h = har.filter((x) => x.cari_id === c.id);
+    let odeme = h.reduce((a, x) => a + num(x.alacak), 0);
+    const kova = [0, 0, 0, 0]; let enEski = null;
+    for (const x of h) {
+      let b = num(x.borc); if (b <= 0) continue;
+      const d = Math.min(b, odeme); b -= d; odeme -= d; if (b <= 0.005) continue;
+      const gun = Math.floor((bugun - new Date(x.tarih + 'T12:00:00Z')) / 86400000);
+      kova[gun <= 30 ? 0 : gun <= 60 ? 1 : gun <= 90 ? 2 : 3] += b; enEski ||= x.tarih;
+    }
+    return { c, kova, enEski };
+  });
+  const T = [0, 1, 2, 3].map((i) => satir.reduce((a, s) => a + s.kova[i], 0));
+  const top = cariler.reduce((a, c) => a + num(c.bakiye), 0);
+  el.innerHTML = `
+    <div class="card"><h2>Alacak yaşlandırma</h2><p class="small muted" style="margin:0">Carilerin açık bakiyesi, en eski borçtan başlayarak ödemelerle kapatılır; kalan borç ne kadar süredir ödenmediğine göre gruplanır. Bugünün tarihine göre.</p></div>
+    <div class="kpis">
+      ${kpi('Toplam alacak', fmtTL(top), `${cariler.length} cari`)}
+      ${kpi('0-30 gün', fmtTL(T[0]), yuzde(T[0], top), 'green')}
+      ${kpi('31-90 gün', fmtTL(T[1] + T[2]), yuzde(T[1] + T[2], top), 'orange')}
+      ${kpi('90 günden eski', fmtTL(T[3]), yuzde(T[3], top), 'red')}
+    </div>
+    ${rTablo('', ['Cari', 'Bakiye', ...D, 'En eski açık borç'], satir.map((s) => [`<a href="#/cari/${s.c.id}"><b>${esc(s.c.unvan)}</b></a> <span class="tiny">${esc([s.c.tip, s.c.sehir].filter(Boolean).join(' · '))}</span>`, `<b>${fmtTL(s.c.bakiye)}</b>`, ...s.kova.map((v, i) => (v > 0.005 ? `<span style="${i === 3 ? 'color:var(--red);font-weight:700' : i ? 'color:var(--orange)' : ''}">${fmtTL(v)}</span>` : '–')), s.enEski ? fmtD(s.enEski) : '–']),
+      ['Toplam', fmtTL(top), ...T.map(fmtTL), ''], 'Açılış bakiyeleri, açılış tarihinden itibaren yaşlandırılır.')}`;
+}
+
+/* ---- 5) Stok ve siparis onerisi ---- */
+async function raporStok(el, ui) {
+  ui.tedarik ??= 75; ui.guvenlik ??= 15; ui.kapsama ??= 60;
+  const bas90 = addDays(today(), -90), bas30 = addDays(today(), -30);
+  const [urunler, cik] = await Promise.all([
+    cache.urunler(true),
+    api.get('stok_hareketleri', `select=urun_id,miktar,tarih&tur=eq.${encodeURIComponent('Çıkış')}&tarih=gte.${bas90}&limit=50000`)
+  ]);
+  const s90 = {}, s30 = {};
+  cik.forEach((h) => { s90[h.urun_id] = (s90[h.urun_id] || 0) + num(h.miktar); if (h.tarih >= bas30) s30[h.urun_id] = (s30[h.urun_id] || 0) + num(h.miktar); });
+  el.innerHTML = `
+    <div class="card"><h2>Stok ve sipariş önerisi</h2>
+      <div class="grid3">
+        <div class="field"><label>Tedarik süresi (gün)</label><input class="input" id="st-t" inputmode="numeric" value="${ui.tedarik}"><div class="tiny">Siparişten depoya giriş</div></div>
+        <div class="field"><label>Güvenlik payı (gün)</label><input class="input" id="st-g" inputmode="numeric" value="${ui.guvenlik}"></div>
+        <div class="field"><label>Sipariş ne kadar yetsin (gün)</label><input class="input" id="st-k" inputmode="numeric" value="${ui.kapsama}"><div class="tiny">Mal geldikten sonra</div></div>
+      </div></div>
+    <div id="r-out"></div>`;
+  const run = () => {
+    const L = urunler.filter((u) => u.aktif !== false).map((u) => {
+      const g90 = (s90[u.id] || 0) / 90, g30 = (s30[u.id] || 0) / 30;
+      const hiz = Math.max(g90, g30 * 0.5 + g90 * 0.5);
+      const eldeki = num(u.sevk_sonrasi_stok), yolda = num(u.yolda), toplam = eldeki + yolda;
+      const gun = hiz > 0 ? toplam / hiz : Infinity, eldeGun = hiz > 0 ? eldeki / hiz : Infinity;
+      const esik = ui.tedarik + ui.guvenlik;
+      const oneri = hiz > 0 && gun < esik + 7 ? Math.max(0, Math.ceil(hiz * (ui.tedarik + ui.guvenlik + ui.kapsama) - toplam)) : 0;
+      const durum = hiz <= 0 ? 'hareketsiz' : gun < ui.tedarik ? 'acil' : gun < esik ? 'siparis' : gun < esik + 30 ? 'yakinda' : 'iyi';
+      const deger = Math.max(0, num(u.real_stok)) * num(u.son_alis_fiyati);
+      return { u, hiz, g30, s90: s90[u.id] || 0, eldeki, yolda, gun, eldeGun, oneri, durum, deger, siparisTarih: hiz > 0 && isFinite(gun) ? addDays(today(), Math.floor(gun - esik)) : null };
+    });
+    const aktif = L.filter((x) => x.hiz > 0).sort((a, b) => a.gun - b.gun);
+    const hareketsiz = L.filter((x) => x.hiz <= 0 && num(x.u.real_stok) > 0).sort((a, b) => b.deger - a.deger);
+    const D = { acil: ['b-red', 'Hemen sipariş verin'], siparis: ['b-red', 'Sipariş zamanı'], yakinda: ['b-orange', 'Yakında'], iyi: ['b-green', 'Yeterli'] };
+    const gunY = (g) => (isFinite(g) ? `${fmtN(Math.floor(g))} gün` : '–');
+    const deger = L.reduce((a, x) => a + x.deger, 0), hDeger = hareketsiz.reduce((a, x) => a + x.deger, 0);
+    $('#r-out').innerHTML = `
+      <div class="kpis">
+        ${kpi('Stok değeri', fmtTL(deger), 'son alış fiyatıyla')}
+        ${kpi('Sipariş verilmesi gereken', fmtN(aktif.filter((x) => ['acil', 'siparis'].includes(x.durum)).length), 'ürün', 'red')}
+        ${kpi('Yakında sipariş', fmtN(aktif.filter((x) => x.durum === 'yakinda').length), '30 gün içinde', 'orange')}
+        ${kpi('Hareketsiz stok', fmtTL(hDeger), `${hareketsiz.length} ürün · 90 günde satış yok`, 'purple')}
+      </div>
+      ${rTablo('Satılan ürünler (en acilden)', ['Ürün', 'Durum', 'Günlük satış', 'Eldeki', 'Yolda', 'Stok yeter', 'Sipariş tarihi', 'Önerilen sipariş'],
+        aktif.map((x) => [`<a href="#/urun/${x.u.id}"><b>${esc(x.u.ad)}</b></a> <span class="tiny">${esc(x.u.kod)}</span>`, `<span class="badge ${D[x.durum][0]}">${D[x.durum][1]}</span>`, `${fmtN(Math.round(x.hiz * 10) / 10)} <span class="tiny">(son 30 g: ${fmtN(Math.round(x.g30 * 10) / 10)})</span>`, fmtN(x.eldeki), x.yolda ? fmtN(x.yolda) : '–', `<b>${gunY(x.gun)}</b>${x.yolda ? `<div class="tiny">eldeki ${gunY(x.eldeGun)}</div>` : ''}`, x.siparisTarih ? (x.siparisTarih <= today() ? '<b style="color:var(--red)">Şimdi</b>' : fmtD(x.siparisTarih)) : '–', x.oneri ? `<b>${fmtN(x.oneri)} ${esc(x.u.birim || '')}</b>` : '–']),
+        null, `Satış hızı son 90 günün sevklerinden (son 30 gün ağırlıklı) hesaplanır. "Stok yeter": eldeki (bekleyen siparişler düşülmüş) + yoldaki stok. Sipariş tarihi = stok bitmeden tedarik süresi + güvenlik payı kadar önce. Önerilen miktar, mal geldikten sonra ${ui.kapsama} gün yetecek kadardır.`)}
+      ${hareketsiz.length ? rTablo('Hareketsiz stok (90 günde satış yok)', ['Ürün', 'Stok', 'Değer'], hareketsiz.map((x) => [`<a href="#/urun/${x.u.id}"><b>${esc(x.u.ad)}</b></a> <span class="tiny">${esc(x.u.kod)}</span>`, `${fmtN(x.u.real_stok)} ${esc(x.u.birim || '')}`, fmtTL(x.deger)])) : ''}`;
+  };
+  [['st-t', 'tedarik'], ['st-g', 'guvenlik'], ['st-k', 'kapsama']].forEach(([id, k]) => ($('#' + id).oninput = (e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) { ui[k] = v; run(); } }));
+  run();
+}
+
+/* ---- 6) Tahsilatlar ---- */
+async function raporTahsilat(el, ui) {
+  el.innerHTML = `<div class="card"><h2>Tahsilatlar</h2>${tarihAraligiHtml(ui)}</div><div id="r-out"><div class="loading"><div class="spinner"></div></div></div>`;
+  $('#r-ek').innerHTML = '';
+  const [har, pls] = await Promise.all([
+    api.get('cari_hareketler', 'select=tarih,alacak,odeme_sekli,aciklama,siparis_id,cari_id,cariler(unvan,tip)&islem=eq.Tahsilat&limit=50000'),
+    api.get('platform_siparisler', 'select=siparis_id,platform&siparis_id=not.is.null&limit=20000')
+  ]);
+  const pm = {}; pls.forEach((p) => { pm[p.siparis_id] = p.platform; });
+  const kaynak = (h) => (h.siparis_id && pm[h.siparis_id] ? `${pm[h.siparis_id]} (platform)` : /^PayTR/i.test(h.aciklama || '') ? 'PayTR kart' : /otomatik tahsilat/i.test(h.aciklama || '') ? 'Perakende (sipariş anında)' : h.odeme_sekli || 'Diğer');
+  const AY = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+  const run = () => {
+    const f = har.filter((h) => aralikta(h.tarih, ui));
+    const top = f.reduce((a, h) => a + num(h.alacak), 0);
+    const grp = (fn) => { const o = {}; f.forEach((h) => { const k = fn(h) || '—'; const x = o[k] ||= { k, n: 0, t: 0 }; x.n++; x.t += num(h.alacak); }); return Object.values(o).sort((a, b) => b.t - a.t); };
+    const toptan = f.filter((h) => h.cariler?.tip !== 'Perakende');
+    const ay = {}; har.forEach((h) => { const k = h.tarih.slice(0, 7); ay[k] = (ay[k] || 0) + num(h.alacak); });
+    $('#r-out').innerHTML = `
+      <div class="kpis">
+        ${kpi('Toplam tahsilat', fmtTL(top), `${f.length} kayıt`, 'green')}
+        ${kpi('Toptan carilerden', fmtTL(toptan.reduce((a, h) => a + num(h.alacak), 0)), `${toptan.length} kayıt`)}
+        ${kpi('Perakende / platform', fmtTL(top - toptan.reduce((a, h) => a + num(h.alacak), 0)), 'sipariş anında işlenen', 'purple')}
+      </div>
+      ${rTablo('Kaynağa göre', ['Kaynak', 'Adet', 'Tutar', 'Pay'], grp(kaynak).map((x) => [`<b>${esc(x.k)}</b>`, fmtN(x.n), fmtTL(x.t), yuzde(x.t, top)]))}
+      ${rTablo('Toptan carilerden tahsilatlar', ['Cari', 'Adet', 'Tutar'], (() => { const o = {}; toptan.forEach((h) => { const k = h.cari_id; const x = o[k] ||= { id: k, ad: h.cariler?.unvan, n: 0, t: 0 }; x.n++; x.t += num(h.alacak); }); return Object.values(o).sort((a, b) => b.t - a.t).map((x) => [`<a href="#/cari/${x.id}"><b>${esc(x.ad)}</b></a>`, fmtN(x.n), fmtTL(x.t)]); })())}
+      ${rTablo('Aylık tahsilat (tüm zamanlar)', ['Ay', 'Tutar'], Object.keys(ay).sort().reverse().map((k) => [`<b>${AY[+k.slice(5) - 1]} ${k.slice(0, 4)}</b>`, fmtTL(ay[k])]))}`;
+  };
+  tarihAraligiBagla(ui, run);
+  run();
+}
 /* ------------------------------------------------------------------ */
 /* AYARLAR + DAHA                                                      */
 /* ------------------------------------------------------------------ */
@@ -1783,7 +2004,7 @@ async function viewDaha() {
       <div class="row" data-go="#/odemeler"><div class="main-col"><div class="t">Ödemeler</div><div class="st">Yapılacak ödemeler, çekler, platform ödemeleri, müşteri taksitleri, aylık nakit akışı</div></div></div>
       <div class="row" data-go="#/paytr"><div class="main-col"><div class="t">PayTR tahsilatları</div><div class="st">Kart ödemelerini cariye tahsilat olarak işle, makbuz al</div></div></div>
       <div class="row" data-go="#/fabrikalar"><div class="main-col"><div class="t">Fabrikalar</div><div class="st">Tedarikçi fabrikalar ve bakiyeleri</div></div></div>
-      <div class="row" data-go="#/raporlar"><div class="main-col"><div class="t">Raporlar</div><div class="st">Kâr (FIFO/LIFO), aylık satış özeti</div></div></div>
+      <div class="row" data-go="#/raporlar"><div class="main-col"><div class="t">Raporlar</div><div class="st">Kâr, platform kârlılığı, satış analizi, alacak yaşlandırma, stok ve sipariş önerisi, tahsilatlar</div></div></div>
       <div class="row" data-go="#/stok/hareketler"><div class="main-col"><div class="t">Stok hareketleri</div><div class="st">Girişler, sevkler, alış maliyetleri</div></div></div>
       <div class="row" data-go="#/ayarlar"><div class="main-col"><div class="t">Ayarlar</div><div class="st">Firma, KDV, maliyet yöntemi, yedek</div></div></div>
     </div>
@@ -3654,7 +3875,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.40';
+const APP_V = '1.41';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
