@@ -1883,12 +1883,14 @@ const ENT_ALAN = {
   PayTR: [['merchant_id', 'Mağaza no (merchant_id)'], ['merchant_key', 'Mağaza parola (merchant_key)'], ['merchant_salt', 'Mağaza gizli anahtar (merchant_salt)']],
   'PayTR 2': [['merchant_id', 'Mağaza no (merchant_id)'], ['merchant_key', 'Mağaza parola (merchant_key)'], ['merchant_salt', 'Mağaza gizli anahtar (merchant_salt)']],
   Trendyol: [['seller_id', 'Satıcı ID'], ['api_key', 'API key'], ['api_secret', 'API secret']],
-  Hepsiburada: [['merchant_id', 'Mağaza ID'], ['servis_anahtari', 'Servis anahtarı'], ['kullanici_adi', 'Entegratör kullanıcı adı']]
+  Hepsiburada: [['merchant_id', 'Mağaza ID'], ['servis_anahtari', 'Servis anahtarı'], ['kullanici_adi', 'Entegratör kullanıcı adı']],
+  'Koçtaş': [['api_key', 'API anahtarı']]
 };
 const ENT_NOT = {
   PayTR: 'PayTR Mağaza Paneli → <b>Destek &amp; Kurulum → Entegrasyon Bilgileri</b> (Mağaza No, Mağaza Parola, Mağaza Gizli Anahtar). Gün içinde 2 saatte bir (07:15–19:15) ödeme özeti ve kart işlemleri çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur. Otomatik veri gelince elle girilmiş gelecek PayTR kayıtları silinir.',
   'PayTR 2': 'İkinci PayTR mağazanızın bilgileri (aynı yerden). Ödemeler’de “PayTR … · 2. hesap” olarak görünür.',
   Hepsiburada: 'Hepsiburada satıcı paneli → Hesabım → <b>Entegrasyon → Entegratör Bilgileri</b>: Mağaza ID, entegratör kartındaki <b>Servis Anahtarı</b> ve o entegratörün kullanıcı adı (…_dev). Vadesi gelecek hakedişler (satış − komisyon/kargo vb.) günlük toplanarak eklenir.',
+  'Koçtaş': 'Koçtaş satıcı paneli (koctas.mirakl.net) → sağ üstte profil simgesi → <b>Kişisel ayarlar → API anahtarı</b> → “Yeni bir anahtar oluştur” → Panoya kopyala. Ödenecek hakedişler Ödemeler’e eklenir.',
   Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.'
 };
 async function entegrasyonKart() {
@@ -3435,7 +3437,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.32';
+const APP_V = '1.33';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

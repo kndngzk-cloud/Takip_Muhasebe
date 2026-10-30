@@ -272,7 +272,58 @@ async function paytrIslemler(a: Record<string, string>, hesap: string, gunSay: n
   return { adet: satirlar.length, ornek };
 }
 
-const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol, Hepsiburada: hepsiburada };
+/* ---------------- Koctas (Mirakl) ---------------- */
+// https://koctas.mirakl.net · Authorization: <API anahtari> · TL02 islem satirlari + SBC11 hakedis donemleri
+async function koctas(a: Record<string, string>): Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }> {
+  if (!a.api_key) throw new Error("Koçtaş API anahtarı girilmeli");
+  const base = "https://koctas.mirakl.net";
+  const al = async (yol: string) => {
+    const r = await fetch(base + yol, { headers: { Authorization: a.api_key, Accept: "application/json" } });
+    const t = await r.text();
+    if (!r.ok) throw new Error(`Koçtaş ${r.status}: ${t.slice(0, 200)}`);
+    return JSON.parse(t);
+  };
+  const bugun = gun(new Date());
+  // son 90 gunun islem satirlari (sayfa sayfa)
+  const satirlar: Record<string, unknown>[] = [];
+  let token = "";
+  for (let i = 0; i < 15; i++) {
+    const j = await al(`/api/sellerpayment/transactions_logs?limit=2000&date_created_from=${ekle(bugun, -90)}T00:00:00Z${token ? `&page_token=${encodeURIComponent(token)}` : ""}`);
+    satirlar.push(...((j.data ?? j.lines ?? []) as Record<string, unknown>[]));
+    token = j.next_page_token; if (!token) break;
+  }
+  // hakedis donemleri (odeme tarihi icin)
+  let donemler: Record<string, unknown>[] = [];
+  try { const j = await al(`/api/seller-billing-cycles?limit=100`); donemler = (j.data ?? j.seller_billing_cycles ?? j.billing_cycles ?? (Array.isArray(j) ? j : [])) as Record<string, unknown>[]; }
+  catch (e) { donemler = [{ hata: String((e as Error).message || e) }]; }
+  const tarih = (v: unknown) => { const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v ?? "")); return m ? m[1] : null; };
+  const donemTarih = (id: string) => {
+    const c = donemler.find((x) => String(x.id ?? x.seller_billing_cycle_id ?? "") === id);
+    if (!c) return null;
+    return tarih(c.payment_date ?? c.pay_out_date ?? c.payout_date ?? c.due_date ?? c.end_date ?? c.date_end ?? c.end_time ?? c.closing_date);
+  };
+  const tutar = (l: Record<string, unknown>) => {
+    if (l.amount_credited != null || l.amount_debited != null) return sayi(l.amount_credited ?? 0) - sayi(l.amount_debited ?? 0);
+    return sayi(l.amount);
+  };
+  const by: Record<string, number> = {}; const durumlar: Record<string, number> = {}; const tipler: Record<string, number> = {};
+  let tahmini = false;
+  for (const l of satirlar) {
+    const st = String(l.payment_state ?? "");
+    const v = tutar(l); if (isNaN(v)) continue;
+    durumlar[st] = Math.round(((durumlar[st] || 0) + v) * 100) / 100;
+    const tp = String(l.transaction_type ?? l.type ?? ""); tipler[tp] = Math.round(((tipler[tp] || 0) + v) * 100) / 100;
+    if (st !== "PENDING" && st !== "PAYABLE") continue;
+    const cid = String(l.seller_billing_cycle_id ?? (l.seller_billing_cycle as Record<string, unknown>)?.id ?? (l.billing_cycle as Record<string, unknown>)?.id ?? "");
+    let d = tarih(l.payment_date ?? l.pay_out_date) ?? (cid ? donemTarih(cid) : null);
+    if (!d || d < bugun) { d = ekle(bugun, 7); tahmini = true; }
+    by[d] = (by[d] || 0) + v;
+  }
+  const kalemler = Object.entries(by).filter(([, v]) => v > 0.005).map(([vade, t]) => ({ vade, tutar: Math.round(t * 100) / 100, aciklama: tahmini ? "Koçtaş hakediş (tarih tahmini)" : "Koçtaş hakediş" }));
+  return { kalemler, odenen: [], ham: { satir: satirlar.length, durumlar, tipler, ornek_satir: satirlar.slice(0, 3), ornek_donem: donemler.slice(0, 3) } };
+}
+
+const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol, Hepsiburada: hepsiburada, "Koçtaş": koctas };
 // "PayTR 2" -> kaynak "PayTR" (Odemeler'de ayni platform), dis_ref "paytr2:..." (hesaplar karismasin)
 const REF = (p: string) => p.toLowerCase().replace(/[^a-z0-9]/g, "");
 const KAYNAK = (p: string) => p.replace(/\s+\d+$/, "");
