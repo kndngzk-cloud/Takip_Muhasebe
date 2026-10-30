@@ -1818,10 +1818,12 @@ async function viewAyarlar() {
 /* Pazaryeri / odeme kurulusu entegrasyonlari: anahtarlar sadece yazilir, uygulamadan geri okunamaz */
 const ENT_ALAN = {
   PayTR: [['merchant_id', 'Mağaza no (merchant_id)'], ['merchant_key', 'Mağaza parola (merchant_key)'], ['merchant_salt', 'Mağaza gizli anahtar (merchant_salt)']],
+  'PayTR 2': [['merchant_id', 'Mağaza no (merchant_id)'], ['merchant_key', 'Mağaza parola (merchant_key)'], ['merchant_salt', 'Mağaza gizli anahtar (merchant_salt)']],
   Trendyol: [['seller_id', 'Satıcı ID'], ['api_key', 'API key'], ['api_secret', 'API secret']]
 };
 const ENT_NOT = {
-  PayTR: 'PayTR Mağaza Paneli → <b>BİLGİ</b> sayfasındaki bilgiler. Her sabah 07:15’te ödeme özeti çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur.',
+  PayTR: 'PayTR Mağaza Paneli → <b>Destek &amp; Kurulum → Entegrasyon Bilgileri</b> (Mağaza No, Mağaza Parola, Mağaza Gizli Anahtar). Her sabah 07:15’te ödeme özeti çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur. Otomatik veri gelince elle girilmiş gelecek PayTR kayıtları silinir.',
+  'PayTR 2': 'İkinci PayTR mağazanızın bilgileri (aynı yerden). Ödemeler’de “PayTR … · 2. hesap” olarak görünür.',
   Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.'
 };
 async function entegrasyonKart() {
@@ -1830,11 +1832,12 @@ async function entegrasyonKart() {
   try { [ent, alan] = await Promise.all([api.get('entegrasyonlar', 'select=platform,aktif,son_calisma,son_durum,son_adet&order=platform'), api.rpc('entegrasyon_alanlar')]); }
   catch (e) { el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2><p class="tiny" style="color:var(--red)">${esc(e.message)}</p>`; return; }
   const dolu = Object.fromEntries((alan || []).map((a) => [a.platform, new Set(a.alanlar || [])]));
-  const sira = ['PayTR', 'Trendyol', 'Hepsiburada', 'Koçtaş'];
+  const sira = ['PayTR', 'PayTR 2', 'Trendyol', 'Hepsiburada', 'Koçtaş'];
+  const ENT_AD = { PayTR: 'PayTR · 1. hesap', 'PayTR 2': 'PayTR · 2. hesap' };
   el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2>
     <p class="small muted" style="margin-top:0">Bilgiler güvenli saklanır ve buradan geri okunamaz; değiştirmek için yenisini yazmanız yeterli, boş bıraktığınız alan eskisini korur.</p>
     ${sira.map((pl) => { const e = ent.find((x) => x.platform === pl) || {}; const f = ENT_ALAN[pl]; return `<div class="ent" data-pl="${pl}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${pl}</b>${f ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : '<span class="badge">yakında</span>'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${f ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : '<span class="badge">yakında</span>'}</div>
       ${f ? `<p class="tiny" style="margin:6px 0 10px">${ENT_NOT[pl]}</p>
         <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${k === 'merchant_id' || k === 'seller_id' ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
         <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button><button class="btn sm ent-cal">Şimdi çalıştır</button></div>
@@ -1848,12 +1851,12 @@ async function entegrasyonKart() {
       const r = await api.rpc('entegrasyon_kaydet', { p_platform: pl, p_aktif: $('.ent-ak', box).checked, p_ayar: ayar });
       return r || {};
     };
-    $('.ent-kay', box).onclick = (e) => busy(e.currentTarget, async () => { const r = await kaydet(); const eks = ENT_ALAN[pl].filter(([k]) => !r[k]).map(([, l]) => l); toast(eks.length ? `Kaydedildi; eksik: ${eks.join(', ')}` : `${pl} bilgileri kaydedildi`, eks.length ? 'err' : 'ok'); entegrasyonKart(); }).catch(fail);
+    $('.ent-kay', box).onclick = (e) => busy(e.currentTarget, async () => { const r = await kaydet(); const eks = ENT_ALAN[pl].filter(([k]) => !r[k]).map(([, l]) => l); toast(eks.length ? `Kaydedildi; eksik: ${eks.join(', ')}` : `${ENT_AD[pl] || pl} bilgileri kaydedildi`, eks.length ? 'err' : 'ok'); entegrasyonKart(); }).catch(fail);
     $('.ent-cal', box).onclick = (e) => busy(e.currentTarget, async () => {
       if ($$('.ent-in', box).some((i) => i.value.trim())) await kaydet();
       const r = await (await api.raw('functions/v1/platform-odemeler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform: pl }) })).json();
       const s = r.sonuc?.[pl];
-      if (s?.hata) toast(`${pl}: ${s.hata}`, 'err'); else if (s) toast(`${pl}: ${s.gun} ödeme günü, toplam ${fmtTL(s.toplam)} Ödemeler’e işlendi`, 'ok'); else toast(r.hata || 'Yanıt alınamadı', 'err');
+      if (s?.hata) toast(`${ENT_AD[pl] || pl}: ${s.hata}`, 'err'); else if (s) toast(`${ENT_AD[pl] || pl}: ${s.gun} ödeme günü, toplam ${fmtTL(s.toplam)} Ödemeler’e işlendi`, 'ok'); else toast(r.hata || 'Yanıt alınamadı', 'err');
       entegrasyonKart();
     }).catch(fail);
   });
@@ -3135,7 +3138,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.26';
+const APP_V = '1.27';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

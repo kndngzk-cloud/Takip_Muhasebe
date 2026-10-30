@@ -38,7 +38,7 @@ const gun = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Is
 const ekle = (iso: string, n: number) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const sayi = (v: unknown) => { if (typeof v === "number") return v; const s = String(v ?? "").trim(); if (!s) return NaN; return Number(s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s); };
 
-type Kalem = { vade: string; tutar: number; aciklama: string };
+type Kalem = { vade: string; tutar: number; aciklama: string; para_birimi?: string };
 
 /* ---------------- PayTR ---------------- */
 async function paytr(a: Record<string, string>): Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }> {
@@ -58,32 +58,24 @@ async function paytr(a: Record<string, string>): Promise<{ kalemler: Kalem[]; od
   // son 10 gun (yatanlar) + bugunden itibaren 30 gun
   const gecmis = await iste(ekle(bugun, -10), bugun);
   const ileri = await iste(bugun, ekle(bugun, 30));
-  for (const r of [gecmis, ileri]) if (r?.status === "error") throw new Error(`PayTR: ${r.err_no || ""} ${r.err_msg || ""}`.trim());
+  for (const r of [gecmis, ileri]) if (r?.status !== "success") throw new Error(`PayTR: ${r?.err_no || ""} ${r?.err_msg || r?.reason || JSON.stringify(r).slice(0, 150)}`.trim());
+  // future_payments.net_amounts = { "2026-11-03": { "TL": 13451.79 }, ... }  (tarih filtresinden bagimsiz, tum gelecek odemeler)
+  const fp = (ileri.future_payments ?? gecmis.future_payments ?? {}) as Record<string, unknown>;
+  const net = (fp.net_amounts ?? {}) as Record<string, unknown>;
   const kalemler: Kalem[] = [];
-  const odenen: string[] = [];
-  // yanit bicimi: duz nesne, dizi ya da tarihe gore nesne olabilir; hepsini tara
-  const tara = (o: unknown, gelecek: boolean) => {
-    if (!o || typeof o !== "object") return;
-    if (Array.isArray(o)) { o.forEach((x) => tara(x, gelecek)); return; }
-    const r = o as Record<string, unknown>;
-    const tarih = String(r.date_paid ?? r.payment_date ?? r.date ?? r.odeme_tarihi ?? "").slice(0, 10);
-    const net = sayi(r.net_amounts ?? r.net_amount ?? r.net);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(tarih) && !isNaN(net) && net !== 0) {
-      if (gelecek || tarih >= bugun) kalemler.push({ vade: tarih, tutar: net, aciklama: "PayTR ödeme özeti" });
-      else odenen.push(tarih);
+  for (const [tarih, v] of Object.entries(net)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tarih) || tarih < bugun) continue;
+    const doviz = v && typeof v === "object" ? (v as Record<string, unknown>) : { TL: v };
+    for (const [pb, t] of Object.entries(doviz)) {
+      if (!["TL", "TRY", "USD", "EUR", "GBP"].includes(pb)) continue;
+      const n = sayi(t);
+      if (!isNaN(n) && n > 0.005) kalemler.push({ vade: tarih, tutar: Math.round(n * 100) / 100, aciklama: "PayTR ödeme özeti", para_birimi: pb === "TL" ? "TRY" : pb });
     }
-    for (const [k, v] of Object.entries(r)) {
-      if (v && typeof v === "object") tara(v, gelecek || k === "future_payments");
-      else if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v != null) { /* {"2026-11-03": tutar} bicimi */
-        const n = sayi(v); if (!isNaN(n) && n !== 0) (gelecek || k >= bugun ? kalemler.push({ vade: k, tutar: n, aciklama: "PayTR ödeme özeti" }) : odenen.push(k));
-      }
-    }
-  };
-  tara(gecmis, false); tara(ileri, false);
-  // ayni gune dusenleri topla
-  const by: Record<string, Kalem> = {};
-  kalemler.forEach((x) => { by[x.vade] = by[x.vade] ? { ...by[x.vade], tutar: by[x.vade].tutar + x.tutar } : { ...x }; });
-  return { kalemler: Object.values(by), odenen, ham: { gecmis, ileri } };
+  }
+  // paid_list = [{ date_paid, net, ... }] -> yatmis odemeler
+  const odenen = [...new Set([...(gecmis.paid_list ?? []), ...(ileri.paid_list ?? [])].map((x: Record<string, unknown>) => String(x.date_paid ?? "").slice(0, 10)).filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d)))];
+  const ozet = (r: Record<string, unknown>) => ({ paid_list: (r.paid_list as Record<string, unknown>[] ?? []).map(({ date_paid, net, currency }) => ({ date_paid, net, currency })), future_payments: { net_amounts: (r.future_payments as Record<string, unknown>)?.net_amounts } });
+  return { kalemler, odenen, ham: { gecmis: ozet(gecmis), ileri: ozet(ileri) } };
 }
 
 /* ---------------- Trendyol ---------------- */
@@ -123,8 +115,11 @@ async function trendyol(a: Record<string, string>): Promise<{ kalemler: Kalem[];
   return { kalemler, odenen: [], ham: { kayit: adet, gunler: by } };
 }
 
-const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, Trendyol: trendyol };
-const REF = (p: string) => p.toLowerCase().replace(/[^a-z]/g, "");
+const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol };
+// "PayTR 2" -> kaynak "PayTR" (Odemeler'de ayni platform), dis_ref "paytr2:..." (hesaplar karismasin)
+const REF = (p: string) => p.toLowerCase().replace(/[^a-z0-9]/g, "");
+const KAYNAK = (p: string) => p.replace(/\s+\d+$/, "");
+const HESAP = (p: string) => (/\s(\d+)$/.exec(p)?.[1] ? ` · ${/\s(\d+)$/.exec(p)![1]}. hesap` : "");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -140,24 +135,25 @@ Deno.serve(async (req) => {
       if (!f) { sonuc[e.platform] = "Bu platform için otomatik bağlantı henüz yok"; continue; }
       try {
         const { kalemler, odenen, ham } = await f(e.ayar || {});
-        const ref = REF(e.platform);
+        const ref = REF(e.platform), kaynak = KAYNAK(e.platform);
+        const dref = (k: Kalem) => `${ref}:${k.vade}${k.para_birimi && k.para_birimi !== "TRY" ? ":" + k.para_birimi : ""}`;
+        // otomatik veri geldiyse ayni platformun elle girilmis gelecek kayitlari silinir (yerine otomatikler yazilir)
+        if (kalemler.length) await rest(`nakit_girisleri?otomatik=is.false&tur=eq.Platform&kaynak=ilike.${encodeURIComponent(kaynak)}&durum=eq.Bekliyor&vade=gte.${bugun}`, { method: "DELETE" });
         // gelecek odemeler: dis_ref ile ekle / guncelle
         if (kalemler.length) {
           await rest("nakit_girisleri?on_conflict=dis_ref", {
             method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-            body: JSON.stringify(kalemler.map((k) => ({ tur: "Platform", kaynak: e.platform, vade: k.vade, tutar: Math.round(k.tutar * 100) / 100, aciklama: k.aciklama, dis_ref: `${ref}:${k.vade}`, otomatik: true, durum: "Bekliyor" }))),
+            body: JSON.stringify(kalemler.map((k) => ({ tur: "Platform", kaynak, vade: k.vade, tutar: k.tutar, para_birimi: k.para_birimi || "TRY", aciklama: k.aciklama + HESAP(e.platform), dis_ref: dref(k), otomatik: true, durum: "Bekliyor" }))),
           });
         }
         // artik listede olmayan gelecek otomatik kayitlar (tutar sifirlandi / iptal)
-        const gelecekRef = new Set(kalemler.map((k) => `${ref}:${k.vade}`));
-        const eski = await rest(`nakit_girisleri?select=id,dis_ref&otomatik=is.true&kaynak=eq.${encodeURIComponent(e.platform)}&durum=eq.Bekliyor&vade=gte.${bugun}`);
+        const gelecekRef = new Set(kalemler.map(dref));
+        const eski = await rest(`nakit_girisleri?select=id,dis_ref&otomatik=is.true&dis_ref=like.${encodeURIComponent(ref + ":")}*&durum=eq.Bekliyor&vade=gte.${bugun}`);
         for (const x of eski) if (!gelecekRef.has(x.dis_ref)) await rest(`nakit_girisleri?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify({ durum: "İptal", aciklama: "Platform listesinde artık yok" }) });
         // yatan odemeler
-        for (const d of odenen) await rest(`nakit_girisleri?dis_ref=eq.${encodeURIComponent(`${ref}:${d}`)}&durum=eq.Bekliyor`, { method: "PATCH", body: JSON.stringify({ durum: "Tahsil edildi", tahsil_tarihi: d }) });
-        // ayni platformun elle girilmis gelecek kayitlari otomatikle cakismasin
-        if (kalemler.length) await rest(`nakit_girisleri?otomatik=is.false&tur=eq.Platform&kaynak=ilike.${encodeURIComponent(e.platform)}&durum=eq.Bekliyor&vade=gte.${bugun}`, { method: "PATCH", body: JSON.stringify({ durum: "İptal", aciklama: "Otomatik entegrasyon devraldı" }) });
+        for (const d of odenen) await rest(`nakit_girisleri?dis_ref=like.${encodeURIComponent(`${ref}:${d}`)}*&durum=eq.Bekliyor`, { method: "PATCH", body: JSON.stringify({ durum: "Tahsil edildi", tahsil_tarihi: d }) });
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_calisma: new Date().toISOString(), son_durum: `Tamam · ${kalemler.length} ödeme günü`, son_adet: kalemler.length, son_yanit: JSON.parse(JSON.stringify(ham)) }) });
-        sonuc[e.platform] = { gun: kalemler.length, toplam: kalemler.reduce((a, k) => a + k.tutar, 0) };
+        sonuc[e.platform] = { gun: new Set(kalemler.map((k) => k.vade)).size, toplam: Math.round(kalemler.filter((k) => (k.para_birimi || "TRY") === "TRY").reduce((a, k) => a + k.tutar, 0) * 100) / 100 };
       } catch (err) {
         const m = String((err as Error).message || err).slice(0, 400);
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_calisma: new Date().toISOString(), son_durum: `Hata: ${m}` }) }).catch(() => {});
