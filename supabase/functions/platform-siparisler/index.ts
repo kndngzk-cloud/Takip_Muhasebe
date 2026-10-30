@@ -23,8 +23,9 @@ const para = (v: unknown) => { const n = sayi((v as Record<string, unknown>)?.am
 const d10 = (v: unknown) => { if (v == null || v === "") return null; if (typeof v === "number") return new Date(v).toISOString().slice(0, 10); const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v)); return m ? m[1] : null; };
 const iso = (v: unknown) => { if (v == null || v === "") return null; const d = typeof v === "number" ? new Date(v) : new Date(String(v)); return isNaN(+d) ? null : d.toISOString(); };
 const r2 = (n: number) => Math.round(n * 100) / 100;
+const TESHIS: Record<string, unknown> = {};
 type Satir = { kod: string; ad: string; miktar: number; tutar: number };
-type Sip = { platform: string; siparis_no: string; platform_durum?: string; tarih?: string | null; musteri?: string | null; telefon?: string | null; eposta?: string | null; sehir?: string | null; adres?: string | null; vergi_no?: string | null;
+type Sip = { platform: string; siparis_no: string; platform_durum?: string; tarih?: string | null; musteri?: string | null; alici?: string | null; telefon?: string | null; eposta?: string | null; sehir?: string | null; adres?: string | null; vergi_no?: string | null;
   satirlar: Satir[]; brut: number; komisyon?: number | null; kargo_kesinti?: number | null; net?: number | null; kesinti_kesin?: boolean; kargo_firma?: string | null; kargo_takip?: string | null; kargo_link?: string | null; barkod?: string | null;
   sevk_tarihi?: string | null; teslim_tarihi?: string | null; iptal?: boolean; ham?: unknown };
 
@@ -72,7 +73,7 @@ async function koctas(a: Record<string, string>, gunSay: number): Promise<Sip[]>
       const kargoVar = ["SHIPPED", "TO_COLLECT", "RECEIVED", "CLOSED"].includes(st);
       out.push({
         platform: "Koçtaş", siparis_no: o.order_id, platform_durum: st, tarih: iso(o.created_date),
-        musteri: [c.firstname, c.lastname].filter(Boolean).join(" ") || null,
+        musteri: [c.firstname, c.lastname].filter(Boolean).join(" ") || null, alici: [sa.firstname, sa.lastname].filter(Boolean).join(" ") || null,
         telefon: sa.phone || ba.phone || sa.phone_secondary || null, eposta: o.customer_notification_email || null,
         sehir: sa.city || ba.city || null, adres: [sa.street_1, sa.street_2, sa.city].filter(Boolean).join(" ") || null,
         satirlar: lines.filter((l) => !["CANCELED", "REFUSED"].includes(l.order_line_state)).map((l) => ({ kod: l.product_shop_sku || l.offer_sku || "", ad: l.product_title || "", miktar: Number(l.quantity) || 1, tutar: para(l.total_price) })),
@@ -89,27 +90,33 @@ async function koctas(a: Record<string, string>, gunSay: number): Promise<Sip[]>
 }
 
 /* ---------------- Hepsiburada (OMS + muhasebe) ---------------- */
-async function hepsiburada(a: Record<string, string>, gunSay: number): Promise<Sip[]> {
+async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0): Promise<Sip[]> {
   if (!a.merchant_id || !a.servis_anahtari || !a.kullanici_adi) throw new Error("Hepsiburada bilgileri eksik");
   const mid = encodeURIComponent(a.merchant_id);
   const hd = { Authorization: "Basic " + btoa(`${a.merchant_id}:${a.servis_anahtari}`), "User-Agent": a.kullanici_adi, Accept: "application/json" };
   const al = async (u: string) => { const r = await hamGet(u, hd); if (r.status < 200 || r.status >= 300) throw new Error(`Hepsiburada ${r.status}: ${r.text.slice(0, 200)} (${u.split("?")[0].split("/").slice(3, 5).join("/")})`); return JSON.parse(r.text || "{}"); };
   const liste = async (u: string) => { const out: Record<string, any>[] = []; for (let off = 0; off < 3000; off += 100) { const j = await al(`${u}${u.includes("?") ? "&" : "?"}offset=${off}&limit=100`); const it = (Array.isArray(j) ? j : j.items ?? j.data ?? []) as Record<string, any>[]; out.push(...it); if (it.length < 100) break; } return out; };
   const fmt = (d: Date) => d.toISOString().slice(0, 16).replace("T", " ");
-  const bit = new Date(), basT = new Date(Date.now() - gunSay * 86400000);
+  const bit = new Date(Date.now() - bitGun * 86400000), basT = new Date(Date.now() - gunSay * 86400000);
   const aralik = `begindate=${encodeURIComponent(fmt(basT))}&enddate=${encodeURIComponent(fmt(bit))}`;
   const oms = "https://oms-external.hepsiburada.com";
   const kalemler: Record<string, Record<string, any>[]> = {};
-  for (const it of await liste(`${oms}/orders/merchantid/${mid}`)) (kalemler[it.orderNumber] ||= []).push(it);
+  if (!bitGun) for (const it of await liste(`${oms}/orders/merchantid/${mid}`)) (kalemler[it.orderNumber] ||= []).push(it);
   const sevk: Record<string, { tarih: string | null; barkod: string | null }> = {};
   const teslim: Record<string, string | null> = {};
   const iptal = new Set<string>();
   const notlar: string[] = [];
+  // paketlenmis (etiketi basilmis) ama kargoya verilmemis siparisler acik listeden cikar, paket listesinde durur
+  const paket: Record<string, string | null> = {};
+  const noBul = (p: Record<string, any>) => { const n = [...(p.OrderNumbers ?? p.orderNumbers ?? []), ...((p.items ?? p.Items ?? p.lines ?? p.LineItems ?? []) as Record<string, any>[]).map((i) => i.orderNumber ?? i.OrderNumber)]; if (p.OrderNumber || p.orderNumber) n.push(p.OrderNumber ?? p.orderNumber); return [...new Set(n.filter(Boolean).map(String))]; };
+  let paketSay = 0; let paketOrnek: unknown = null;
+  if (!bitGun) try { for (const p of await liste(`${oms}/packages/merchantid/${mid}`)) { paketSay++; paketOrnek ||= Object.fromEntries(Object.entries(p).map(([k, v]) => [k, Array.isArray(v) ? `[${v.length}] ${JSON.stringify(v[0] ?? null).slice(0, 300)}` : typeof v === "object" ? "{...}" : String(v).slice(0, 4) + "…"])); for (const no of noBul(p)) paket[no] = p.Barcode || p.barcode || p.PackageNumber || p.packageNumber || null; } } catch (e) { notlar.push(String(e)); }
+  TESHIS.Hepsiburada = { acik: Object.keys(kalemler).length, paket: paketSay, paket_siparis: Object.keys(paket).length, paket_ornek: paketOrnek, notlar: notlar.slice(0, 3) };
   try { for (const p of await liste(`${oms}/packages/merchantid/${mid}/shipped?${aralik}`)) for (const no of (p.OrderNumbers?.length ? p.OrderNumbers : [p.OrderNumber]).filter(Boolean)) sevk[no] = { tarih: d10(p.ShippedDate), barkod: p.Barcode || p.PackageNumber || null }; } catch (e) { notlar.push(String(e)); }
   try { for (const p of await liste(`${oms}/packages/merchantid/${mid}/delivered?${aralik}`)) for (const no of (p.OrderNumbers?.length ? p.OrderNumbers : [p.OrderNumber]).filter(Boolean)) { teslim[no] = d10(p.DeliveredDate); sevk[no] ||= { tarih: d10(p.DeliveredDate), barkod: p.Barcode || p.PackageNumber || null }; } } catch (e) { notlar.push(String(e)); }
   try { for (const c of await liste(`${oms}/orders/merchantid/${mid}/cancelled?${aralik}`)) if (c.orderNumber) iptal.add(String(c.orderNumber)); } catch (e) { notlar.push(String(e)); }
   // kargolanmis ama acik listede olmayan siparislerin detayi
-  for (const no of [...Object.keys(sevk), ...iptal]) if (!kalemler[no]) { try { const d = await al(`${oms}/orders/merchantid/${mid}/ordernumber/${encodeURIComponent(no)}`); kalemler[no] = d.items ?? []; } catch (e) { notlar.push(String(e)); } }
+  for (const no of [...Object.keys(sevk), ...iptal, ...Object.keys(paket)]) if (!kalemler[no]) { try { const d = await al(`${oms}/orders/merchantid/${mid}/ordernumber/${encodeURIComponent(no)}`); kalemler[no] = d.items ?? []; } catch (e) { notlar.push(String(e)); } }
   const out: Sip[] = [];
   for (const [no, its] of Object.entries(kalemler)) {
     if (!its.length) continue;
@@ -132,13 +139,13 @@ async function hepsiburada(a: Record<string, string>, gunSay: number): Promise<S
     } catch { /* muhasebe kaydi yoksa tahmin kalir */ }
     const sv = sevk[no];
     out.push({
-      platform: "Hepsiburada", siparis_no: no, platform_durum: iptal.has(no) ? "Cancelled" : teslim[no] ? "Delivered" : sv ? "Shipped" : String(i0.status || "Open"), tarih: iso(i0.orderDate),
-      musteri: i0.customerName && !/@/.test(i0.customerName) ? i0.customerName : sa.name || i0.customerName || null,
+      platform: "Hepsiburada", siparis_no: no, platform_durum: iptal.has(no) ? "Cancelled" : teslim[no] ? "Delivered" : sv ? "Shipped" : paket[no] !== undefined ? "Packaged" : String(i0.status || "Open"), tarih: iso(i0.orderDate),
+      musteri: i0.customerName && !/@/.test(i0.customerName) ? i0.customerName : sa.name || i0.customerName || null, alici: sa.name || null,
       telefon: sa.phoneNumber || null, eposta: sa.email || null, sehir: sa.city || null, adres: [sa.address, sa.town, sa.city].filter(Boolean).join(" ") || null, vergi_no: inv.taxNumber || null,
       satirlar: its.map((x) => ({ kod: x.merchantSKU || x.merchantSku || x.sku || "", ad: x.name || x.productName || "", miktar: Number(x.quantity) || 1, tutar: para(x.totalPrice) })),
       brut, komisyon: kom, kargo_kesinti: kargo, net, kesinti_kesin: kesin,
-      kargo_firma: i0.cargoCompany || i0.cargoCompanyModel?.name || null, kargo_takip: sv?.barkod || i0.barcode || i0.packageNumber || null,
-      kargo_link: sv?.barkod ? `https://www.hepsijet.com/gonderi-takibi/${sv.barkod}` : null, barkod: sv?.barkod || i0.barcode || null,
+      kargo_firma: i0.cargoCompany || i0.cargoCompanyModel?.name || null, kargo_takip: sv?.barkod || paket[no] || i0.barcode || i0.packageNumber || null,
+      kargo_link: sv?.barkod ? `https://www.hepsijet.com/gonderi-takibi/${sv.barkod}` : null, barkod: sv?.barkod || paket[no] || i0.barcode || null,
       sevk_tarihi: sv?.tarih ?? null, teslim_tarihi: teslim[no] ?? null, iptal: iptal.has(no),
       ham: { durum: i0.status, notlar: notlar.slice(0, 3) },
     });
@@ -148,21 +155,24 @@ async function hepsiburada(a: Record<string, string>, gunSay: number): Promise<S
 }
 
 /* ---------------- Trendyol (siparis paketleri + hakedis) ---------------- */
-async function trendyol(a: Record<string, string>, gunSay: number): Promise<Sip[]> {
+async function trendyol(a: Record<string, string>, gunSay: number, bitGun = 0): Promise<Sip[]> {
   if (!a.seller_id || !a.api_key || !a.api_secret) throw new Error("Trendyol bilgileri eksik");
   const hd = { Authorization: "Basic " + btoa(`${a.api_key}:${a.api_secret}`), "User-Agent": `${a.seller_id} - SelfIntegration`, storeFrontCode: "TR" };
   const al = async (u: string) => { const r = await fetch(u, { headers: hd }); const t = await r.text(); if (!r.ok) throw new Error(`Trendyol ${r.status}: ${t.slice(0, 200)}`); return JSON.parse(t); };
   const paketler: Record<string, any>[] = [];
-  const bit = Date.now(), bas = bit - Math.min(gunSay, 14) * 86400000;
-  for (let page = 0; page < 50; page++) {
-    const j = await al(`https://apigw.trendyol.com/integration/order/sellers/${a.seller_id}/orders?startDate=${bas}&endDate=${bit}&orderByField=PackageLastModifiedDate&orderByDirection=DESC&size=200&page=${page}`);
-    paketler.push(...(j.content ?? [])); if (page + 1 >= (j.totalPages ?? 1)) break;
+  const bit = Date.now() - bitGun * 86400000, bas = Date.now() - gunSay * 86400000;
+  for (let pe = bit; pe > bas; pe -= 14 * 86400000) {
+    const ps = Math.max(bas, pe - 14 * 86400000);
+    for (let page = 0; page < 50; page++) {
+      const j = await al(`https://apigw.trendyol.com/integration/order/sellers/${a.seller_id}/orders?startDate=${ps}&endDate=${pe}&orderByField=PackageLastModifiedDate&orderByDirection=DESC&size=200&page=${page}`);
+      paketler.push(...(j.content ?? [])); if (page + 1 >= (j.totalPages ?? 1)) break;
+    }
   }
   // komisyon: hakedis kayitlarindan (siparis no ile)
   const kom: Record<string, { kom: number; gelir: number }> = {};
   try {
-    for (let i = 0; i < 3; i++) {
-      const e = bit - i * 15 * 86400000, s = e - 15 * 86400000 + 1000;
+    for (let i = 0; i < Math.ceil((bit - bas) / (15 * 86400000)) + 2; i++) {
+      const e = Math.min(Date.now(), bit + 30 * 86400000) - i * 15 * 86400000, s = e - 15 * 86400000 + 1000;
       const j = await al(`https://apigw.trendyol.com/integration/finance/che/sellers/${a.seller_id}/settlements?startDate=${s}&endDate=${e}&transactionType=Sale&page=0&size=1000`);
       for (const c of j.content ?? []) { const o = kom[c.orderNumber] ||= { kom: 0, gelir: 0 }; o.kom += Math.abs(sayi(c.commissionAmount) || 0); o.gelir += sayi(c.sellerRevenue) || 0; }
     }
@@ -181,7 +191,7 @@ async function trendyol(a: Record<string, string>, gunSay: number): Promise<Sip[
     const sevkT = kargolu ? d10((kargolu.packageHistories ?? []).find((h: any) => h.status === "Shipped")?.createdDate ?? kargolu.lastModifiedDate) : null;
     out.push({
       platform: "Trendyol", siparis_no: String(no), platform_durum: p0.status, tarih: iso(p0.orderDate),
-      musteri: [p0.customerFirstName, p0.customerLastName].filter(Boolean).join(" ") || sa.fullName || null,
+      musteri: [p0.customerFirstName, p0.customerLastName].filter(Boolean).join(" ") || sa.fullName || null, alici: sa.fullName || [sa.firstName, sa.lastName].filter(Boolean).join(" ") || null,
       telefon: sa.phone || null, eposta: p0.customerEmail || null, sehir: sa.city || null, adres: [sa.fullAddress, sa.district, sa.city].filter(Boolean).join(" ") || null, vergi_no: ia.taxNumber || p0.taxNumber || null,
       satirlar: lines.map((l: any) => ({ kod: l.merchantSku || l.sku || l.barcode || "", ad: l.productName || "", miktar: Number(l.quantity) || 1, tutar: r2((sayi(l.price) || 0) * (Number(l.quantity) || 1)) })),
       brut, komisyon: k ? r2(k.kom) : (komTah > 0 ? komTah : null), kargo_kesinti: null, net: k ? r2(k.gelir) : null, kesinti_kesin: false,
@@ -193,7 +203,7 @@ async function trendyol(a: Record<string, string>, gunSay: number): Promise<Sip[
   return out;
 }
 
-const PLATFORM: Record<string, (a: Record<string, string>, g: number) => Promise<Sip[]>> = { "Koçtaş": koctas, Hepsiburada: hepsiburada, Trendyol: trendyol };
+const PLATFORM: Record<string, (a: Record<string, string>, g: number, b?: number) => Promise<Sip[]>> = { "Koçtaş": koctas, Hepsiburada: hepsiburada, Trendyol: trendyol };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -212,7 +222,7 @@ Deno.serve(async (req) => {
       if (!Object.keys(a).length) continue;
       try {
         const gunSay = typeof body.gun === "number" ? body.gun : 3;
-        const liste = await PLATFORM[e.platform](a, gunSay);
+        const liste = await PLATFORM[e.platform](a, gunSay, typeof body.bitis_gun === "number" ? body.bitis_gun : 0);
         let yeni = 0, aktarilan = 0, baglanan = 0, guncellenen = 0, eslesmedi = 0; const hatalar: string[] = [];
         if (liste.length) {
           const mevcut = await rest(`platform_siparisler?select=id,siparis_no,durum,siparis_id&platform=eq.${encodeURIComponent(e.platform)}&siparis_no=in.(${liste.map((s) => `"${s.siparis_no.replace(/"/g, "")}"`).join(",")})`);
@@ -237,8 +247,8 @@ Deno.serve(async (req) => {
           }
         }
         const durumMetni = `Siparişler: ${liste.length} çekildi · ${yeni} yeni · ${aktarilan} aktarıldı${baglanan ? ` · ${baglanan} elle girilmiş siparişe bağlandı` : ""}${eslesmedi ? ` · ${eslesmedi} ürün eşleşmedi` : ""}${hatalar.length ? ` · ${hatalar.length} hata` : ""}`;
-        await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(e.son_yanit || {}), siparis: { zaman: new Date().toISOString(), durum: durumMetni, hatalar: hatalar.slice(0, 5) } } }) });
-        sonuc[e.platform] = { cekilen: liste.length, yeni, aktarilan, baglanan, guncellenen, eslesmedi, hatalar: hatalar.slice(0, 5) };
+        await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(e.son_yanit || {}), siparis: { zaman: new Date().toISOString(), durum: durumMetni, hatalar: hatalar.slice(0, 5), teshis: TESHIS[e.platform] ?? null } } }) });
+        sonuc[e.platform] = { teshis: TESHIS[e.platform], cekilen: liste.length, yeni, aktarilan, baglanan, guncellenen, eslesmedi, hatalar: hatalar.slice(0, 5) };
       } catch (err) {
         const m = String((err as Error).message || err).slice(0, 400);
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(e.son_yanit || {}), siparis: { zaman: new Date().toISOString(), durum: `Sipariş hatası: ${m}` } } }) }).catch(() => {});
