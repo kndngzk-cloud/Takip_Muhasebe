@@ -2530,14 +2530,10 @@ async function viewOdemeTakvimi() {
       <button class="q-orange" id="yo">${icon('plus')}Ödenecek</button>
       <button class="q-blue" id="n-cek">${icon('plus')}Alınan çek</button>
       <button class="q-purple" id="n-pl">${icon('plus')}Platform</button></div>
-    ${ui.odenen ? '' : `<div class="kpis">
-      <div class="kpi red"><div class="l">30 gün içinde ödenecek</div><div class="v num">${fmtTL(top(od30))}</div><div class="s">${od30.length} kalem · döviz yaklaşık kurla</div></div>
-      <div class="kpi green"><div class="l">30 gün içinde gelecek</div><div class="v num">${fmtTL(top(th30))}</div><div class="s">${th30.length} kalem · çek, platform, taksit</div></div>
-      <div class="kpi ${top(th30) - top(od30) >= 0 ? 'purple' : 'orange'}"><div class="l">30 gün net</div><div class="v num">${fmtTL(top(th30) - top(od30))}</div><div class="s">gelecek − ödenecek</div></div>
-      <div class="kpi orange"><div class="l">Gecikmiş</div><div class="v num">${gec.length}</div><div class="s">${fmtTL(top(gec))}</div></div>
-    </div>
-    <div class="tiny" style="margin:-4px 4px 12px">Portföyde <b>${cekler.length}</b> çek / senet (${fmtTL(top(cekler.map(nakitKalem)))}) · platformlardan beklenen <b>${fmtTL(top(plats.map(nakitKalem)))}</b></div>
+    ${ui.odenen ? '' : `${gunlukNakit(acik, kasaTop)}
     ${kasaKart(kasa)}
+    <div class="tiny" style="margin:-4px 4px 12px">Portföyde <b>${cekler.length}</b> çek / senet (${fmtTL(top(cekler.map(nakitKalem)))}) · platformlardan beklenen <b>${fmtTL(top(plats.map(nakitKalem)))}</b></div>
+
     ${nakitAkisi(acik, kasaTop)}`}
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Cari, fabrika, çek no, platform, açıklama ara…" value="${esc(ui.q)}"></div></div>
     <div class="chips" id="c1">${Object.keys(FILT).map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}<span style="width:8px"></span><button class="chip ${ui.odenen ? 'on' : ''}" id="c-od">${ui.odenen ? '✓ Kapananlar' : 'Ödenmiş / tahsil edilmişleri göster'}</button></div>
@@ -2554,7 +2550,7 @@ async function viewOdemeTakvimi() {
       ...tarihler.map((d) => [gunAd(d), f.filter((p) => p.vade === d)]),
       ['Tarihi belli değil', f.filter((p) => !p.vade)]
     ];
-    $('#lst').innerHTML = gruplar.filter(([, a]) => a.length).map(([t, a]) => `<div class="section-title">${t} <span class="tiny" style="text-transform:none;letter-spacing:0">${a.length} kalem${ui.odenen ? '' : ` · ödeme ${fmtTL(top(a.filter((p) => p.yon === 'Ödeme')))} · gelecek ${fmtTL(top(a.filter((p) => p.yon === 'Tahsilat')))}`}</span></div>
+    $('#lst').innerHTML = gruplar.filter(([, a]) => a.length).map(([t, a]) => `<div class="section-title" data-sd="${a[0]?.vade && a[0].vade >= bugun ? a[0].vade : ''}">${t} <span class="tiny" style="text-transform:none;letter-spacing:0">${a.length} kalem${ui.odenen ? '' : ` · ödeme ${fmtTL(top(a.filter((p) => p.yon === 'Ödeme')))} · gelecek ${fmtTL(top(a.filter((p) => p.yon === 'Tahsilat')))}`}</span></div>
       <div class="list">${a.map((p) => (p._n ? nakitRow(p) : planRow(p, { baslik: true }))).join('')}</div>`).join('');
     bindPlanRows($('#lst'), f.filter((p) => !p._n), null);
     bindNakitRows($('#lst'), f.filter((p) => p._n));
@@ -2566,6 +2562,10 @@ async function viewOdemeTakvimi() {
   };
   $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
   bindKasa($('#view'), kasa);
+  $$('#gn-tab tr[data-gd]').forEach((tr) => tr.onclick = () => {
+    const d = tr.dataset.gd; const el = $(`#lst .section-title[data-sd="${d}"]`) || (d === today() ? $('#lst .section-title') : null);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   $('#yo').onclick = () => planForm(null, { yon: 'Ödeme', masraf: true, genel: true, pb: 'TRY', tetikler: ['Tarih'] });
   $('#n-cek').onclick = () => nakitForm(null, 'Çek');
   $('#n-pl').onclick = () => nakitForm(null, 'Platform');
@@ -2909,6 +2909,36 @@ function kasaForm(k) {
   });
 }
 
+/* Gunluk nakit tablosu: kasa + gelecekler | odenecekler | kalan bakiye */
+function gunlukNakit(items, kasaTop) {
+  const bugun = today();
+  const B = {};
+  items.forEach((p) => { if (!p.vade) return; const d = p.vade < bugun ? bugun : p.vade; const o = B[d] ||= { g: 0, c: 0, gec: false }; if (p.vade < bugun) o.gec = true; if (p.yon === 'Tahsilat') o.g += tlTahmin(p); else o.c += tlTahmin(p); });
+  const gunler = Object.keys(B).sort();
+  if (!gunler.length) return '';
+  const GUN = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+  let bak = kasaTop, enDusuk = { v: kasaTop, d: bugun }, ilkEksi = null;
+  const satir = gunler.map((d) => {
+    const o = B[d]; bak += o.g - o.c;
+    if (bak < enDusuk.v) enDusuk = { v: bak, d };
+    if (bak < -0.005 && !ilkEksi) ilkEksi = { d, v: bak };
+    return `<tr class="click" data-gd="${d}"><td class="w"><b>${fmtD(d)}</b> <span class="tiny">${GUN[new Date(d + 'T12:00:00').getDay()]}${d === bugun ? ' · bugün' : ''}${o.gec ? ' · gecikmişler dahil' : ''}</span></td>
+      <td class="r zero" data-l="Girecek">${o.g ? '+' + fmtTL(o.g) : '–'}</td>
+      <td class="r pos" data-l="Çıkacak">${o.c ? '−' + fmtTL(o.c) : '–'}</td>
+      <td class="r" data-l="Kalan"><b style="color:${bak < -0.005 ? 'var(--red)' : 'var(--green)'}">${fmtTL(bak)}</b></td></tr>`;
+  }).join('');
+  return `<div class="card" style="padding-bottom:6px"><h2>Günlük nakit durumu <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· kasadaki para + gelecekler − ödenecekler, gün gün</span></h2>
+    <div class="kpis" style="margin-bottom:10px">
+      <div class="kpi"><div class="l">Bugün kasada</div><div class="v num">${fmtTL(kasaTop)}</div></div>
+      <div class="kpi ${enDusuk.v < 0 ? 'red' : 'green'}"><div class="l">En düşük bakiye</div><div class="v num">${fmtTL(enDusuk.v)}</div><div class="s">${fmtD(enDusuk.d)}</div></div>
+      <div class="kpi ${ilkEksi ? 'orange' : 'green'}"><div class="l">${ilkEksi ? 'İlk eksiye düşüş' : 'Eksiye düşüş'}</div><div class="v num">${ilkEksi ? fmtD(ilkEksi.d) : 'Yok'}</div><div class="s">${ilkEksi ? fmtTL(ilkEksi.v) : 'tüm dönem artıda'}</div></div>
+      <div class="kpi purple"><div class="l">Dönem sonu</div><div class="v num">${fmtTL(bak)}</div><div class="s">${fmtD(gunler[gunler.length - 1])}</div></div>
+    </div>
+    <div class="table-wrap" style="max-height:520px;overflow:auto"><table class="tbl stack" id="gn-tab"><thead><tr><th>Tarih</th><th class="r">Girecek (kasa + çek + platform + taksit)</th><th class="r">Çıkacak (ödemeler)</th><th class="r">Kalan bakiye</th></tr></thead>
+      <tbody><tr><td class="w"><b>Başlangıç</b> <span class="tiny">kasadaki para</span></td><td class="r zero" data-l="Kasa">${fmtTL(kasaTop)}</td><td class="r" data-l="">–</td><td class="r" data-l="Kalan"><b>${fmtTL(kasaTop)}</b></td></tr>${satir}</tbody></table></div>
+    <p class="tiny" style="margin:6px 2px">Satıra dokununca o günün kalemleri aşağıda gösterilir. Döviz kalemler yaklaşık kurla. Vadesi geçmiş kalemler bugüne sayılır.</p></div>`;
+}
+
 /* Aylik nakit akisi: gelecek (cek, platform, musteri taksitleri) − odenecek; kasadan baslar */
 function nakitAkisi(items, baslangic = 0) {
   const bugun = today();
@@ -3059,7 +3089,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.24';
+const APP_V = '1.25';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
