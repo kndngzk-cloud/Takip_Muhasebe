@@ -714,7 +714,6 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
         <div class="field"><label>Fatura tipi</label><div class="seg" id="f-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
         <div class="field" id="kdv-f"><label>KDV oranı (%)</label><input class="input" id="f-kdv" inputmode="decimal" value="${fmtN(f.kdv)}"></div>
       </div>
-      ${dovizHtml('f-dv', f.pb, f.pb === 'TRY' ? '' : f.kur)}
       <div class="grid2">
         <div class="field"><label>Gönderim şekli</label><select class="input" id="f-gon"><option value="">Seçin…</option>${(ayar.gonderim_sekilleri || []).map((g) => `<option>${esc(g)}</option>`).join('')}</select></div>
         <div class="field"><label>Sipariş tarihi</label><input class="input" type="date" id="f-tarih" value="${f.tarih}"></div>
@@ -723,6 +722,10 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
         <div class="hint">FIFO: önce en eski alış partisinin maliyeti düşülür · LIFO: önce en son alışın maliyeti düşülür</div></div>
     </div>
     <div class="section-title">Ürünler</div>
+    <div class="card" style="border-left:4px solid var(--accent);padding-bottom:2px">
+      <div class="small" style="margin-bottom:8px"><b>Fiyatları hangi para biriminde gireceksiniz?</b> <span class="muted">Dolar / euro seçerseniz birim fiyatları dövizle yazın; kur ile TL’ye çevrilip cariye işlenir.</span></div>
+      ${dovizHtml('f-dv', f.pb, f.pb === 'TRY' ? '' : f.kur)}
+    </div>
     <div class="lines" id="lines"></div>
     <button class="btn block" id="add-line" style="margin-bottom:14px">${icon('plus')}Ürün ekle</button>
     <div class="card">
@@ -3018,7 +3021,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.21';
+const APP_V = '1.22';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
