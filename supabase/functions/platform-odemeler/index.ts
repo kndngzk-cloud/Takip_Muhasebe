@@ -307,7 +307,7 @@ async function koctas(a: Record<string, string>): Promise<{ kalemler: Kalem[]; o
     return sayi(l.amount);
   };
   const by: Record<string, number> = {}; const durumlar: Record<string, number> = {}; const tipler: Record<string, number> = {};
-  let tahmini = false;
+  let tahmini = false, bilinmeyen = 0;
   for (const l of satirlar) {
     const st = String(l.payment_state ?? "");
     const v = tutar(l); if (isNaN(v)) continue;
@@ -315,12 +315,13 @@ async function koctas(a: Record<string, string>): Promise<{ kalemler: Kalem[]; o
     const tp = String(l.transaction_type ?? l.type ?? ""); tipler[tp] = Math.round(((tipler[tp] || 0) + v) * 100) / 100;
     if (st !== "PENDING" && st !== "PAYABLE") continue;
     const cid = String(l.seller_billing_cycle_id ?? (l.seller_billing_cycle as Record<string, unknown>)?.id ?? (l.billing_cycle as Record<string, unknown>)?.id ?? "");
-    let d = tarih(l.payment_date ?? l.pay_out_date) ?? (cid ? donemTarih(cid) : null);
-    if (!d || d < bugun) { d = ekle(bugun, 7); tahmini = true; }
+    const d = tarih(l.payment_date ?? l.pay_out_date) ?? (cid ? donemTarih(cid) : null);
+    // odeme tarihi bilinmeyen satirlar Odemeler'e yazilmaz (elle girilen kayitlara dokunulmasin)
+    if (!d || d < bugun) { tahmini = true; bilinmeyen += v; continue; }
     by[d] = (by[d] || 0) + v;
   }
-  const kalemler = Object.entries(by).filter(([, v]) => v > 0.005).map(([vade, t]) => ({ vade, tutar: Math.round(t * 100) / 100, aciklama: tahmini ? "Koçtaş hakediş (tarih tahmini)" : "Koçtaş hakediş" }));
-  return { kalemler, odenen: [], ham: { satir: satirlar.length, durumlar, tipler, ornek_satir: satirlar.slice(0, 3), ornek_donem: donemler.slice(0, 3) } };
+  const kalemler = Object.entries(by).filter(([, v]) => v > 0.005).map(([vade, t]) => ({ vade, tutar: Math.round(t * 100) / 100, aciklama: "Koçtaş hakediş" }));
+  return { kalemler, odenen: [], ham: { satir: satirlar.length, tarihi_bilinmeyen: Math.round(bilinmeyen * 100) / 100, tahmini, durumlar, tipler, ornek_satir: satirlar.slice(0, 3), ornek_donem: donemler.slice(0, 3) } };
 }
 
 const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol, Hepsiburada: hepsiburada, "Koçtaş": koctas };
