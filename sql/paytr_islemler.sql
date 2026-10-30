@@ -1,0 +1,10 @@
+-- Uygulandi (2026-10-30): PayTR kart islemleri ve cari tahsilat eslestirme
+-- paytr_islemler (dis_ref unique; durum Bekliyor/Cari/Perakende; makbuz_no <- makbuz_no_seq)
+-- v_paytr_islemler (cari_unvan, cari_kod)
+-- RPC paytr_eslestir(p_id, p_cari_id|null=perakende, p_fatura_tipi R/GR, p_tarih)
+--   Satis -> cari_hareketler Tahsilat (alacak = islem_tutari, odeme_sekli 'Kredi kartı', belge_no 'Makbuz N')
+--   Iade  -> cari_hareketler Duzeltme (borc)
+-- RPC paytr_eslesme_kaldir(p_id)  (yonetici; cari hareketini siler)
+-- Trigger paytr_hareket_sil: cari hareketi silinirse PayTR odemesi tekrar Bekliyor olur
+-- Edge function platform-odemeler: /rapor/islem-dokumu (3 gunluk pencereler, 1.5 sn ara), ilk calismada 60 gun, sonra 9 gun
+-- pg_cron 'platform-odemeler': 15 4-16/2 * * *  (07:15-19:15 Istanbul, 2 saatte bir)
