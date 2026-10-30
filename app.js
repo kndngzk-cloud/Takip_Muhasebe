@@ -1951,16 +1951,49 @@ const plKargoDurum = (p) => p.teslim_tarihi ? `Teslim edildi ${fmtD(p.teslim_tar
 
 /* Code 128 barkod (SVG) */
 const C128 = '212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112'.split(' ');
-function barkodSvg(t) {
+function c128Desen(t) {
   t = String(t || '').trim(); if (!t) return '';
   let kod;
   if (/^\d+$/.test(t) && t.length % 2 === 0) { kod = [105]; for (let i = 0; i < t.length; i += 2) kod.push(+t.slice(i, i + 2)); }
   else { kod = [104]; for (const ch of t) { const c = ch.charCodeAt(0) - 32; if (c < 0 || c > 94) return ''; kod.push(c); } }
   kod.push(kod.reduce((a, v, i) => a + (i ? v * i : v), 0) % 103, 106);
-  const w = kod.map((v) => C128[v]).join('');
+  return kod.map((v) => C128[v]).join('');
+}
+function barkodSvg(t) {
+  const w = c128Desen(t); if (!w) return '';
   let x = 10, bars = '';
   for (let i = 0; i < w.length; i++) { const n = +w[i]; if (i % 2 === 0) bars += `<rect x="${x}" y="0" width="${n}" height="60"/>`; x += n; }
   return `<svg class="barkod" viewBox="0 0 ${x + 10} 60" preserveAspectRatio="none" role="img" aria-label="Barkod ${esc(t)}"><rect width="${x + 10}" height="60" fill="#fff"/><g fill="#000">${bars}</g></svg>`;
+}
+
+
+const PL_KART = {};
+const etiketVar = (p) => p.durum !== 'İptal' && !p.teslim_tarihi && (p.platform === 'Hepsiburada' ? !!p.paket_no : p.platform === 'Trendyol' ? !!p.kargo_takip : true);
+const b64Blob = (b, tip) => { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Blob([u], { type: tip }); };
+async function etiketGoster(p, btn) {
+  if (!p) return;
+  let pdf;
+  try {
+    const yuk = async () => { const r = await (await api.raw('functions/v1/kargo-etiket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id }) })).json(); if (r.hata) throw new Error(r.hata); return r; };
+    const r = btn ? await busy(btn, yuk) : await yuk();
+    pdf = b64Blob(r.dosyalar[0], 'application/pdf');
+  } catch (err) { modal({ title: 'Kargo etiketi alınamadı', body: `<p style="margin:0">${esc(err.message || String(err))}</p>`, foot: '<button class="btn primary" data-close>Tamam</button>' }); return; }
+  const onizleme = `<iframe src="${URL.createObjectURL(pdf)}#toolbar=0&view=FitH" style="width:100%;height:60vh;border:0;background:#fff"></iframe>`, not = '';
+  const ad = `Etiket-${p.platform}-${p.siparis_no}.pdf`;
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  modal({
+    title: `Kargo etiketi · ${p.siparis_no}`, wide: true,
+    body: `${ios ? '<p class="small muted" style="margin-top:0">Yazdırmak için “Paylaş / Yazdır”a basın, menüden <b>Yazdır</b>’ı seçin.</p>' : ''}<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff">${onizleme}</div>${not}`,
+    foot: `${!ios ? `<button class="btn" id="et-print">${icon('print')}Yazdır</button>` : ''}<button class="btn primary" id="et-dl">${icon('download')}PDF indir</button>${navigator.canShare ? `<button class="btn" id="et-share">Paylaş${ios ? ' / Yazdır' : ''}</button>` : ''}`,
+    onMount: (m) => {
+      $('#et-dl', m.el).onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(pdf); a.download = ad; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); };
+      $('#et-print', m.el)?.addEventListener('click', () => { const w = window.open(URL.createObjectURL(pdf), '_blank'); if (w) setTimeout(() => { try { w.print(); } catch { /* */ } }, 800); else $('#et-dl', m.el).click(); });
+      $('#et-share', m.el)?.addEventListener('click', async () => {
+        try { const file = new File([pdf], ad, { type: 'application/pdf' }); if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: ad }); else $('#et-dl', m.el).click(); }
+        catch (e) { if (e.name !== 'AbortError') fail(e); }
+      });
+    }
+  });
 }
 
 function platformKart(p, siparisSayfasi = true) {
@@ -1980,7 +2013,7 @@ function platformKart(p, siparisSayfasi = true) {
       ${p.sehir ? `<span class="k">Teslimat</span><span>${esc([p.musteri, p.sehir].filter(Boolean).join(' · '))}</span>` : ''}
     </div>
     ${p.barkod ? `<div class="pl-barkod">${barkodSvg(p.barkod)}<div class="num tiny" style="text-align:center;letter-spacing:2px">${esc(p.barkod)}</div></div>` : ''}
-    ${p.kargo_link ? `<div class="btn-row" style="margin-top:10px"><a class="btn sm" href="${esc(p.kargo_link)}" target="_blank" rel="noopener">${icon('truck')}Kargoyu takip et</a></div>` : ''}
+    ${(PL_KART[p.id] = p, '')}${p.kargo_link || etiketVar(p) ? `<div class="btn-row" style="margin-top:10px">${etiketVar(p) ? `<button class="btn sm primary pl-etiket" data-id="${p.id}">${icon('print')}Kargo etiketi</button>` : ''}${p.kargo_link ? `<a class="btn sm" href="${esc(p.kargo_link)}" target="_blank" rel="noopener">${icon('truck')}Kargoyu takip et</a>` : ''}</div>` : ''}
     <div class="pl-dokum">
       <div><span>Satış (KDV dahil)</span><b class="num">${fmtTL(p.brut)}</b></div>
       <div><span>Komisyon</span><b class="num">${p.komisyon != null ? '−' + fmtTL(p.komisyon) : '–'}</b></div>
@@ -1992,6 +2025,7 @@ function platformKart(p, siparisSayfasi = true) {
   </div>`;
 }
 function platformKartBagla(root, yenile) {
+  $$('.pl-etiket', root).forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); etiketGoster(PL_KART[+b.dataset.id], b); }));
   $$('.pl-kopya', root).forEach((a) => a.addEventListener('click', async (e) => { e.preventDefault(); try { await navigator.clipboard.writeText(a.dataset.v); toast('Takip no kopyalandı', 'ok'); } catch { toast(a.dataset.v); } }));
   $$('.pl-ayir', root).forEach((a) => a.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -2303,9 +2337,9 @@ function makbuzCanvas(p) {
 }
 
 /* canvas -> tek sayfalik PDF (JPEG gomulu) */
-function canvasPdf(cv) {
+function canvasPdf(cv, pw = 595.28) {
   const jpg = atob(cv.toDataURL('image/jpeg', 0.92).split(',')[1]);
-  const pw = 595.28, ph = Math.round(pw * cv.height / cv.width * 100) / 100;
+  pw = Math.round(pw * 100) / 100; const ph = Math.round(pw * cv.height / cv.width * 100) / 100;
   const icerik = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
   const obj = [
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -3620,7 +3654,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.38';
+const APP_V = '1.40';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

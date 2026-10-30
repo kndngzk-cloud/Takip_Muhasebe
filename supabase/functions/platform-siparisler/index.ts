@@ -27,7 +27,7 @@ const TESHIS: Record<string, unknown> = {};
 type Satir = { kod: string; ad: string; miktar: number; tutar: number };
 type Sip = { platform: string; siparis_no: string; platform_durum?: string; tarih?: string | null; musteri?: string | null; alici?: string | null; telefon?: string | null; eposta?: string | null; sehir?: string | null; adres?: string | null; vergi_no?: string | null;
   satirlar: Satir[]; brut: number; komisyon?: number | null; kargo_kesinti?: number | null; net?: number | null; kesinti_kesin?: boolean; kargo_firma?: string | null; kargo_takip?: string | null; kargo_link?: string | null; barkod?: string | null;
-  sevk_tarihi?: string | null; teslim_tarihi?: string | null; iptal?: boolean; ham?: unknown };
+  sevk_tarihi?: string | null; teslim_tarihi?: string | null; paket_no?: string | null; iptal?: boolean; ham?: unknown };
 
 /* Hepsiburada User-Agent'i birebir istiyor; fetch kendi ekini koydugu icin istek TLS uzerinden elle yazilir */
 async function hamGet(u: string, headers: Record<string, string>): Promise<{ status: number; text: string }> {
@@ -108,11 +108,12 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
   const notlar: string[] = [];
   // paketlenmis (etiketi basilmis) ama kargoya verilmemis siparisler acik listeden cikar, paket listesinde durur
   const paket: Record<string, string | null> = {};
+  const paketNo: Record<string, string> = {};
   const noBul = (p: Record<string, any>) => { const n = [...(p.OrderNumbers ?? p.orderNumbers ?? []), ...((p.items ?? p.Items ?? p.lines ?? p.LineItems ?? []) as Record<string, any>[]).map((i) => i.orderNumber ?? i.OrderNumber)]; if (p.OrderNumber || p.orderNumber) n.push(p.OrderNumber ?? p.orderNumber); return [...new Set(n.filter(Boolean).map(String))]; };
   let paketSay = 0; let paketOrnek: unknown = null;
-  if (!bitGun) try { for (const p of await liste(`${oms}/packages/merchantid/${mid}`)) { paketSay++; paketOrnek ||= Object.fromEntries(Object.entries(p).map(([k, v]) => [k, Array.isArray(v) ? `[${v.length}] ${JSON.stringify(v[0] ?? null).slice(0, 300)}` : typeof v === "object" ? "{...}" : String(v).slice(0, 4) + "…"])); for (const no of noBul(p)) paket[no] = p.Barcode || p.barcode || p.PackageNumber || p.packageNumber || null; } } catch (e) { notlar.push(String(e)); }
+  if (!bitGun) try { for (const p of await liste(`${oms}/packages/merchantid/${mid}`)) { paketSay++; paketOrnek ||= Object.fromEntries(Object.entries(p).map(([k, v]) => [k, Array.isArray(v) ? `[${v.length}] ${JSON.stringify(v[0] ?? null).slice(0, 300)}` : typeof v === "object" ? "{...}" : String(v).slice(0, 4) + "…"])); for (const no of noBul(p)) { paket[no] = p.Barcode || p.barcode || p.PackageNumber || p.packageNumber || null; if (p.packageNumber || p.PackageNumber) paketNo[no] = String(p.packageNumber || p.PackageNumber); } } } catch (e) { notlar.push(String(e)); }
   TESHIS.Hepsiburada = { acik: Object.keys(kalemler).length, paket: paketSay, paket_siparis: Object.keys(paket).length, paket_ornek: paketOrnek, notlar: notlar.slice(0, 3) };
-  try { for (const p of await liste(`${oms}/packages/merchantid/${mid}/shipped?${aralik}`)) for (const no of (p.OrderNumbers?.length ? p.OrderNumbers : [p.OrderNumber]).filter(Boolean)) sevk[no] = { tarih: d10(p.ShippedDate), barkod: p.Barcode || p.PackageNumber || null }; } catch (e) { notlar.push(String(e)); }
+  try { for (const p of await liste(`${oms}/packages/merchantid/${mid}/shipped?${aralik}`)) for (const no of (p.OrderNumbers?.length ? p.OrderNumbers : [p.OrderNumber]).filter(Boolean)) { sevk[no] = { tarih: d10(p.ShippedDate), barkod: p.Barcode || p.PackageNumber || null }; if (p.PackageNumber) paketNo[no] ||= String(p.PackageNumber); } } catch (e) { notlar.push(String(e)); }
   try { for (const p of await liste(`${oms}/packages/merchantid/${mid}/delivered?${aralik}`)) for (const no of (p.OrderNumbers?.length ? p.OrderNumbers : [p.OrderNumber]).filter(Boolean)) { teslim[no] = d10(p.DeliveredDate); sevk[no] ||= { tarih: d10(p.DeliveredDate), barkod: p.Barcode || p.PackageNumber || null }; } } catch (e) { notlar.push(String(e)); }
   try { for (const c of await liste(`${oms}/orders/merchantid/${mid}/cancelled?${aralik}`)) if (c.orderNumber) iptal.add(String(c.orderNumber)); } catch (e) { notlar.push(String(e)); }
   // kargolanmis ama acik listede olmayan siparislerin detayi
@@ -146,7 +147,7 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
       brut, komisyon: kom, kargo_kesinti: kargo, net, kesinti_kesin: kesin,
       kargo_firma: i0.cargoCompany || i0.cargoCompanyModel?.name || null, kargo_takip: sv?.barkod || paket[no] || i0.barcode || i0.packageNumber || null,
       kargo_link: sv?.barkod ? `https://www.hepsijet.com/gonderi-takibi/${sv.barkod}` : null, barkod: sv?.barkod || paket[no] || i0.barcode || null,
-      sevk_tarihi: sv?.tarih ?? null, teslim_tarihi: teslim[no] ?? null, iptal: iptal.has(no),
+      sevk_tarihi: sv?.tarih ?? null, teslim_tarihi: teslim[no] ?? null, paket_no: paketNo[no] ?? i0.packageNumber ?? null, iptal: iptal.has(no),
       ham: { durum: i0.status, notlar: notlar.slice(0, 3) },
     });
   }
@@ -220,7 +221,7 @@ async function trendyol(a: Record<string, string>, gunSay: number, bitGun = 0): 
       brut, komisyon: k ? r2(k.kom) : (komTah > 0 ? komTah : null), kargo_kesinti: kargoTy[no] ?? null, net: k && kargoTy[no] != null ? r2(k.gelir - kargoTy[no]) : null, kesinti_kesin: !!k && kargoTy[no] != null,
       kargo_firma: p0.cargoProviderName || null, kargo_takip: p0.cargoTrackingNumber ? String(p0.cargoTrackingNumber) : null, kargo_link: p0.cargoTrackingLink || null, barkod: p0.cargoTrackingNumber ? String(p0.cargoTrackingNumber) : null,
       sevk_tarihi: sevkT, teslim_tarihi: aktif.some((p) => p.status === "Delivered") ? d10(p0.lastModifiedDate) : null,
-      iptal: !aktif.length, ham: { durum: ps.map((p) => p.status) },
+      paket_no: p0.id != null ? String(p0.id) : null, iptal: !aktif.length, ham: { durum: ps.map((p) => p.status) },
     });
   }
   return out;
