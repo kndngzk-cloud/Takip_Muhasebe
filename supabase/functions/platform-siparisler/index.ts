@@ -24,7 +24,7 @@ const d10 = (v: unknown) => { if (v == null || v === "") return null; if (typeof
 const iso = (v: unknown) => { if (v == null || v === "") return null; const d = typeof v === "number" ? new Date(v) : new Date(String(v)); return isNaN(+d) ? null : d.toISOString(); };
 const r2 = (n: number) => Math.round(n * 100) / 100;
 type Satir = { kod: string; ad: string; miktar: number; tutar: number };
-type Sip = { platform: string; siparis_no: string; platform_durum?: string; tarih?: string | null; musteri?: string | null; telefon?: string | null; eposta?: string | null; sehir?: string | null; adres?: string | null; vergi_no?: string | null;
+type Sip = { platform: string; siparis_no: string; platform_durum?: string; tarih?: string | null; musteri?: string | null; alici?: string | null; telefon?: string | null; eposta?: string | null; sehir?: string | null; adres?: string | null; vergi_no?: string | null;
   satirlar: Satir[]; brut: number; komisyon?: number | null; kargo_kesinti?: number | null; net?: number | null; kesinti_kesin?: boolean; kargo_firma?: string | null; kargo_takip?: string | null; kargo_link?: string | null; barkod?: string | null;
   sevk_tarihi?: string | null; teslim_tarihi?: string | null; iptal?: boolean; ham?: unknown };
 
@@ -72,7 +72,7 @@ async function koctas(a: Record<string, string>, gunSay: number): Promise<Sip[]>
       const kargoVar = ["SHIPPED", "TO_COLLECT", "RECEIVED", "CLOSED"].includes(st);
       out.push({
         platform: "Koçtaş", siparis_no: o.order_id, platform_durum: st, tarih: iso(o.created_date),
-        musteri: [c.firstname, c.lastname].filter(Boolean).join(" ") || null,
+        musteri: [c.firstname, c.lastname].filter(Boolean).join(" ") || null, alici: [sa.firstname, sa.lastname].filter(Boolean).join(" ") || null,
         telefon: sa.phone || ba.phone || sa.phone_secondary || null, eposta: o.customer_notification_email || null,
         sehir: sa.city || ba.city || null, adres: [sa.street_1, sa.street_2, sa.city].filter(Boolean).join(" ") || null,
         satirlar: lines.filter((l) => !["CANCELED", "REFUSED"].includes(l.order_line_state)).map((l) => ({ kod: l.product_shop_sku || l.offer_sku || "", ad: l.product_title || "", miktar: Number(l.quantity) || 1, tutar: para(l.total_price) })),
@@ -133,7 +133,7 @@ async function hepsiburada(a: Record<string, string>, gunSay: number): Promise<S
     const sv = sevk[no];
     out.push({
       platform: "Hepsiburada", siparis_no: no, platform_durum: iptal.has(no) ? "Cancelled" : teslim[no] ? "Delivered" : sv ? "Shipped" : String(i0.status || "Open"), tarih: iso(i0.orderDate),
-      musteri: i0.customerName && !/@/.test(i0.customerName) ? i0.customerName : sa.name || i0.customerName || null,
+      musteri: i0.customerName && !/@/.test(i0.customerName) ? i0.customerName : sa.name || i0.customerName || null, alici: sa.name || null,
       telefon: sa.phoneNumber || null, eposta: sa.email || null, sehir: sa.city || null, adres: [sa.address, sa.town, sa.city].filter(Boolean).join(" ") || null, vergi_no: inv.taxNumber || null,
       satirlar: its.map((x) => ({ kod: x.merchantSKU || x.merchantSku || x.sku || "", ad: x.name || x.productName || "", miktar: Number(x.quantity) || 1, tutar: para(x.totalPrice) })),
       brut, komisyon: kom, kargo_kesinti: kargo, net, kesinti_kesin: kesin,
@@ -181,7 +181,7 @@ async function trendyol(a: Record<string, string>, gunSay: number): Promise<Sip[
     const sevkT = kargolu ? d10((kargolu.packageHistories ?? []).find((h: any) => h.status === "Shipped")?.createdDate ?? kargolu.lastModifiedDate) : null;
     out.push({
       platform: "Trendyol", siparis_no: String(no), platform_durum: p0.status, tarih: iso(p0.orderDate),
-      musteri: [p0.customerFirstName, p0.customerLastName].filter(Boolean).join(" ") || sa.fullName || null,
+      musteri: [p0.customerFirstName, p0.customerLastName].filter(Boolean).join(" ") || sa.fullName || null, alici: sa.fullName || [sa.firstName, sa.lastName].filter(Boolean).join(" ") || null,
       telefon: sa.phone || null, eposta: p0.customerEmail || null, sehir: sa.city || null, adres: [sa.fullAddress, sa.district, sa.city].filter(Boolean).join(" ") || null, vergi_no: ia.taxNumber || p0.taxNumber || null,
       satirlar: lines.map((l: any) => ({ kod: l.merchantSku || l.sku || l.barcode || "", ad: l.productName || "", miktar: Number(l.quantity) || 1, tutar: r2((sayi(l.price) || 0) * (Number(l.quantity) || 1)) })),
       brut, komisyon: k ? r2(k.kom) : (komTah > 0 ? komTah : null), kargo_kesinti: null, net: k ? r2(k.gelir) : null, kesinti_kesin: false,
