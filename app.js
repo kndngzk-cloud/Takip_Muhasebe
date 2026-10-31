@@ -412,7 +412,7 @@ async function viewHome() {
     api.get('v_odeme_takvimi', `select=*&odendi=is.false&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
     api.get('v_cin_siparisler', `select=*&durum=not.in.(${encodeURIComponent('"Teslim Alındı","İptal"')})&order=tahmini_varis.asc.nullslast&limit=30`).catch(() => []),
     api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
-    api.get('v_platform_siparisler', `select=*&durum=in.(Bekliyor,Eşleşmedi,Hata)&order=tarih.asc&limit=30`).catch(() => [])
+    api.get('v_platform_siparisler', `select=*&or=(durum.in.(Bekliyor,Eşleşmedi,Hata),iade_durum.in.(${encodeURIComponent('"İade talebi","Talep bekliyor"')}),and(hata.not.is.null,iade_islendi.is.true,iade_durum.eq.${encodeURIComponent('Kabul edildi')}))&order=tarih.asc&limit=30`).catch(() => [])
   ]);
   const eksi = urun.filter((u) => u.aktif && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
@@ -1709,7 +1709,8 @@ const RAPORLAR = [
   ['satis', 'Satış analizi', 'Aylık satış, en çok satan ürünler, müşteriler, şehirler'],
   ['alacak', 'Alacak yaşlandırma', 'Kimden ne kadar alacak var, ne kadar süredir bekliyor'],
   ['stok', 'Stok ve sipariş önerisi', 'Stok değeri, satış hızı, stok kaç gün yeter, ne zaman sipariş verilmeli'],
-  ['tahsilat', 'Tahsilatlar', 'Aylık tahsilatlar, ödeme şekline ve kaynağa göre']
+  ['tahsilat', 'Tahsilatlar', 'Aylık tahsilatlar, ödeme şekline ve kaynağa göre'],
+  ['nakit', 'Nakit akışı tahmini', 'Önümüzdeki 12 hafta kasaya ne girecek, ne çıkacak']
 ];
 const yuzde = (a, b) => (b ? fmtN(Math.round((a / b) * 1000) / 10) + '%' : '–');
 function tarihAraligiHtml(ui) {
@@ -1745,7 +1746,7 @@ async function viewRaporlar() {
   $('#view').innerHTML = `
     <div class="rapor-sec" id="r-tur">${RAPORLAR.map(([k, t, d]) => `<button class="rapor-k ${ui.tur === k ? 'on' : ''}" data-k="${k}"><b>${t}</b><span>${d}</span></button>`).join('')}</div>
     <div id="r-icerik"></div>`;
-  const ciz = () => { const el = $('#r-icerik'); el.innerHTML = '<div class="loading"><div class="spinner"></div></div>'; ({ kar: raporKar, platform: raporPlatform, satis: raporSatis, alacak: raporAlacak, stok: raporStok, tahsilat: raporTahsilat })[ui.tur](el, ui).catch((e) => { el.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; }); };
+  const ciz = () => { const el = $('#r-icerik'); el.innerHTML = '<div class="loading"><div class="spinner"></div></div>'; ({ kar: raporKar, platform: raporPlatform, satis: raporSatis, alacak: raporAlacak, stok: raporStok, tahsilat: raporTahsilat, nakit: raporNakit })[ui.tur](el, ui).catch((e) => { el.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; }); };
   $('#r-tur').onclick = (e) => { const b = e.target.closest('.rapor-k'); if (!b) return; ui.tur = b.dataset.k; $$('#r-tur .rapor-k').forEach((x) => x.classList.toggle('on', x === b)); ciz(); };
   ciz();
 }
@@ -1963,6 +1964,62 @@ async function raporStok(el, ui) {
   run();
 }
 
+/* ---- 7) Nakit akisi tahmini (haftalik) ---- */
+async function raporNakit(el) {
+  const [plan, nakit, kasa, cariler, pls] = await Promise.all([
+    api.get('v_odeme_takvimi', 'select=*&odendi=is.false&limit=5000'),
+    api.get('v_nakit_girisleri', 'select=*&durum=eq.Bekliyor&limit=5000').catch(() => []),
+    api.get('kasa', 'select=*').catch(() => []),
+    api.get('v_cariler', 'select=id,unvan,tip,bakiye&bakiye=gt.0.005&tip=neq.Perakende&order=bakiye.desc&limit=2000'),
+    api.get('platform_siparisler', `select=platform,brut,komisyon,kargo_kesinti,kargo_tahmin,net,sevk_tarihi,teslim_tarihi,tarih&durum=eq.${encodeURIComponent('Aktarıldı')}&teslim_tarihi=is.null&iade_durum=is.null&limit=2000`).catch(() => [])
+  ]);
+  const kasaTop = kasa.reduce((a, k) => a + kasaTL(k), 0);
+  const kalem = [...plan, ...nakit.map(nakitKalem)];
+  const bugun = today();
+  // vadesi planlanmamis toptan alacaklar (planlanan taksitler dusulur)
+  const planli = {}; plan.filter((p) => p.yon === 'Tahsilat' && p.cari_id).forEach((p) => { planli[p.cari_id] = (planli[p.cari_id] || 0) + tlTahmin(p); });
+  const vadesiz = cariler.map((c) => ({ c, t: Math.max(0, num(c.bakiye) - (planli[c.id] || 0)) })).filter((x) => x.t > 0.5);
+  const vadesizTop = vadesiz.reduce((a, x) => a + x.t, 0);
+  // teslim bekleyen platform siparisleri: teslimden yaklasik 2 hafta sonra hakedise girer (tahmini)
+  const plBek = pls.map((p) => ({ ...p, n: p.net != null ? num(p.net) : num(p.brut) - num(p.komisyon) - (p.kargo_kesinti != null ? num(p.kargo_kesinti) : num(p.kargo_tahmin)) }));
+  const plTop = plBek.reduce((a, p) => a + p.n, 0);
+  // haftalar (pazartesi baslangicli, 12 hafta)
+  const pzt = (d) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7)); return x.toISOString().slice(0, 10); };
+  const h0 = pzt(bugun); const H = [];
+  for (let i = 0; i < 12; i++) H.push(addDays(h0, i * 7));
+  const B = {}; let gec = { g: 0, c: 0 }, sonra = { g: 0, c: 0 }, belirsiz = { g: 0, c: 0 };
+  kalem.forEach((p) => {
+    const t = tlTahmin(p), g = p.yon === 'Tahsilat';
+    let o; if (!p.vade) o = belirsiz; else if (p.vade < bugun) o = gec; else { const w = pzt(p.vade); o = H.includes(w) ? (B[w] ||= { g: 0, c: 0, pl: 0 }) : sonra; }
+    if (g) o.g += t; else o.c += t;
+  });
+  // platform tahmini: teslim edilmemis siparis -> sevk (yoksa bugun) + 3 gun teslim + 14 gun hakedis
+  plBek.forEach((p) => { const w = pzt(addDays(p.sevk_tarihi || bugun, 17)); const o = H.includes(w) ? (B[w] ||= { g: 0, c: 0, pl: 0 }) : sonra; o.pl = (o.pl || 0) + p.n; });
+  let bak = kasaTop + gec.g - gec.c;
+  const max = Math.max(1, ...H.map((w) => Math.max((B[w]?.g || 0) + (B[w]?.pl || 0), B[w]?.c || 0)));
+  let enDusuk = { v: bak, w: h0 };
+  const satir = H.map((w) => {
+    const o = B[w] || { g: 0, c: 0, pl: 0 }; bak += o.g + (o.pl || 0) - o.c;
+    if (bak < enDusuk.v) enDusuk = { v: bak, w };
+    return `<div class="ak-row"><div class="ak-ad">${fmtD(w)}<div class="tiny">${fmtD(addDays(w, 6))}'e kadar</div></div>
+      <div class="ak-bar"><i class="g" style="width:${((o.g + (o.pl || 0)) / max) * 100}%"></i><i class="c" style="width:${(o.c / max) * 100}%"></i></div>
+      <div class="ak-n"><span class="zero">+${fmtTL(o.g + (o.pl || 0))}${o.pl ? ` <span class="tiny">(${fmtTL(o.pl)} platform tahmini)</span>` : ''}</span><span class="pos">−${fmtTL(o.c)}</span><b style="color:${bak < 0 ? 'var(--red)' : 'var(--green)'}">${fmtTL(bak)}</b><span class="tiny">hafta sonu bakiye</span></div></div>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="card"><h2>Nakit akışı tahmini (12 hafta)</h2><p class="small muted" style="margin:0">Kasadaki paradan başlar; vadesi belli tahsilatlar (çek, platform hakedişleri, müşteri taksitleri) eklenir, ödemeler (fabrika, vergi, çek, kira…) düşülür. Teslim edilmemiş platform siparişlerinin parası, teslimden yaklaşık 2 hafta sonra gelecek şekilde <b>tahmini</b> eklenir. Gecikmiş kalemler ilk haftaya sayılır. Kalemlerin ayrıntısı ve düzenlemesi <a href="#/odemeler">Ödemeler</a> sayfasında.</p></div>
+    <div class="kpis">
+      ${kpi('Bugün kasada', fmtTL(kasaTop))}
+      ${kpi('En düşük bakiye', fmtTL(enDusuk.v), `${fmtD(enDusuk.w)} haftası`, enDusuk.v < 0 ? 'red' : 'green')}
+      ${kpi('12 hafta sonunda', fmtTL(bak), sonra.g || sonra.c ? `sonrası: +${fmtTL(sonra.g + (sonra.pl || 0))} / −${fmtTL(sonra.c)}` : '', 'purple')}
+      ${kpi('Vadesi belirsiz alacak', fmtTL(vadesizTop + belirsiz.g), 'toptan cari bakiyeleri, tahmine dahil değil', 'orange')}
+    </div>
+    ${gec.g || gec.c ? `<div class="card" style="border-left:4px solid var(--orange)"><b>Gecikmiş kalemler:</b> tahsil edilmemiş ${fmtTL(gec.g)} · ödenmemiş ${fmtTL(gec.c)} <span class="muted">(başlangıç bakiyesine dahil edildi)</span></div>` : ''}
+    <div class="card"><div class="akis">${satir}</div>
+      <div class="tiny" style="margin-top:8px"><span class="lg g"></span> girecek &nbsp; <span class="lg c"></span> çıkacak</div></div>
+    ${plBek.length ? `<p class="tiny" style="margin:0 4px 10px">Teslim bekleyen ${plBek.length} platform siparişinden tahmini ${fmtTL(plTop)} gelecek.</p>` : ''}
+    ${rTablo('Vadesi planlanmamış alacaklar (toptan)', ['Cari', 'Açık bakiye', 'Planlanmış taksit', 'Vadesi belirsiz'], vadesiz.map((x) => [`<a href="#/cari/${x.c.id}"><b>${esc(x.c.unvan)}</b></a>`, fmtTL(x.c.bakiye), fmtTL(planli[x.c.id] || 0), `<b>${fmtTL(x.t)}</b>`]), vadesiz.length ? ['Toplam', '', '', fmtTL(vadesizTop)] : null, 'Bu tutarlar ne zaman tahsil edileceği bilinmediği için yukarıdaki tahmine eklenmez. Carinin sayfasından taksit / vade girerseniz tahmine otomatik eklenir.')}`;
+}
+
 /* ---- 6) Tahsilatlar ---- */
 async function raporTahsilat(el, ui) {
   el.innerHTML = `<div class="card"><h2>Tahsilatlar</h2>${tarihAraligiHtml(ui)}</div><div id="r-out"><div class="loading"><div class="spinner"></div></div></div>`;
@@ -2017,6 +2074,46 @@ async function viewDaha() {
   $('#d-tah').onclick = () => tahsilat(); $('#d-acl').onclick = () => acilisBakiye(); $('#d-mal').onclick = () => malAlisi();
 }
 
+
+/* Anlik bildirim (Web Push) */
+const VAPID_PUBLIC = 'BO1U35fQHu7dYgapMTOWsMVwmA17VqQSO0yNtBpHK7HXmya7v05Ht_AJLJNJJTBy-2NY0sR001E2zjl_8n23O-E';
+const b64u8 = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
+async function bildirimKart() {
+  const el = $('#bld-durum'); if (!el) return;
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  const destek = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const goster = (ac, test, kapat) => { $('#bld-ac').style.display = ac ? '' : 'none'; $('#bld-test').style.display = test ? '' : 'none'; $('#bld-kapat').style.display = kapat ? '' : 'none'; };
+  if (!destek) { el.innerHTML = ios && !standalone ? '<b>iPhone/iPad’de bildirim için</b> uygulamayı Safari’de Paylaş → <b>Ana Ekrana Ekle</b> ile ana ekrana ekleyip oradan açın, sonra bu düğme görünür (iOS 16.4 ve üzeri).' : 'Bu tarayıcı anlık bildirimi desteklemiyor.'; goster(false, false, false); return; }
+  if (Notification.permission === 'denied') { el.innerHTML = '<span style="color:var(--red)">Bildirim izni bu cihazda reddedilmiş.</span> Tarayıcı / telefon ayarlarından bu siteye bildirim izni verin.'; goster(false, false, false); return; }
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) { el.innerHTML = '<span style="color:var(--green);font-weight:700">✓ Bu cihazda bildirimler açık.</span>'; goster(false, true, true); }
+  else { el.innerHTML = 'Bu cihazda bildirimler kapalı.'; goster(true, false, false); }
+  $('#bld-ac').onclick = async (e) => {
+    try {
+      await busy(e.currentTarget, async () => {
+        const izin = await Notification.requestPermission();
+        if (izin !== 'granted') throw new Error('Bildirim izni verilmedi');
+        const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u8(VAPID_PUBLIC) });
+        const j = s.toJSON();
+        await api.insert('push_abonelik', [{ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, cihaz: (navigator.userAgentData?.platform || navigator.platform || '') + (ios ? ' iOS' : '') }], { upsert: true, onConflict: 'endpoint' });
+      });
+      toast('Bildirimler açıldı', 'ok'); bildirimKart();
+    } catch (err) { fail(err); }
+  };
+  $('#bld-test').onclick = async (e) => {
+    try {
+      const r = await busy(e.currentTarget, async () => (await api.raw('functions/v1/bildirim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baslik: 'Deneme bildirimi', metin: 'Bildirimler bu cihazda çalışıyor.', url: '#/ayarlar' }) })).json());
+      if (r.hata) throw new Error(r.hata);
+      toast(r.gonderilen ? `Bildirim gönderildi (${r.gonderilen} cihaz)` : 'Gönderilemedi: ' + (r.hatalar?.[0] || 'abonelik yok'), r.gonderilen ? 'ok' : 'err');
+    } catch (err) { fail(err); }
+  };
+  $('#bld-kapat').onclick = async () => {
+    try { const s = await reg.pushManager.getSubscription(); if (s) { await api.del('push_abonelik', `endpoint=eq.${encodeURIComponent(s.endpoint)}`).catch(() => {}); await s.unsubscribe(); } toast('Bu cihazda bildirimler kapatıldı', 'ok'); bildirimKart(); } catch (err) { fail(err); }
+  };
+}
+
 async function viewAyarlar() {
   topbar('Ayarlar', { back: !window.matchMedia('(min-width: 900px)').matches });
   const a = await cache.ayarlar(true);
@@ -2049,12 +2146,19 @@ async function viewAyarlar() {
         <button class="btn green" id="s-bk">${icon('download')}Anlık Excel indir</button>
       </div>
     </div>
+    <div class="card" id="bld-kart">
+      <h2>Bildirimler</h2>
+      <p class="small muted" style="margin:0 0 10px">Yeni platform siparişi geldiğinde, ürün eşleştirmesi beklendiğinde ya da iade olduğunda bu cihaza bildirim gelir. Her cihazda (telefon, bilgisayar) ayrı ayrı açılır.</p>
+      <div id="bld-durum" class="small" style="margin-bottom:10px"></div>
+      <div class="btn-row"><button class="btn primary" id="bld-ac">${icon('inbox')}Bu cihazda bildirimleri aç</button><button class="btn" id="bld-test">Deneme bildirimi gönder</button><button class="btn" id="bld-kapat">Bu cihazda kapat</button></div>
+    </div>
     <div class="card">
       <h2>Hesap</h2>
       <div class="kv"><span class="k">Kullanıcı</span><span>${esc(state.profil?.ad || '')}</span><span class="k">E-posta</span><span>${esc(api.session?.user?.email || '')}</span><span class="k">Yetki</span><span>${ad ? 'Yönetici' : 'Personel'}</span></div>
       <button class="btn red" id="s-out" style="margin-top:14px">${icon('logout')}Çıkış yap</button>
     </div>
     <p class="tiny" style="text-align:center">Sipariş • Stok • Cari · v${APP_V}</p>`;
+  bildirimKart();
   let yon = a.maliyet_yontemi;
   const sy = () => $$('#s-y button').forEach((b) => b.classList.toggle('on', b.dataset.v === yon));
   sy(); $('#s-y').onclick = (e) => { if (!ad) return; const b = e.target.closest('button'); if (b) { yon = b.dataset.v; sy(); } };
@@ -2168,6 +2272,8 @@ const PL_RENK = { Hepsiburada: '#ff6000', Trendyol: '#f27a1a', 'Koçtaş': '#c81
 const plBadge = (p) => `<span class="badge" style="background:${PL_RENK[p] || 'var(--brand)'};color:#fff">${esc(p)}</span>`;
 const PL_DURUM = { 'Aktarıldı': 'b-green', 'Eşleşmedi': 'b-red', 'Hata': 'b-red', 'Bekliyor': 'b-orange', 'Eski': '', 'İptal': '' };
 const plDurumBadge = (p) => `<span class="badge ${PL_DURUM[p.durum] || ''}">${p.durum === 'Eski' ? 'Programda yok' : p.durum === 'Aktarıldı' && p.elle ? 'Elle girilene bağlı' : esc(p.durum)}</span>`;
+const IADE_RENK = { 'İade talebi': 'b-orange', 'Talep bekliyor': 'b-orange', 'Kabul edildi': 'b-red', 'Teslim edilemedi': 'b-red', 'Reddedildi': '' };
+const plIadeBadge = (p) => (p.iade_durum ? ` <span class="badge ${IADE_RENK[p.iade_durum] || ''}">${p.iade_durum === 'Kabul edildi' ? 'İade edildi' : p.iade_durum === 'Reddedildi' ? 'İade reddedildi' : p.iade_durum === 'Talep bekliyor' ? 'Talep: işlem bekliyor' : esc(p.iade_durum)}</span>` : '');
 const plKargoDurum = (p) => p.teslim_tarihi ? `Teslim edildi ${fmtD(p.teslim_tarihi)}` : p.sevk_tarihi ? `Kargoda · ${fmtD(p.sevk_tarihi)}` : p.durum === 'İptal' ? 'İptal' : 'Kargoya verilmedi';
 
 /* Code 128 barkod (SVG) */
@@ -2231,6 +2337,7 @@ function platformKart(p, siparisSayfasi = true) {
       <span class="k">Takip no</span><span>${p.kargo_takip ? `<b class="num">${esc(p.kargo_takip)}</b> <a href="#" class="tiny pl-kopya" data-v="${esc(p.kargo_takip)}" style="margin-left:6px">kopyala</a>` : '<span class="muted">Henüz kargoya verilmedi</span>'}</span>
       ${p.sevk_tarihi ? `<span class="k">Kargoya verildi</span><span>${fmtD(p.sevk_tarihi)}</span>` : ''}
       ${p.teslim_tarihi ? `<span class="k">Teslim edildi</span><span>${fmtD(p.teslim_tarihi)}</span>` : ''}
+      ${p.iade_durum ? `<span class="k">İade</span><span>${plIadeBadge(p)} ${p.iade_tarihi ? fmtD(p.iade_tarihi) : ''}${p.iade_adet ? ` · ${fmtN(p.iade_adet)} adet` : ''}${p.iade_neden ? ` · ${esc(p.iade_neden)}` : ''}${p.iade_durum === 'İade talebi' ? '<div class="tiny">Platform panelinde iadeyi onaylayın ya da reddedin; onaylanınca sipariş otomatik iptal edilir, stok geri girer.</div>' : p.iade_durum === 'Talep bekliyor' ? `<div class="tiny">Müşteri talebi ${esc(p.platform)} panelinde sizden yanıt bekliyor; yanıtlayınca bu uyarı kalkar.</div>` : ''}</span>` : ''}
       ${p.sehir ? `<span class="k">Teslimat</span><span>${esc([p.musteri, p.sehir].filter(Boolean).join(' · '))}</span>` : ''}
     </div>
     ${p.barkod ? `<div class="pl-barkod">${barkodSvg(p.barkod)}<div class="num tiny" style="text-align:center;letter-spacing:2px">${esc(p.barkod)}</div></div>` : ''}
@@ -2259,7 +2366,7 @@ const siparisTabs = (k, n = 0) => `<div class="chips" style="margin-bottom:10px"
 
 const plRow = (p) => `<div class="row" data-pl="${p.id}">
         <div class="main-col"><div class="t">${esc(p.musteri || '–')}</div>
-          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${p.fis_no ? ` <span class="tiny">Fiş ${p.fis_no}</span>` : ''}</div>
+          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${plIadeBadge(p)}${p.fis_no ? ` <span class="tiny">Fiş ${p.fis_no}</span>` : ''}</div>
           <div class="tiny" style="margin-top:3px">${esc((p.satirlar || []).map((s) => `${s.miktar > 1 ? s.miktar + ' × ' : ''}${s.ad}`).join(', ').slice(0, 90))}</div>
           <div class="tiny" style="margin-top:2px"><span class="ic-s">${icon('truck')}</span> ${esc(p.kargo_firma || '')} ${p.kargo_takip ? `<span class="num">${esc(p.kargo_takip)}</span> · ` : ''}${esc(plKargoDurum(p))}</div>
           ${p.hata && p.durum !== 'Aktarıldı' ? `<div class="tiny" style="color:var(--red);margin-top:2px">${esc(p.hata)}</div>` : ''}</div>
@@ -2274,12 +2381,12 @@ async function viewPlatformSiparisler() {
   const platformlar = [...new Set(data.map((p) => p.platform))].sort();
   $('#view').innerHTML = `${siparisTabs('pl', sorun)}
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Müşteri, sipariş no, takip no ara…" value="${esc(ui.q)}"></div></div>
-    <div class="chips" id="pl-c">${['Tümü', 'İşlem bekleyen', 'Aktarıldı', 'Programda yok', 'İptal'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}
+    <div class="chips" id="pl-c">${['Tümü', 'İşlem bekleyen', 'Aktarıldı', 'İade', 'Programda yok', 'İptal'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}
       ${platformlar.length > 1 ? `<span style="width:8px"></span>${[['', 'Tüm platformlar'], ...platformlar.map((x) => [x, x])].map(([v, t]) => `<button class="chip ${ui.pl === v ? 'on' : ''}" data-p="${esc(v)}">${t}</button>`).join('')}` : ''}</div>
     <div id="sum" class="tiny" style="margin:0 4px 8px"></div>
     <div class="list" id="lst"></div>
     <div class="tiny" style="margin:10px 4px">Siparişler 2 dakikada bir otomatik kontrol edilir${son ? ` · son kontrol ${new Date(son).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}. Yeni siparişler perakende cari açılarak R faturalı, KDV dahil (komisyon ve kargo düşülmüş) olarak programa girer ve tahsilatı işlenir; kargoya verilince stoktan düşer.</div>`;
-  const grup = (p) => p.durum === 'Aktarıldı' ? 'Aktarıldı' : p.durum === 'İptal' ? 'İptal' : p.durum === 'Eski' ? 'Programda yok' : 'İşlem bekleyen';
+  const grup = (p) => p.iade_durum === 'Talep bekliyor' ? 'İşlem bekleyen' : p.iade_durum && p.iade_durum !== 'Reddedildi' ? 'İade' : p.durum === 'Aktarıldı' ? 'Aktarıldı' : p.durum === 'İptal' ? 'İptal' : p.durum === 'Eski' ? 'Programda yok' : 'İşlem bekleyen';
   const draw = () => {
     const q = norm(ui.q);
     const f = data.filter((p) => (ui.f === 'Tümü' || grup(p) === ui.f) && (!ui.pl || p.platform === ui.pl)
@@ -3875,7 +3982,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.41';
+const APP_V = '1.42';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

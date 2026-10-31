@@ -24,6 +24,11 @@ const d10 = (v: unknown) => { if (v == null || v === "") return null; if (typeof
 const iso = (v: unknown) => { if (v == null || v === "") return null; const d = typeof v === "number" ? new Date(v) : new Date(String(v)); return isNaN(+d) ? null : d.toISOString(); };
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const TESHIS: Record<string, unknown> = {};
+type Iade = { no: string; durum: string | null; tarih: string | null; adet: number | null; iade_no: string | null; neden: string | null };
+const IADE: Record<string, Iade[]> = {};
+const IADE_ALT = "2026-08-01";
+const TALEP_AD: Record<string, string> = { MissingPart: "Eksik parça", RenewProduct: "Yenisiyle değişim", Warranty: "Garanti", WrongProduct: "Yanlış ürün", DamagedProduct: "Hasarlı ürün" };
+const iadeDurum = (s: string) => /cancel/i.test(s) ? null : /reject|red/i.test(s) ? "Reddedildi" : /accept|approv|complete|finaliz|refund/i.test(s) ? "Kabul edildi" : "İade talebi";
 type Satir = { kod: string; ad: string; miktar: number; tutar: number };
 type Sip = { platform: string; siparis_no: string; platform_durum?: string; tarih?: string | null; musteri?: string | null; alici?: string | null; telefon?: string | null; eposta?: string | null; sehir?: string | null; adres?: string | null; vergi_no?: string | null;
   satirlar: Satir[]; brut: number; komisyon?: number | null; kargo_kesinti?: number | null; net?: number | null; kesinti_kesin?: boolean; kargo_firma?: string | null; kargo_takip?: string | null; kargo_link?: string | null; barkod?: string | null;
@@ -116,6 +121,34 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
   try { for (const p of await liste(`${oms}/packages/merchantid/${mid}/shipped?${aralik}`)) for (const no of (p.OrderNumbers?.length ? p.OrderNumbers : [p.OrderNumber]).filter(Boolean)) { sevk[no] = { tarih: d10(p.ShippedDate), barkod: p.Barcode || p.PackageNumber || null }; if (p.PackageNumber) paketNo[no] ||= String(p.PackageNumber); } } catch (e) { notlar.push(String(e)); }
   try { for (const p of await liste(`${oms}/packages/merchantid/${mid}/delivered?${aralik}`)) for (const no of (p.OrderNumbers?.length ? p.OrderNumbers : [p.OrderNumber]).filter(Boolean)) { teslim[no] = d10(p.DeliveredDate); sevk[no] ||= { tarih: d10(p.DeliveredDate), barkod: p.Barcode || p.PackageNumber || null }; } } catch (e) { notlar.push(String(e)); }
   try { for (const c of await liste(`${oms}/orders/merchantid/${mid}/cancelled?${aralik}`)) if (c.orderNumber) iptal.add(String(c.orderNumber)); } catch (e) { notlar.push(String(e)); }
+  if (!bitGun) {
+    const iadeler: Record<string, Iade> = {};
+    try {
+      for (const c of await liste(`${oms}/claims/merchantid/${mid}`)) {
+        const no = String(c.orderNumber ?? ""); const t = d10(c.claimDate);
+        if (!no || !t || t < IADE_ALT) continue;
+        const tip = String(c.claimType ?? "Return");
+        const iadeTipi = /return|undelivered|iade/i.test(tip);
+        if (!iadeTipi) { // eksik parca, garanti, yenisiyle degisim: iade degil; sadece satici aksiyonu bekleniyorsa uyar
+          if (/awaiting/i.test(String(c.status ?? ""))) iadeler[no] = { no, durum: "Talep bekliyor", tarih: t, adet: null, iade_no: String(c.number ?? ""), neden: [TALEP_AD[tip] || tip, c.explanation].filter(Boolean).join(" · ").slice(0, 300) };
+          continue;
+        }
+        const d = /undelivered/i.test(tip) && /refund|accept/i.test(String(c.status ?? "")) ? "Teslim edilemedi" : iadeDurum(String(c.status ?? ""));
+        const o = iadeler[no] ||= { no, durum: d, tarih: t, adet: 0, iade_no: String(c.number ?? ""), neden: [c.explanation, c.Reason].filter(Boolean).join(" · ") || null };
+        if (d === "Kabul edildi" || d === "Teslim edilemedi") { o.adet = (o.adet || 0) + (Number(c.quantity) || 1); if (d === "Teslim edilemedi" && o.durum !== "Kabul edildi") o.durum = d; }
+        if (d === "İade talebi" && o.durum !== "Kabul edildi") o.durum = d;
+        if (d === "Kabul edildi") o.durum = d;
+        if (t > (o.tarih || "")) o.tarih = t;
+      }
+    } catch (e) { notlar.push("iade: " + String(e)); }
+    try {
+      for (const p of await liste(`${oms}/packages/merchantid/${mid}/undelivered`)) for (const no of (p.OrderNumbers?.length ? p.OrderNumbers : [p.OrderNumber]).filter(Boolean)) {
+        const t = d10(p.UndeliveredDate); if (!t || t < IADE_ALT) continue;
+        iadeler[no] = { no, durum: "Teslim edilemedi", tarih: t, adet: null, iade_no: p.PackageNumber ? String(p.PackageNumber) : null, neden: p.UndeliveredReason || null };
+      }
+    } catch (e) { notlar.push("teslim edilemedi: " + String(e)); }
+    IADE.Hepsiburada = Object.values(iadeler).map((o) => ({ ...o, adet: o.durum === "Kabul edildi" || o.durum === "Teslim edilemedi" ? o.adet : null }));
+  }
   // kargolanmis ama acik listede olmayan siparislerin detayi
   for (const no of [...Object.keys(sevk), ...iptal, ...Object.keys(paket)]) if (!kalemler[no]) { try { const d = await al(`${oms}/orders/merchantid/${mid}/ordernumber/${encodeURIComponent(no)}`); kalemler[no] = d.items ?? []; } catch (e) { notlar.push(String(e)); } }
   const out: Sip[] = [];
@@ -201,6 +234,22 @@ async function trendyol(a: Record<string, string>, gunSay: number, bitGun = 0): 
     }
   } catch (err) { ty.hata = String((err as Error).message || err).slice(0, 200); }
   TESHIS.Trendyol = ty;
+  // iadeler
+  try {
+    const iadeler: Record<string, Iade> = {};
+    for (let e = Date.now(), i = 0; i < Math.max(2, Math.ceil(gunSay / 14)); i++, e -= 14 * 86400000) {
+      const j = await al(`https://apigw.trendyol.com/integration/order/sellers/${a.seller_id}/claims?startDate=${e - 14 * 86400000}&endDate=${e}&size=200&page=0`);
+      for (const c of (j.content ?? []) as Record<string, any>[]) {
+        const no = String(c.orderNumber ?? ""); const t = d10(c.claimDate); if (!no || !t || t < IADE_ALT) continue;
+        const kalem = ((c.items ?? []) as Record<string, any>[]).flatMap((x) => (x.claimItems ?? []) as Record<string, any>[]);
+        const dur = kalem.map((k) => iadeDurum(String(k.claimItemStatus?.name ?? k.claimItemStatus ?? "")));
+        const kabul = dur.filter((d) => d === "Kabul edildi").length;
+        const durum = kabul ? "Kabul edildi" : dur.includes("İade talebi") ? "İade talebi" : dur.includes("Reddedildi") ? "Reddedildi" : dur.length ? null : "İade talebi";
+        iadeler[no] = { no, durum, tarih: t, adet: kabul || null, iade_no: String(c.id ?? ""), neden: kalem.map((k) => k.customerClaimItemReason?.name).filter(Boolean)[0] ?? null };
+      }
+    }
+    IADE.Trendyol = Object.values(iadeler);
+  } catch (err) { ty.hata = (ty.hata ? ty.hata + " · " : "") + "iade: " + String((err as Error).message || err).slice(0, 150); }
   const grup: Record<string, Record<string, any>[]> = {};
   for (const p of paketler) (grup[p.orderNumber] ||= []).push(p);
   const out: Sip[] = [];
@@ -240,6 +289,8 @@ Deno.serve(async (req) => {
     const sadece = typeof body.platform === "string" ? body.platform : null;
     const ent = await rest(`entegrasyonlar?select=platform,ayar,son_yanit&platform=in.(${encodeURIComponent('"Koçtaş","Hepsiburada","Trendyol"')})`);
     const sonuc: Record<string, unknown> = {};
+    const olaylar: { baslik: string; metin: string; url: string; etiket: string }[] = [];
+    const ozet = (s: Sip) => `${s.alici || s.musteri || ""} · ${s.satirlar.map((x) => `${x.miktar > 1 ? x.miktar + " × " : ""}${x.kod || x.ad}`).join(", ")} · ${s.brut.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} ₺`;
     for (const e of ent) {
       if (sadece && e.platform !== sadece) continue;
       const a = e.ayar || {};
@@ -263,23 +314,45 @@ Deno.serve(async (req) => {
             if (kuru) continue;
             try {
               if (k.siparis_id) { const r = await rest("rpc/platform_siparis_senkron", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r && Object.keys(r).length) guncellenen++; }
-              else if (durum === "Bekliyor" || durum === "Eşleşmedi" || durum === "Eski") { const r = await rest("rpc/platform_siparis_aktar", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r?.id) { if (r.elle) baglanan++; else aktarilan++; } else if (r?.eslesmedi) eslesmedi++; }
+              else if (durum === "Bekliyor" || durum === "Eşleşmedi" || durum === "Eski") { const r = await rest("rpc/platform_siparis_aktar", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r?.id) { if (r.elle) baglanan++; else { aktarilan++; if (!eski) olaylar.push({ baslik: `Yeni ${e.platform} siparişi`, metin: ozet(s), url: `#/siparis/${r.id}`, etiket: `s-${e.platform}-${k.siparis_no}` }); } } else if (r?.eslesmedi) { eslesmedi++; if (!eski || eski.durum !== "Eşleşmedi") olaylar.push({ baslik: `${e.platform} siparişi: ürün seçin`, metin: `${ozet(s)} — bu ürün programdaki hiçbir ürünle eşleşmedi`, url: "#/platform-siparisler", etiket: `e-${e.platform}-${k.siparis_no}` }); } }
             } catch (err) {
               const msg = String((err as Error).message || err).slice(0, 300); hatalar.push(`${k.siparis_no}: ${msg}`);
               await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ durum: k.siparis_id ? durum : "Hata", hata: msg }) }).catch(() => {});
             }
           }
         }
-        const durumMetni = `Siparişler: ${liste.length} çekildi · ${yeni} yeni · ${aktarilan} aktarıldı${baglanan ? ` · ${baglanan} elle girilmiş siparişe bağlandı` : ""}${eslesmedi ? ` · ${eslesmedi} ürün eşleşmedi` : ""}${hatalar.length ? ` · ${hatalar.length} hata` : ""}`;
+        let iadeSay = 0;
+        if (!kuru && IADE[e.platform]) {
+          const plq = `platform=eq.${encodeURIComponent(e.platform)}`;
+          for (const i of IADE[e.platform]) {
+            if (!i.durum) continue;
+            try {
+              const once = await rest(`platform_siparisler?${plq}&siparis_no=eq.${encodeURIComponent(i.no)}&select=id,iade_durum`);
+              if (!once?.length) continue; // siparis sistemde yok (aktarim baslangicindan once)
+              await rest(`platform_siparisler?${plq}&siparis_no=eq.${encodeURIComponent(i.no)}`, { method: "PATCH", body: JSON.stringify({ iade_durum: i.durum, iade_tarihi: i.tarih, iade_adet: i.adet, iade_no: i.iade_no, iade_neden: i.neden }) });
+              if (i.durum === "Talep bekliyor" && once[0].iade_durum !== "Talep bekliyor") olaylar.push({ baslik: `${e.platform}: sizden işlem bekleyen talep`, metin: `Sipariş ${i.no} · ${i.neden || ""}`.slice(0, 300), url: "#/platform-siparisler", etiket: `t-${i.no}` });
+              if (i.durum === "İade talebi" && once[0].iade_durum !== "İade talebi") olaylar.push({ baslik: `${e.platform}: yeni iade talebi`, metin: `Sipariş ${i.no}${i.neden ? " · " + i.neden : ""}`.slice(0, 300), url: "#/platform-siparisler", etiket: `it-${i.no}` });
+              for (const x of once as Record<string, any>[]) { const r = await rest("rpc/platform_iade_isle", { method: "POST", body: JSON.stringify({ p_id: x.id }) }); if (r && (r.iptal || r.kismi)) { iadeSay++; olaylar.push({ baslik: `${e.platform} iadesi: ${i.durum}`, metin: `Sipariş ${i.no}${r.kismi ? " · kısmi iade, siparişi elle düzenleyin" : " · sipariş iptal edildi, stok geri alındı"}${i.neden ? " · " + i.neden : ""}`, url: "#/platform-siparisler", etiket: `i-${i.no}` }); } }
+            } catch (err) { hatalar.push(`iade ${i.no}: ${String((err as Error).message || err).slice(0, 150)}`); }
+          }
+          // cozulen talepler (artik aksiyon beklemiyor) isaretten kaldirilir
+          const bekleyen = IADE[e.platform].filter((i) => i.durum === "Talep bekliyor" || i.durum === "İade talebi").map((i) => `"${i.no}"`);
+          await rest(`platform_siparisler?${plq}&iade_durum=in.(${encodeURIComponent('"Talep bekliyor","İade talebi"')})${bekleyen.length ? `&siparis_no=not.in.(${encodeURIComponent(bekleyen.join(","))})` : ""}`, { method: "PATCH", body: JSON.stringify({ iade_durum: null }) }).catch(() => {});
+        }
+        const durumMetni = `Siparişler: ${liste.length} çekildi${iadeSay ? ` · ${iadeSay} iade işlendi` : ""} · ${yeni} yeni · ${aktarilan} aktarıldı${baglanan ? ` · ${baglanan} elle girilmiş siparişe bağlandı` : ""}${eslesmedi ? ` · ${eslesmedi} ürün eşleşmedi` : ""}${hatalar.length ? ` · ${hatalar.length} hata` : ""}`;
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(e.son_yanit || {}), siparis: { zaman: new Date().toISOString(), durum: durumMetni, hatalar: hatalar.slice(0, 5), teshis: TESHIS[e.platform] ?? null } } }) });
-        sonuc[e.platform] = { teshis: TESHIS[e.platform], cekilen: liste.length, yeni, aktarilan, baglanan, guncellenen, eslesmedi, hatalar: hatalar.slice(0, 5) };
+        sonuc[e.platform] = { teshis: TESHIS[e.platform], iade: (IADE[e.platform] ?? []).length, cekilen: liste.length, yeni, aktarilan, baglanan, guncellenen, eslesmedi, hatalar: hatalar.slice(0, 5) };
       } catch (err) {
         const m = String((err as Error).message || err).slice(0, 400);
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(e.son_yanit || {}), siparis: { zaman: new Date().toISOString(), durum: `Sipariş hatası: ${m}` } } }) }).catch(() => {});
         sonuc[e.platform] = { hata: m };
       }
     }
-    return json({ sonuc });
+    if (olaylar.length && !kuru) {
+      const tek = olaylar.length === 1;
+      await fetch(`${URL_}/functions/v1/bildirim`, { method: "POST", headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" }, body: JSON.stringify(tek ? olaylar[0] : { baslik: `${olaylar.length} yeni platform bildirimi`, metin: olaylar.map((o) => `${o.baslik}: ${o.metin}`).join("\n").slice(0, 380), url: "#/platform-siparisler" }) }).catch(() => {});
+    }
+    return json({ sonuc, bildirim: olaylar.length });
   } catch (e) {
     return json({ hata: String((e as Error).message || e) }, 500);
   }

@@ -1,6 +1,6 @@
 // Uygulama kabugunu onbellege alir: ikon ve dosyalar hizli acilir.
 // Veriler (Supabase istekleri) asla onbellege alinmaz; her zaman canli gelir.
-const CACHE = 'ssc-v47';
+const CACHE = 'ssc-v48';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192-v4.png', 'icons/icon-512-v4.png', 'icons/apple-touch-icon-v4.png', 'icons/favicon-32-v4.png'];
 
 self.addEventListener('install', (e) => {
@@ -17,4 +17,20 @@ self.addEventListener('fetch', (e) => {
     fetch(e.request).then((r) => { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); return r; })
       .catch(() => caches.match(e.request).then((m) => m || caches.match('index.html')))
   );
+});
+
+// Anlik bildirimler (yeni platform siparisi, urun eslestirme, iade)
+self.addEventListener('push', (e) => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = { metin: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.baslik || 'Sipariş • Stok • Cari', {
+    body: d.metin || '', icon: 'icons/icon-192-v4.png', badge: 'icons/favicon-32-v4.png', tag: d.etiket || undefined, renotify: !!d.etiket, data: { url: d.url || '#/' }
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const hedef = new URL((e.notification.data && e.notification.data.url) || '#/', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ws) => {
+    for (const w of ws) { if (w.url.startsWith(self.registration.scope)) { w.navigate(hedef).catch(() => {}); return w.focus(); } }
+    return self.clients.openWindow(hedef);
+  }));
 });
