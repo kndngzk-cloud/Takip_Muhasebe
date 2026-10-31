@@ -18,7 +18,9 @@ const fmt2 = (v) => num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, m
 const PB = { TRY: '₺', USD: '$', EUR: '€', GBP: '£' };
 const PB_AD = { TRY: 'TL', USD: 'USD $', EUR: 'EUR €', GBP: 'GBP £' };
 const fmtPB = (v, pb) => (!pb || pb === 'TRY' ? fmtTL(v) : num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + PB[pb]);
-const sonKur = (pb) => { try { return JSON.parse(localStorage.getItem('ssc_kur') || '{}')[pb] || ''; } catch { return ''; } };
+const tcmbKur = (pb) => num(state?.ayarlar?.doviz_kur?.[pb]) || 0; // TCMB doviz satis, gunde iki kez guncellenir
+const sonKur = (pb) => { let v = ''; try { v = JSON.parse(localStorage.getItem('ssc_kur') || '{}')[pb] || ''; } catch {} return v || tcmbKur(pb) || ''; };
+const guncelKur = (pb) => tcmbKur(pb) || num(sonKur(pb)) || 0; // tahminlerde once guncel TCMB kuru
 const kurHatirla = (pb, k) => { try { const o = JSON.parse(localStorage.getItem('ssc_kur') || '{}'); o[pb] = k; localStorage.setItem('ssc_kur', JSON.stringify(o)); } catch {} };
 /* Para birimi + kur alanlari. pb TRY iken kur kapali (1). */
 function dovizHtml(id, pb = 'TRY', kur = '') {
@@ -2839,7 +2841,7 @@ const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d
 const wideScr = () => window.matchMedia('(min-width: 900px)').matches;
 const cinTabs = (k) => `<div class="chips">${[['#/cin', 'cin', 'Siparişler'], ['#/odemeler', 'odeme', 'Ödemeler'], ['#/fabrikalar', 'fab', 'Fabrikalar']].map(([h, kk, t]) => `<a class="chip ${k === kk ? 'on' : ''}" href="${h}">${t}</a>`).join('')}</div>`;
 /* Plan satirinin yaklasik TL karsiligi (kur yoksa son kullanilan kur) */
-const tlTahmin = (p) => (p.tutar_tl !== null && p.tutar_tl !== undefined ? num(p.tutar_tl) : num(p.tutar_hesap) * (p.para_birimi === 'TRY' ? 1 : num(p.cin_kur) || num(sonKur(p.para_birimi)) || 0));
+const tlTahmin = (p) => (p.tutar_tl !== null && p.tutar_tl !== undefined ? num(p.tutar_tl) : num(p.tutar_hesap) * (p.para_birimi === 'TRY' ? 1 : num(p.cin_kur) || guncelKur(p.para_birimi) || 0));
 
 function cinRow(c) {
   const bitti = ['Teslim Alındı', 'İptal'].includes(c.durum);
@@ -3788,7 +3790,7 @@ function bindNakitRows(root, rows) {
 }
 
 /* Kasa: eldeki para (TL, dolar…) aciklamalariyla; nakit akisinin baslangici */
-const kasaTL = (k) => num(k.tutar) * (k.para_birimi === 'TRY' ? 1 : num(k.kur) || num(sonKur(k.para_birimi)) || 0);
+const kasaTL = (k) => num(k.tutar) * (k.para_birimi === 'TRY' ? 1 : num(k.kur) || guncelKur(k.para_birimi) || 0);
 function kasaKart(kasa) {
   const top = kasa.reduce((a, k) => a + kasaTL(k), 0);
   const pbTop = {}; kasa.forEach((k) => { pbTop[k.para_birimi] = (pbTop[k.para_birimi] || 0) + num(k.tutar); });
@@ -4019,7 +4021,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.50';
+const APP_V = '1.51';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
