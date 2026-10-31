@@ -32,7 +32,7 @@ const iadeDurum = (s: string) => /cancel/i.test(s) ? null : /reject|red/i.test(s
 type Satir = { kod: string; ad: string; miktar: number; tutar: number };
 type Sip = { platform: string; siparis_no: string; platform_durum?: string; tarih?: string | null; musteri?: string | null; alici?: string | null; telefon?: string | null; eposta?: string | null; sehir?: string | null; adres?: string | null; vergi_no?: string | null;
   satirlar: Satir[]; brut: number; komisyon?: number | null; kargo_kesinti?: number | null; net?: number | null; kesinti_kesin?: boolean; kargo_firma?: string | null; kargo_takip?: string | null; kargo_link?: string | null; barkod?: string | null;
-  sevk_tarihi?: string | null; teslim_tarihi?: string | null; paket_no?: string | null; son_kargo?: string | null; iptal?: boolean; ham?: unknown };
+  sevk_tarihi?: string | null; teslim_tarihi?: string | null; paket_no?: string | null; son_kargo?: string | null; iptal?: boolean; bekle?: boolean; ham?: unknown };
 
 /* Hepsiburada User-Agent'i birebir istiyor; fetch kendi ekini koydugu icin istek TLS uzerinden elle yazilir */
 async function hamGet(u: string, headers: Record<string, string>): Promise<{ status: number; text: string }> {
@@ -71,7 +71,8 @@ async function koctas(a: Record<string, string>, gunSay: number): Promise<Sip[]>
     const j = JSON.parse(t);
     for (const o of (j.orders ?? []) as Record<string, any>[]) {
       const st = String(o.order_state);
-      if (["STAGING", "WAITING_ACCEPTANCE", "WAITING_DEBIT", "WAITING_DEBIT_PAYMENT", "REFUSED"].includes(st) && !o.customer_debited_date) continue; // odenmemis
+      if (st === "STAGING") continue; // henuz musteriye bile kesinlesmemis
+      const bekle = ["WAITING_ACCEPTANCE", "WAITING_DEBIT", "WAITING_DEBIT_PAYMENT"].includes(st) && !o.customer_debited_date; // satici onayi / odeme bekleniyor: gosterilir, aktarilmaz
       const c = o.customer || {}; const sa = c.shipping_address || {}; const ba = c.billing_address || {};
       const lines = (o.order_lines ?? []) as Record<string, any>[];
       const l0 = lines[0] || {};
@@ -85,7 +86,7 @@ async function koctas(a: Record<string, string>, gunSay: number): Promise<Sip[]>
         brut: para(o.total_price), komisyon: para(o.total_commission), kargo_kesinti: 0, kesinti_kesin: true,
         kargo_firma: o.shipping_company || null, kargo_takip: o.shipping_tracking || null, kargo_link: o.shipping_tracking_url || null, barkod: o.shipping_tracking || null,
         sevk_tarihi: kargoVar ? d10(l0.shipped_date) : null, teslim_tarihi: d10(l0.received_date), son_kargo: iso(o.shipping_deadline),
-        iptal: st === "CANCELED" || st === "REFUSED" || o.fully_refunded === true,
+        iptal: st === "CANCELED" || st === "REFUSED" || o.fully_refunded === true, bekle,
         ham: { durum: st, odeme: o.payment_type, kargo: o.shipping_company },
       });
     }
@@ -352,7 +353,7 @@ Deno.serve(async (req) => {
         if (liste.length) {
           const mevcut = await rest(`platform_siparisler?select=id,siparis_no,durum,siparis_id&platform=eq.${encodeURIComponent(e.platform)}&siparis_no=in.(${liste.map((s) => `"${s.siparis_no.replace(/"/g, "")}"`).join(",")})`);
           const m = new Map<string, Record<string, any>>(mevcut.map((x: Record<string, any>) => [x.siparis_no, x]));
-          const satirlar = liste.map(({ iptal, ...s }) => ({ ...s, guncelleme: new Date().toISOString() }));
+          const satirlar = liste.map(({ iptal, bekle, ...s }) => ({ ...s, guncelleme: new Date().toISOString() }));
           const kayit = await rest("platform_siparisler?on_conflict=platform,siparis_no&select=id,siparis_no,durum,siparis_id,tarih", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(satirlar) });
           for (const k of kayit as Record<string, any>[]) {
             const s = liste.find((x) => x.siparis_no === k.siparis_no)!;
@@ -360,11 +361,16 @@ Deno.serve(async (req) => {
             if (!eski) yeni++;
             let durum = k.durum;
             if (s.iptal && durum !== "İptal") { await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ durum: "İptal" }) }); durum = "İptal"; }
+            else if (s.bekle && !k.siparis_id) {
+              if (durum !== "Onay bekliyor") { await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ durum: "Onay bekliyor" }) }); if (!kuru) olaylar.push({ baslik: `${e.platform}: onayınızı bekleyen sipariş`, metin: `${ozet(s)} — panelden onaylayın, onaylanınca programa kendiliğinden aktarılır`, url: "#/platform-siparisler", etiket: `o-${e.platform}-${k.siparis_no}` }); }
+              continue;
+            }
+            else if (durum === "Onay bekliyor") { await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ durum: "Bekliyor" }) }); durum = "Bekliyor"; }
             else if (!eski && !k.siparis_id && (d10(k.tarih) || "9999") < baslangic) { await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ durum: "Eski" }) }); durum = "Eski"; }
             if (kuru) continue;
             try {
               if (k.siparis_id) { const r = await rest("rpc/platform_siparis_senkron", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r && Object.keys(r).length) guncellenen++; }
-              else if (durum === "Bekliyor" || durum === "Eşleşmedi" || durum === "Eski") { const r = await rest("rpc/platform_siparis_aktar", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r?.id) { if (r.elle) baglanan++; else { aktarilan++; if (!eski) olaylar.push({ baslik: `Yeni ${e.platform} siparişi`, metin: ozet(s), url: `#/siparis/${r.id}`, etiket: `s-${e.platform}-${k.siparis_no}` }); } } else if (r?.eslesmedi) { eslesmedi++; if (!eski || eski.durum !== "Eşleşmedi") olaylar.push({ baslik: `${e.platform} siparişi: ürün seçin`, metin: `${ozet(s)} — bu ürün programdaki hiçbir ürünle eşleşmedi`, url: "#/platform-siparisler", etiket: `e-${e.platform}-${k.siparis_no}` }); } }
+              else if (durum === "Bekliyor" || durum === "Eşleşmedi" || durum === "Eski") { const r = await rest("rpc/platform_siparis_aktar", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r?.id) { if (r.elle) baglanan++; else { aktarilan++; if (!eski || eski.durum === "Onay bekliyor") olaylar.push({ baslik: `Yeni ${e.platform} siparişi`, metin: ozet(s), url: `#/siparis/${r.id}`, etiket: `s-${e.platform}-${k.siparis_no}` }); } } else if (r?.eslesmedi) { eslesmedi++; if (!eski || eski.durum !== "Eşleşmedi") olaylar.push({ baslik: `${e.platform} siparişi: ürün seçin`, metin: `${ozet(s)} — bu ürün programdaki hiçbir ürünle eşleşmedi`, url: "#/platform-siparisler", etiket: `e-${e.platform}-${k.siparis_no}` }); } }
             } catch (err) {
               const msg = String((err as Error).message || err).slice(0, 300); hatalar.push(`${k.siparis_no}: ${msg}`);
               await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ durum: k.siparis_id ? durum : "Hata", hata: msg }) }).catch(() => {});

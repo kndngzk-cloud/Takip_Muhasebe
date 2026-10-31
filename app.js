@@ -412,7 +412,7 @@ async function viewHome() {
     api.get('v_odeme_takvimi', `select=*&odendi=is.false&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
     api.get('v_cin_siparisler', `select=*&durum=not.in.(${encodeURIComponent('"Teslim Alındı","İptal"')})&order=tahmini_varis.asc.nullslast&limit=30`).catch(() => []),
     api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
-    api.get('v_platform_siparisler', `select=*&or=(durum.in.(Bekliyor,Eşleşmedi,Hata),iade_durum.in.(${encodeURIComponent('"İade talebi","Talep bekliyor"')}),and(hata.not.is.null,iade_islendi.is.true,iade_durum.eq.${encodeURIComponent('Kabul edildi')}))&order=tarih.asc&limit=30`).catch(() => [])
+    api.get('v_platform_siparisler', `select=*&or=(durum.in.(${encodeURIComponent('Bekliyor,Onay bekliyor,Eşleşmedi,Hata')}),iade_durum.in.(${encodeURIComponent('"İade talebi","Talep bekliyor"')}),and(hata.not.is.null,iade_islendi.is.true,iade_durum.eq.${encodeURIComponent('Kabul edildi')}))&order=tarih.asc&limit=30`).catch(() => [])
   ]);
   const eksi = urun.filter((u) => u.aktif && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
@@ -2285,7 +2285,7 @@ async function entegrasyonKart() {
 /* ------------------------------------------------------------------ */
 const PL_RENK = { Hepsiburada: '#ff6000', Trendyol: '#f27a1a', 'Koçtaş': '#c8102e', N11: '#5b2d90' };
 const plBadge = (p) => `<span class="badge" style="background:${PL_RENK[p] || 'var(--brand)'};color:#fff">${esc(p)}</span>`;
-const PL_DURUM = { 'Aktarıldı': 'b-green', 'Eşleşmedi': 'b-red', 'Hata': 'b-red', 'Bekliyor': 'b-orange', 'Eski': '', 'İptal': '' };
+const PL_DURUM = { 'Onay bekliyor': 'b-red', 'Aktarıldı': 'b-green', 'Eşleşmedi': 'b-red', 'Hata': 'b-red', 'Bekliyor': 'b-orange', 'Eski': '', 'İptal': '' };
 const plDurumBadge = (p) => `<span class="badge ${PL_DURUM[p.durum] || ''}">${p.durum === 'Eski' ? 'Programda yok' : p.durum === 'Aktarıldı' && p.elle ? 'Elle girilene bağlı' : esc(p.durum)}</span>`;
 const IADE_RENK = { 'İade talebi': 'b-orange', 'Talep bekliyor': 'b-orange', 'Kabul edildi': 'b-red', 'Teslim edilemedi': 'b-red', 'Reddedildi': '' };
 const plIadeBadge = (p) => (p.iade_durum ? ` <span class="badge ${IADE_RENK[p.iade_durum] || ''}">${p.iade_durum === 'Kabul edildi' ? 'İade edildi' : p.iade_durum === 'Reddedildi' ? 'İade reddedildi' : p.iade_durum === 'Talep bekliyor' ? 'Talep: işlem bekliyor' : esc(p.iade_durum)}</span>` : '');
@@ -2434,7 +2434,7 @@ async function plDetay(p, data) {
   if (p.siparis_id && p.durum === 'Aktarıldı') { go(`#/siparis/${p.siparis_id}`); return; }
   const urunler = await cache.urunler();
   const satirlar = (p.satirlar || []).map((s) => ({ ...s, bul: s.urun_id || null }));
-  const acik = p.durum !== 'İptal';
+  const acik = p.durum !== 'İptal' && p.durum !== 'Onay bekliyor';
   modal({
     title: `${p.platform} · ${p.siparis_no}`, wide: true,
     body: `<div class="kv">
@@ -2449,6 +2449,7 @@ async function plDetay(p, data) {
           ${acik ? `<div class="field picker" style="margin:8px 0 0"><label>Bizdeki ürün</label><input class="input pl-u" data-i="${i}" placeholder="Ürün seçin…" autocomplete="off"></div>` : ''}
         </div>`).join('')}</div>
       ${platformKart(p, false)}
+      ${p.durum === 'Onay bekliyor' ? `<div class="tiny" style="margin-top:8px;color:var(--red)"><b>${esc(p.platform)} panelinden siparişi onaylayın.</b> Onaylanıp ödeme alınınca sipariş 2 dakika içinde programa kendiliğinden aktarılır. Süresi içinde onaylanmazsa platform siparişi iptal eder.</div>` : ''}
       ${p.durum === 'Eski' ? '<div class="tiny" style="margin-top:8px">Bu sipariş otomatik aktarım başlamadan önce verilmiş. Elle girdiyseniz “Elle girilmiş siparişe bağla” ile eşleyin; girmediyseniz “Programa aktar” ile oluşturun.</div>' : ''}`,
     foot: `<button class="btn" data-close>Kapat</button>${acik ? `<button class="btn" id="pl-bag">Elle girilmiş siparişe bağla</button><button class="btn primary" id="pl-ak">Programa aktar</button>` : ''}`,
     onMount: (m) => {
@@ -4018,7 +4019,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.48';
+const APP_V = '1.49';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
