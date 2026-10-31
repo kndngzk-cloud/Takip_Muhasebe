@@ -2150,7 +2150,7 @@ async function viewAyarlar() {
     ${ad ? `<div class="card" id="ent-kart"><h2>Pazaryeri / ödeme entegrasyonları</h2><div class="loading" style="padding:14px"><div class="spinner"></div></div></div>` : ''}
     <div class="card">
       <h2>Yedekler</h2>
-      <p class="small muted" style="margin-top:0">Her gece 03:00'te tüm veriler otomatik olarak Excel'e yedeklenir. Son 7 günün yedeği saklanır, daha eskileri kendiliğinden silinir.</p>
+      <p class="small muted" style="margin-top:0">Her gece 03:00'te tüm veriler otomatik yedeklenir: Excel'in ilk sayfaları okunur özetlerdir, “T_” ile başlayan sayfalarda programdaki <b>her tablonun her sütunu</b> eksiksiz durur (platform siparişleri, PayTR işlemleri, iade bilgileri, eşleştirmeler dahil). Ayrıca programa geri yüklemek için eksiksiz bir JSON kopyası alınır. Güvenlik için yalnızca API anahtarları/şifreleri yedeğe yazılmaz. Son 7 günün yedeği saklanır.</p>
       <div id="yd-list"><div class="loading" style="padding:14px"><div class="spinner"></div></div></div>
       <div class="btn-row" style="margin-top:10px">
         ${ad ? `<button class="btn" id="s-now">${icon('inbox')}Şimdi yedek al</button>` : ''}
@@ -2194,15 +2194,17 @@ async function viewAyarlar() {
     if (!ad) { el.innerHTML = '<p class="tiny">Yedekleri sadece yönetici görebilir.</p>'; return; }
     try {
       const r = await api.raw('storage/v1/object/list/yedekler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefix: '', limit: 100, sortBy: { column: 'name', order: 'desc' } }) });
-      const ls = (await r.json()).filter((o) => /^yedek-\d{4}-\d{2}-\d{2}\.xlsx$/.test(o.name));
+      const lj = await r.json(); if (!Array.isArray(lj)) throw new Error(lj?.message || lj?.error || 'liste okunamadı');
+      const hepsiYd = lj.filter((o) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json)$/.test(o.name));
+      const ls = hepsiYd.filter((o) => o.name.endsWith('.xlsx')).map((o) => ({ ...o, js: hepsiYd.find((j) => j.name === o.name.replace('.xlsx', '.json')) }));
       el.innerHTML = ls.length ? `<div class="list" style="box-shadow:none;border:1px solid var(--line);margin:0">${ls.map((o) => `<div class="row" style="cursor:default">
           <div class="main-col"><div class="t">${fmtD(o.name.slice(6, 16))}</div><div class="st">${esc(o.name)} · ${o.metadata?.size ? fmtN(Math.round(o.metadata.size / 1024)) + ' KB' : ''}</div></div>
-          <button class="btn sm" data-yd="${esc(o.name)}">${icon('download')}İndir</button></div>`).join('')}</div>`
+          <div class="btn-row" style="margin:0;flex-wrap:nowrap">${o.js ? `<button class="btn sm" data-yd="${esc(o.js.name)}" title="Programa geri yükleme için eksiksiz kopya">JSON</button>` : ''}<button class="btn sm" data-yd="${esc(o.name)}">${icon('download')}Excel</button></div></div>`).join('')}</div>`
         : '<p class="tiny">Henüz otomatik yedek yok; ilki bu gece alınacak.</p>';
       $$('[data-yd]', el).forEach((b) => b.onclick = () => busy(b, async () => {
         const name = b.dataset.yd;
         const blob = await (await api.raw(`storage/v1/object/yedekler/${encodeURIComponent(name)}`)).blob();
-        const file = new File([blob], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const file = new File([blob], name, { type: name.endsWith('.json') ? 'application/json' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
         if (ios && navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: name }); } catch (e) { if (e.name !== 'AbortError') throw e; } return; }
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
@@ -2737,7 +2739,15 @@ async function yedekAl() {
   ];
   const flat = (o, p = '') => Object.entries(o).reduce((a, [k, v]) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.assign(a, flat(v, p + k + '_')) : ((a[p + k] = v), a)), {});
   const sheets = [];
-  for (const [name, t, q] of T) { const rows = (await api.get(t, q + '&limit=100000')).map((r) => flat(r)); sheets.push({ name, rows }); }
+  const hepsi = async (t, q) => { const out = []; for (let off = 0; ; off += 1000) { const p = await api.get(t, `${q}&limit=1000&offset=${off}`); out.push(...p); if (p.length < 1000) break; } return out; };
+  for (const [name, t, q] of T) { const rows = (await hepsi(t, q)).map((r) => flat(r)); sheets.push({ name, rows }); }
+  // tam yedek: her tablo, her sutun (API anahtarlari haric) — yonetici ise
+  try {
+    const tam = await api.rpc('yedek_tam', {});
+    const hucre = (v) => v !== null && typeof v === 'object' ? JSON.stringify(v).slice(0, 32000) : typeof v === 'string' ? v.slice(0, 32000) : v;
+    sheets.push({ name: 'TAM YEDEK - Icindekiler', rows: Object.entries(tam).map(([t, rows]) => ({ tablo: t, satir: rows.length, sayfa: `T_${t}`.slice(0, 31) })) });
+    for (const [t, rows] of Object.entries(tam)) { const kolon = [...new Set(rows.flatMap((x) => Object.keys(x)))]; sheets.push({ name: `T_${t}`.slice(0, 31), rows: rows.map((x) => Object.fromEntries(kolon.map((k) => [k, hucre(x[k])]))) }); }
+  } catch { /* yonetici degilse sadece ozet sayfalar */ }
   const blob = xlsxBlob(sheets);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `yedek-${today()}.xlsx`;
@@ -3995,7 +4005,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.45';
+const APP_V = '1.46';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

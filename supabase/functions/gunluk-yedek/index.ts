@@ -1,4 +1,5 @@
-// Gunluk Excel yedegi: tum verileri .xlsx olarak "yedekler" klasorune yazar,
+// Gunluk yedek: okunur ozet sayfalari + TUM tablolarin TUM sutunlari (.xlsx) ve eksiksiz JSON kopyasi
+// "yedekler" klasorune yazilir,
 // 7 gunden eski yedekleri siler. Her gece pg_cron ile, istenirse uygulamadan
 // (yonetici) elle tetiklenir. Dis kutuphane kullanmaz.
 
@@ -20,6 +21,12 @@ async function rest(path: string) {
   const r = await fetch(`${URL_}/rest/v1/${path}`, { headers: H });
   if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
   return await r.json();
+}
+// sunucu tek istekte en fazla 1000 satir verir; hepsi sayfa sayfa alinir
+async function hepsi(path: string) {
+  const out: Record<string, unknown>[] = [];
+  for (let off = 0; ; off += 1000) { const p = await rest(`${path}&limit=1000&offset=${off}`); out.push(...p); if (p.length < 1000) break; }
+  return out;
 }
 
 // ---- yetki: cron anahtari ya da yonetici kullanici ----
@@ -117,8 +124,25 @@ Deno.serve(async (req) => {
     if (!(await yetkili(req, body))) return json({ hata: "Yetkisiz" }, 401);
 
     const sheets = [];
-    for (const [name, t, q] of TABLOLAR) sheets.push({ name, rows: (await rest(`${t}?${q}&limit=100000`)).map((r: Record<string, unknown>) => flat(r)) });
+    for (const [name, t, q] of TABLOLAR) sheets.push({ name, rows: (await hepsi(`${t}?${q}`)).map((r: Record<string, unknown>) => flat(r)) });
+    // tam yedek: her tablo, her sutun (gizli API anahtarlari haric)
+    const tr = await fetch(`${URL_}/rest/v1/rpc/yedek_tam`, { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: "{}" });
+    if (!tr.ok) throw new Error(`Tam yedek: ${tr.status} ${await tr.text()}`);
+    const tam = await tr.json() as Record<string, Record<string, unknown>[]>;
+    const hucre = (v: unknown) => v !== null && typeof v === "object" ? JSON.stringify(v).slice(0, 32000) : typeof v === "string" ? v.slice(0, 32000) : v;
+    sheets.push({ name: "TAM YEDEK - Icindekiler", rows: Object.entries(tam).map(([t, rows]) => ({ tablo: t, satir: rows.length, sayfa: `T_${t}`.slice(0, 31) })) });
+    for (const [t, rows] of Object.entries(tam)) {
+      const kolon = [...new Set(rows.flatMap((x) => Object.keys(x)))];
+      sheets.push({ name: `T_${t}`.slice(0, 31), rows: rows.map((x) => Object.fromEntries(kolon.map((k) => [k, hucre(x[k])]))) });
+    }
+    const zaman = new Date().toISOString();
     const dosya = `yedek-${gun(new Date())}.xlsx`;
+    const jdosya = `yedek-${gun(new Date())}.json`;
+    const ju = await fetch(`${URL_}/storage/v1/object/${BUCKET}/${jdosya}`, {
+      method: "POST", headers: { ...H, "x-upsert": "true", "Content-Type": "application/json" },
+      body: JSON.stringify({ zaman, surum: 1, tablolar: tam }),
+    });
+    if (!ju.ok) throw new Error(`JSON yükleme: ${ju.status} ${await ju.text()}`);
     const up = await fetch(`${URL_}/storage/v1/object/${BUCKET}/${dosya}`, {
       method: "POST",
       headers: { ...H, "x-upsert": "true", "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
@@ -133,13 +157,13 @@ Deno.serve(async (req) => {
       body: JSON.stringify({ prefix: "", limit: 1000, sortBy: { column: "name", order: "asc" } }),
     });
     const liste: { name: string }[] = ls.ok ? await ls.json() : [];
-    const eski = liste.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.xlsx$/.test(n) && n.slice(6, 16) < sinir);
+    const eski = liste.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json)$/.test(n) && n.slice(6, 16) < sinir);
     if (eski.length) {
       await fetch(`${URL_}/storage/v1/object/${BUCKET}`, {
         method: "DELETE", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ prefixes: eski }),
       });
     }
-    return json({ dosya, satir: sheets.reduce((a, s) => a + s.rows.length, 0), silinen: eski });
+    return json({ dosya, json: jdosya, tablo: Object.keys(tam).length, tam_satir: Object.values(tam).reduce((a, r) => a + r.length, 0), satir: sheets.reduce((a, s) => a + s.rows.length, 0), silinen: eski });
   } catch (e) {
     return json({ hata: String((e as Error).message || e) }, 500);
   }
