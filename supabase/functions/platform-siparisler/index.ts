@@ -1,5 +1,5 @@
-// Pazaryeri siparislerini ceker (Koctas / Hepsiburada / Trendyol), platform_siparisler'e yazar ve programa aktarir.
-// 15 dakikada bir pg_cron ile ya da uygulamadan (yonetici) tetiklenir.
+// Pazaryeri siparislerini ceker (Koctas / Hepsiburada / Trendyol / N11), platform_siparisler'e yazar ve programa aktarir.
+// 2 dakikada bir pg_cron ile ya da uygulamadan (yonetici) tetiklenir.
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
@@ -277,7 +277,56 @@ async function trendyol(a: Record<string, string>, gunSay: number, bitGun = 0): 
   return out;
 }
 
-const PLATFORM: Record<string, (a: Record<string, string>, g: number, b?: number) => Promise<Sip[]>> = { "Koçtaş": koctas, Hepsiburada: hepsiburada, Trendyol: trendyol };
+/* ---------------- N11 (REST shipmentPackages) ---------------- */
+async function n11(a: Record<string, string>, gunSay: number, bitGun = 0): Promise<Sip[]> {
+  if (!a.api_key || !a.api_secret) throw new Error("N11 bilgileri eksik");
+  const hd = { appkey: a.api_key, appsecret: a.api_secret, Accept: "application/json" };
+  const al = async (u: string) => { const r = await fetch(u, { headers: hd }); const t = await r.text(); if (!r.ok) throw new Error(`N11 ${r.status}: ${t.slice(0, 200)}`); return JSON.parse(t); };
+  // N11 en fazla 15 gunluk aralik veriyor; durum degisikliklerini yakalamak icin en az 14 gun geriye bakilir
+  const paketler: Record<string, any>[] = [];
+  const bit = Date.now() - bitGun * 86400000, bas = Date.now() - Math.max(gunSay, 14) * 86400000;
+  for (let pe = bit; pe > bas; pe -= 14 * 86400000) {
+    const ps = Math.max(bas, pe - 14 * 86400000);
+    for (let page = 0; page < 50; page++) {
+      const j = await al(`https://api.n11.com/rest/delivery/v1/shipmentPackages?startDate=${ps}&endDate=${pe}&page=${page}&size=100&sender=ALL`);
+      paketler.push(...(j.content ?? [])); if (page + 1 >= (j.totalPages ?? 1)) break;
+    }
+  }
+  const IPTAL = /cancel|unsupplied|iptal/i;
+  const iadeler: Iade[] = [];
+  const grup: Record<string, Record<string, any>[]> = {};
+  for (const p of paketler) (grup[p.orderNumber] ||= []).push(p);
+  const out: Sip[] = [];
+  for (const [no, ps] of Object.entries(grup)) {
+    const aktif = ps.filter((p) => !IPTAL.test(String(p.shipmentPackageStatus)));
+    const p0 = aktif[0] || ps[0]; const sa = p0.shippingAddress || {};
+    const lines = aktif.flatMap((p) => (p.lines ?? []).filter((l: any) => !IPTAL.test(String(l.orderItemLineItemStatusName))));
+    // satis: saticinin fatura tutari (n11'in karsiladigi indirim haric); kesinti: komisyon + pazarlama + pazaryeri hizmet bedeli, KDV'li
+    const tutar = (l: any) => sayi(l.sellerInvoiceAmount) || (sayi(l.sellerDiscountedPrice) || sayi(l.price) || 0) * (Number(l.quantity) || 1);
+    const brut = r2(lines.reduce((t: number, l: any) => t + tutar(l), 0));
+    const kom = r2(lines.reduce((t: number, l: any) => t + tutar(l) * ((sayi(l.commissionRate) || 0) - (sayi(l.sellerCampaignCommissionRate) || 0) + (sayi(l.netMarketingFeeRate) || 0) + (sayi(l.netMarketplaceFeeRate) || 0)) / 100, 0) * 1.2);
+    const tarihce = (s: string) => ps.flatMap((p) => p.packageHistories ?? []).find((h: any) => h.status === s)?.createdDate;
+    const kargolu = aktif.find((p) => /shipped|delivered|undelivered/i.test(String(p.shipmentPackageStatus)));
+    const teslim = aktif.find((p) => /^delivered$/i.test(String(p.shipmentPackageStatus)));
+    const olusma = tarihce("Created") ?? p0.lastModifiedDate;
+    if (aktif.some((p) => p.isReturned) && (d10(olusma) || "") >= IADE_ALT) iadeler.push({ no: String(no), durum: "İade talebi", tarih: d10(p0.lastModifiedDate), adet: null, iade_no: null, neden: null });
+    out.push({
+      platform: "N11", siparis_no: String(no), platform_durum: String(p0.shipmentPackageStatus ?? ""), tarih: iso(olusma),
+      musteri: p0.customerfullName || sa.fullName || null, alici: sa.fullName || null,
+      telefon: sa.gsm || null, eposta: p0.customerEmail || null, sehir: sa.city || null, adres: [sa.address, sa.neighborhood, sa.district, sa.city].filter(Boolean).join(" ") || null, vergi_no: p0.taxId || null,
+      satirlar: lines.map((l: any) => ({ kod: l.stockCode || l.barcode || String(l.productId ?? ""), ad: String(l.productName || "").trim(), miktar: Number(l.quantity) || 1, tutar: r2(tutar(l)) })),
+      brut, komisyon: kom > 0 ? kom : null, kargo_kesinti: null, net: null, kesinti_kesin: false,
+      kargo_firma: p0.cargoProviderName || null, kargo_takip: p0.cargoSenderNumber ? String(p0.cargoSenderNumber) : null, kargo_link: p0.cargoTrackingLink || null, barkod: p0.cargoSenderNumber ? String(p0.cargoSenderNumber) : null,
+      sevk_tarihi: kargolu ? d10(tarihce("Shipped") ?? kargolu.lastModifiedDate) : null, teslim_tarihi: teslim ? d10(tarihce("Delivered") ?? teslim.lastModifiedDate) : null,
+      paket_no: p0.id != null ? String(p0.id) : null, son_kargo: iso(p0.agreedDeliveryDate), iptal: !aktif.length, ham: { durum: ps.map((p) => p.shipmentPackageStatus) },
+    });
+  }
+  IADE.N11 = iadeler;
+  TESHIS.N11 = { paket: paketler.length, siparis: out.length };
+  return out;
+}
+
+const PLATFORM: Record<string, (a: Record<string, string>, g: number, b?: number) => Promise<Sip[]>> = { "Koçtaş": koctas, Hepsiburada: hepsiburada, Trendyol: trendyol, N11: n11 };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -288,7 +337,7 @@ Deno.serve(async (req) => {
     const baslangic = String(ba?.deger || "2100-01-01");
     const kuru = body.kuru === true; // sadece cek, aktarma
     const sadece = typeof body.platform === "string" ? body.platform : null;
-    const ent = await rest(`entegrasyonlar?select=platform,ayar,son_yanit&platform=in.(${encodeURIComponent('"Koçtaş","Hepsiburada","Trendyol"')})`);
+    const ent = await rest(`entegrasyonlar?select=platform,ayar,son_yanit&platform=in.(${encodeURIComponent('"Koçtaş","Hepsiburada","Trendyol","N11"')})`);
     const sonuc: Record<string, unknown> = {};
     const olaylar: { baslik: string; metin: string; url: string; etiket: string }[] = [];
     const ozet = (s: Sip) => `${s.alici || s.musteri || ""} · ${s.satirlar.map((x) => `${x.miktar > 1 ? x.miktar + " × " : ""}${x.kod || x.ad}`).join(", ")} · ${s.brut.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} ₺`;
