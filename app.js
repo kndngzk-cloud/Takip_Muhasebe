@@ -454,10 +454,21 @@ async function viewHome() {
 /* ------------------------------------------------------------------ */
 const durumBadge = (d) => `<span class="badge ${d === 'Beklemede' ? 'b-orange' : d === 'Sevk Edildi' ? 'b-green' : 'b-red'}">${esc(d)}</span>`;
 const tipBadge = (t) => `<span class="badge ${t === 'R' ? 'b-blue' : 'b-purple'}">${esc(t)}</span>`;
+/* Son kargoya verilis tarihi rozeti: gectiyse kirmizi, bugunse turuncu */
+function sonKargoBadge(t, kisa = false) {
+  if (!t) return '';
+  const d = new Date(t), simdi = new Date();
+  const iki = (n) => String(n).padStart(2, '0'); const gun = `${iki(d.getDate())}.${iki(d.getMonth() + 1)}`, saat = `${iki(d.getHours())}:${iki(d.getMinutes())}`;
+  const bugun = d.toDateString() === simdi.toDateString();
+  const gecti = d < simdi;
+  const sinif = gecti ? 'b-red' : bugun ? 'b-orange' : '';
+  const yazi = gecti ? `Son kargo ${gun} ${saat} · geçti` : bugun ? `Bugün ${saat}'e kadar kargola` : `Son kargo ${gun}${saat !== '00:00' && saat !== '23:59' ? ' ' + saat : ''}`;
+  return ` <span class="badge son-kargo ${sinif}" title="Kargoya son veriliş tarihi">${kisa ? '' : '⏱ '}${yazi}</span>`;
+}
 function siparisRow(s, sevkBtn = false) {
   return `<div class="row" data-go="#/siparis/${s.id}">
     <div class="main-col"><div class="t">${esc(s.cari_unvan)}${s.cari_tip === 'Perakende' && (s.urun_ozet || s.platform) ? ` <span class="sp-ozet">${s.platform ? `<b style="color:${PL_RENK[s.platform] || 'inherit'}">${esc(s.platform)}</b>${s.urun_ozet ? ' · ' : ''}` : ''}${esc(s.urun_ozet || '')}</span>` : ''}</div>
-      <div class="st"><span class="num">Fiş ${s.fis_no}</span>· ${fmtD(s.tarih)} ${tipBadge(s.fatura_tipi)} ${durumBadge(s.durum)}${s.cin_no ? ` <span class="badge b-blue">${cinNo(s.cin_no)}${s.cin_durum !== 'Teslim Alındı' ? ' · yolda' : ''}</span>` : ''} ${s.gonderim_sekli ? `<span class="tiny">${esc(s.gonderim_sekli)}</span>` : ''}</div></div>
+      <div class="st"><span class="num">Fiş ${s.fis_no}</span>· ${fmtD(s.tarih)} ${tipBadge(s.fatura_tipi)} ${durumBadge(s.durum)}${s.durum === 'Beklemede' ? sonKargoBadge(s.son_kargo) : ''}${s.cin_no ? ` <span class="badge b-blue">${cinNo(s.cin_no)}${s.cin_durum !== 'Teslim Alındı' ? ' · yolda' : ''}</span>` : ''} ${s.gonderim_sekli ? `<span class="tiny">${esc(s.gonderim_sekli)}</span>` : ''}</div></div>
     <div class="end"><div class="amt">${fmtTL(s.genel_toplam)}</div>
       ${sevkBtn && s.durum === 'Beklemede' ? `<button class="btn sm green" style="margin-top:6px" data-sevk="${s.id}" data-fis="${s.fis_no}">${icon('truck')}Sevk et</button>` : ''}</div>
   </div>`;
@@ -2330,7 +2341,7 @@ function platformKart(p, siparisSayfasi = true) {
   return `<div class="card pl-kart">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
       <div>${plBadge(p.platform)} <b class="num" style="margin-left:4px">${esc(p.siparis_no)}</b></div>
-      <div class="tiny">${esc(plKargoDurum(p))}</div>
+      <div class="tiny">${esc(plKargoDurum(p))}${!p.sevk_tarihi && p.durum !== 'İptal' ? sonKargoBadge(p.son_kargo) : ''}</div>
     </div>
     <div class="kv" style="margin-top:12px">
       <span class="k">Kargo firması</span><span>${esc(p.kargo_firma || '–')}</span>
@@ -2366,7 +2377,7 @@ const siparisTabs = (k, n = 0) => `<div class="chips" style="margin-bottom:10px"
 
 const plRow = (p) => `<div class="row" data-pl="${p.id}">
         <div class="main-col"><div class="t">${esc(p.musteri || '–')}</div>
-          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${plIadeBadge(p)}${p.fis_no ? ` <span class="tiny">Fiş ${p.fis_no}</span>` : ''}</div>
+          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${plIadeBadge(p)}${!p.sevk_tarihi && p.durum !== 'İptal' && p.durum !== 'Eski' ? sonKargoBadge(p.son_kargo) : ''}${p.fis_no ? ` <span class="tiny">Fiş ${p.fis_no}</span>` : ''}</div>
           <div class="tiny" style="margin-top:3px">${esc((p.satirlar || []).map((s) => `${s.miktar > 1 ? s.miktar + ' × ' : ''}${s.ad}`).join(', ').slice(0, 90))}</div>
           <div class="tiny" style="margin-top:2px"><span class="ic-s">${icon('truck')}</span> ${esc(p.kargo_firma || '')} ${p.kargo_takip ? `<span class="num">${esc(p.kargo_takip)}</span> · ` : ''}${esc(plKargoDurum(p))}</div>
           ${p.hata && p.durum !== 'Aktarıldı' ? `<div class="tiny" style="color:var(--red);margin-top:2px">${esc(p.hata)}</div>` : ''}</div>
@@ -3982,7 +3993,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.42';
+const APP_V = '1.43';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
