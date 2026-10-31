@@ -48,7 +48,7 @@ const fmtN = (v) => num(v).toLocaleString('tr-TR', { maximumFractionDigits: 3 })
 const fmtD = (iso) => { if (!iso) return '–'; const [y, m, d] = String(iso).slice(0, 10).split('-'); return `${d}.${m}.${y}`; };
 const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 const monthStart = () => today().slice(0, 8) + '01';
-const norm = (s) => String(s ?? '').toLocaleLowerCase('tr-TR').replace(/ı/g, 'i').normalize('NFD').replace(/[̀-ͯ]/g, '');
+const norm = (s) => String(s ?? '').toLocaleLowerCase('tr-TR').replace(/ı/g, 'i').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[-./_#]/g, ''); // aramada "CN1003" = "CN-1003"
 /* Turkce sayi okuma: "74.340" = 74340 (nokta binlik), "1.250,50" = 1250.5, "41,5" = 41.5; tek nokta ve 3'ten farkli basamak ("41.5") ondalik sayilir */
 const parseNum = (s) => {
   if (s === null || s === undefined) return NaN;
@@ -4019,7 +4019,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.49';
+const APP_V = '1.50';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
