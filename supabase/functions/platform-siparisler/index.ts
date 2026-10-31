@@ -101,7 +101,7 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
   const hd = { Authorization: "Basic " + btoa(`${a.merchant_id}:${a.servis_anahtari}`), "User-Agent": a.kullanici_adi, Accept: "application/json" };
   const al = async (u: string) => { const r = await hamGet(u, hd); if (r.status < 200 || r.status >= 300) throw new Error(`Hepsiburada ${r.status}: ${r.text.slice(0, 200)} (${u.split("?")[0].split("/").slice(3, 5).join("/")})`); return JSON.parse(r.text || "{}"); };
   const liste = async (u: string) => { const out: Record<string, any>[] = []; for (let off = 0; off < 3000; off += 100) { const j = await al(`${u}${u.includes("?") ? "&" : "?"}offset=${off}&limit=100`); const it = (Array.isArray(j) ? j : j.items ?? j.data ?? []) as Record<string, any>[]; out.push(...it); if (it.length < 100) break; } return out; };
-  const fmt = (d: Date) => d.toISOString().slice(0, 16).replace("T", " ");
+  const fmt = (d: Date) => new Date(d.getTime() + 3 * 3600000).toISOString().slice(0, 16).replace("T", " "); // HB tarih filtresi Istanbul saatiyle (UTC+3)
   const bit = new Date(Date.now() - bitGun * 86400000), basT = new Date(Date.now() - gunSay * 86400000);
   const aralik = `begindate=${encodeURIComponent(fmt(basT))}&enddate=${encodeURIComponent(fmt(bit))}`;
   const oms = "https://oms-external.hepsiburada.com";
