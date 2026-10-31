@@ -2228,13 +2228,15 @@ const ENT_ALAN = {
   'PayTR 2': [['merchant_id', 'Mağaza no (merchant_id)'], ['merchant_key', 'Mağaza parola (merchant_key)'], ['merchant_salt', 'Mağaza gizli anahtar (merchant_salt)']],
   Trendyol: [['seller_id', 'Satıcı ID'], ['api_key', 'API key'], ['api_secret', 'API secret']],
   Hepsiburada: [['merchant_id', 'Mağaza ID'], ['servis_anahtari', 'Servis anahtarı'], ['kullanici_adi', 'Entegratör kullanıcı adı']],
-  'Koçtaş': [['api_key', 'API anahtarı']]
+  'Koçtaş': [['api_key', 'API anahtarı']],
+  N11: [['api_key', 'API anahtarı (App Key)'], ['api_secret', 'API şifresi (App Secret)']]
 };
 const ENT_NOT = {
   PayTR: 'PayTR Mağaza Paneli → <b>Destek &amp; Kurulum → Entegrasyon Bilgileri</b> (Mağaza No, Mağaza Parola, Mağaza Gizli Anahtar). Gün içinde 2 saatte bir (07:15–19:15) ödeme özeti ve kart işlemleri çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur. Otomatik veri gelince elle girilmiş gelecek PayTR kayıtları silinir.',
   'PayTR 2': 'İkinci PayTR mağazanızın bilgileri (aynı yerden). Ödemeler’de “PayTR … · 2. hesap” olarak görünür.',
   Hepsiburada: 'Hepsiburada satıcı paneli → Hesabım → <b>Entegrasyon → Entegratör Bilgileri</b>: Mağaza ID, entegratör kartındaki <b>Servis Anahtarı</b> ve o entegratörün kullanıcı adı (…_dev). Vadesi gelecek hakedişler (satış − komisyon/kargo vb.) günlük toplanarak eklenir.',
   'Koçtaş': 'Koçtaş satıcı paneli (koctas.mirakl.net) → sağ üstte profil simgesi → <b>Kişisel ayarlar → API anahtarı</b> → “Yeni bir anahtar oluştur” → Panoya kopyala. Ödenecek hakedişler Ödemeler’e eklenir.',
+  N11: 'N11 satıcı panelindeki <b>API Hesapları</b> bölümünden API anahtarı ve API şifresi. Bilgileri kaydedin; bağlantıyı doğrulayıp N11 siparişlerini ve ödemelerini de diğer platformlar gibi otomatik çekeceğim.',
   Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.'
 };
 async function entegrasyonKart() {
@@ -2243,15 +2245,15 @@ async function entegrasyonKart() {
   try { [ent, alan] = await Promise.all([api.get('entegrasyonlar', 'select=platform,aktif,son_calisma,son_durum,son_adet&order=platform'), api.rpc('entegrasyon_alanlar')]); }
   catch (e) { el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2><p class="tiny" style="color:var(--red)">${esc(e.message)}</p>`; return; }
   const dolu = Object.fromEntries((alan || []).map((a) => [a.platform, new Set(a.alanlar || [])]));
-  const sira = ['PayTR', 'PayTR 2', 'Trendyol', 'Hepsiburada', 'Koçtaş'];
+  const sira = ['PayTR', 'PayTR 2', 'Trendyol', 'Hepsiburada', 'Koçtaş', 'N11'];
   const ENT_AD = { PayTR: 'PayTR · 1. hesap', 'PayTR 2': 'PayTR · 2. hesap' };
   el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2>
     <p class="small muted" style="margin-top:0">Bilgiler güvenli saklanır ve buradan geri okunamaz; değiştirmek için yenisini yazmanız yeterli, boş bıraktığınız alan eskisini korur.</p>
     ${sira.map((pl) => { const e = ent.find((x) => x.platform === pl) || {}; const f = ENT_ALAN[pl]; return `<div class="ent" data-pl="${pl}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${f ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : '<span class="badge">yakında</span>'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${f && pl !== 'N11' ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : '<span class="badge">yakında</span>'}</div>
       ${f ? `<p class="tiny" style="margin:6px 0 10px">${ENT_NOT[pl]}</p>
         <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${['merchant_id', 'seller_id', 'kullanici_adi'].includes(k) ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
-        <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button><button class="btn sm ent-cal">Şimdi çalıştır</button></div>
+        <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button>${pl !== 'N11' ? '<button class="btn sm ent-cal">Şimdi çalıştır</button>' : ''}</div>
         <div class="tiny ent-dur" style="margin-top:8px">${e.son_calisma ? `Son çalışma: ${fmtD(String(e.son_calisma).slice(0, 10))} ${String(new Date(e.son_calisma).toTimeString()).slice(0, 5)} · <span style="color:${String(e.son_durum || '').startsWith('Hata') ? 'var(--red)' : 'var(--green)'}">${esc(e.son_durum || '')}</span>` : 'Henüz çalışmadı'}</div>`
       : `<p class="tiny" style="margin:6px 0 0">${pl} için ödeme tarihlerini veren servis doğrulanınca eklenecek. O zamana kadar ödemeleri Ödemeler → Platform ile girebilirsiniz.</p>`}
     </div>`; }).join('')}`;
@@ -2259,11 +2261,11 @@ async function entegrasyonKart() {
     const pl = box.dataset.pl; if (!ENT_ALAN[pl]) return;
     const kaydet = async () => {
       const ayar = {}; $$('.ent-in', box).forEach((i) => { if (i.value.trim()) ayar[i.dataset.k] = i.value.trim(); });
-      const r = await api.rpc('entegrasyon_kaydet', { p_platform: pl, p_aktif: $('.ent-ak', box).checked, p_ayar: ayar });
+      const r = await api.rpc('entegrasyon_kaydet', { p_platform: pl, p_aktif: $('.ent-ak', box)?.checked ?? false, p_ayar: ayar });
       return r || {};
     };
     $('.ent-kay', box).onclick = (e) => busy(e.currentTarget, async () => { const r = await kaydet(); const eks = ENT_ALAN[pl].filter(([k]) => !r[k]).map(([, l]) => l); toast(eks.length ? `Kaydedildi; eksik: ${eks.join(', ')}` : `${ENT_AD[pl] || pl} bilgileri kaydedildi`, eks.length ? 'err' : 'ok'); entegrasyonKart(); }).catch(fail);
-    $('.ent-cal', box).onclick = (e) => busy(e.currentTarget, async () => {
+    if ($('.ent-cal', box)) $('.ent-cal', box).onclick = (e) => busy(e.currentTarget, async () => {
       if ($$('.ent-in', box).some((i) => i.value.trim())) await kaydet();
       const r = await (await api.raw('functions/v1/platform-odemeler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform: pl }) })).json();
       const s = r.sonuc?.[pl];
@@ -3993,7 +3995,7 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.43';
+const APP_V = '1.44';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
