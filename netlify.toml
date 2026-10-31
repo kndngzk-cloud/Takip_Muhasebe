@@ -10,3 +10,10 @@
   for = "/version.txt"
   [headers.values]
     Cache-Control = "no-cache"
+
+# Yalnizca kendi dosyalarimiz calisir (satir ici script yok). Yan etkisi: Netlify'in
+# "Powered by Netlify" rozeti (satir ici script ister) da gorunmez.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "script-src 'self'; object-src 'none'; base-uri 'self'"

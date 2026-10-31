@@ -332,7 +332,7 @@ function shell(active) {
     </div>`;
 }
 function topbar(title, { back = false, actions = '' } = {}) {
-  $('#topbar').innerHTML = `${back ? `<button class="back" onclick="history.length > 1 ? history.back() : (location.hash='#/')">${icon('back')}</button>` : ''}<h1>${esc(title)}</h1>${actions}`;
+  $('#topbar').innerHTML = `${back ? `<button class="back" data-fn="geriGit">${icon('back')}</button>` : ''}<h1>${esc(title)}</h1>${actions}`;
   document.title = `${title} · ${state.ayarlar?.firma_adi || 'Stok Cari'}`;
 }
 
@@ -353,7 +353,7 @@ async function render() {
   const m = h.match(r[0]) || [];
   shell(r[1]);
   try { await r[2](...m.slice(1)); }
-  catch (e) { if (seq === renderSeq) { $('#view').innerHTML = `<div class="card empty">Bir hata oluştu: ${esc(e.message)}<br><br><button class="btn" onclick="render()">Tekrar dene</button></div>`; } fail(e); }
+  catch (e) { if (seq === renderSeq) { $('#view').innerHTML = `<div class="card empty">Bir hata oluştu: ${esc(e.message)}<br><br><button class="btn" data-fn="render">Tekrar dene</button></div>`; } fail(e); }
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
@@ -403,7 +403,7 @@ function viewLogin() {
 /* ANA SAYFA                                                           */
 /* ------------------------------------------------------------------ */
 async function viewHome() {
-  topbar(state.ayarlar?.firma_adi || 'Ana Sayfa', { actions: `<button class="tb-btn" onclick="go('#/siparis/yeni')">${icon('plus')}Sipariş</button>` });
+  topbar(state.ayarlar?.firma_adi || 'Ana Sayfa', { actions: `<button class="tb-btn" data-nav="#/siparis/yeni">${icon('plus')}Sipariş</button>` });
   const [oz, bek, urun, alacakli, plan14, cinAktif, nakit14, plSon] = await Promise.all([
     api.rpc('panel_ozet'),
     api.get('v_siparisler', `select=*&durum=${eq('Beklemede')}&order=tarih.asc,fis_no.asc&limit=50`),
@@ -418,10 +418,10 @@ async function viewHome() {
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
   $('#view').innerHTML = `
     <div class="quick">
-      <button class="q-blue" onclick="go('#/siparis/yeni')">${icon('order')}Yeni Sipariş</button>
-      <button class="q-green" onclick="malAlisi()">${icon('inbox')}Mal Alışı</button>
-      <button class="q-orange" onclick="tahsilat()">${icon('cash')}Tahsilat</button>
-      <button class="q-purple" onclick="go('#/stok')">${icon('box')}Stok Durumu</button>
+      <button class="q-blue" data-nav="#/siparis/yeni">${icon('order')}Yeni Sipariş</button>
+      <button class="q-green" data-fn="malAlisi">${icon('inbox')}Mal Alışı</button>
+      <button class="q-orange" data-fn="tahsilat">${icon('cash')}Tahsilat</button>
+      <button class="q-purple" data-nav="#/stok">${icon('box')}Stok Durumu</button>
     </div>
     <div class="section-title">Özet</div>
     <div class="kpis">
@@ -479,7 +479,7 @@ function bindRows(root = document) {
 }
 
 async function viewSiparisler() {
-  topbar('Siparişler', { actions: `<button class="tb-btn" onclick="go('#/siparis/yeni')">${icon('plus')}Yeni</button>` });
+  topbar('Siparişler', { actions: `<button class="tb-btn" data-nav="#/siparis/yeni">${icon('plus')}Yeni</button>` });
   const BOS = { donem: 'Tümü', bas: '', bit: '', gon: '', sehir: '', pb: '', cin: '', urun: '', min: '', max: '', sira: 'yeni' };
   const ui = state.ui.sip ||= { durum: 'Tümü', tip: 'Tümü', q: '', ...BOS };
   for (const [k, v] of Object.entries(BOS)) if (ui[k] === undefined) ui[k] = v;
@@ -1020,15 +1020,15 @@ function urunRow(u) {
 }
 
 async function viewStok() {
-  topbar('Stok', { actions: `<button class="tb-btn" onclick="malAlisi()">${icon('inbox')}Mal alışı</button>` });
+  topbar('Stok', { actions: `<button class="tb-btn" data-fn="malAlisi">${icon('inbox')}Mal alışı</button>` });
   const ui = state.ui.stok ||= { f: 'Hareketli', q: '' };
   const data = await cache.urunler(true);
   const wide = window.matchMedia('(min-width: 900px)').matches;
   $('#view').innerHTML = `
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Ürün adı veya kod ara…" value="${esc(ui.q)}"></div>
-      <button class="btn sm" onclick="urunForm()">${icon('plus')}Yeni ürün</button>
-      <button class="btn sm" onclick="stokDuzelt()">${icon('edit')}Sayım / fire</button>
-      <button class="btn sm" onclick="go('#/stok/hareketler')">${icon('list')}Hareketler</button></div>
+      <button class="btn sm" data-fn="urunForm">${icon('plus')}Yeni ürün</button>
+      <button class="btn sm" data-fn="stokDuzelt">${icon('edit')}Sayım / fire</button>
+      <button class="btn sm" data-nav="#/stok/hareketler">${icon('list')}Hareketler</button></div>
     <div class="chips" id="c1">${['Hareketli', 'Kritik', 'Yolda', 'Tümü', 'Pasif'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d === 'Hareketli' ? 'Stokta / hareketli' : d}</button>`).join('')}</div>
     <p class="tiny" style="margin:0 4px 10px"><b>Real</b>: depoda fiilen olan. <b>Sevk sonrası</b>: bekleyen siparişler gönderildikten sonra kalacak miktar. <b>Yolda</b>: ithalattan gelmekte olan.</p>
     <div id="lst"></div>`;
@@ -1129,7 +1129,7 @@ function bindHareketEdit() {
 }
 
 async function viewStokHareketleri() {
-  topbar('Stok Hareketleri', { back: true, actions: `<button class="tb-btn" onclick="malAlisi()">${icon('inbox')}Mal alışı</button>` });
+  topbar('Stok Hareketleri', { back: true, actions: `<button class="tb-btn" data-fn="malAlisi">${icon('inbox')}Mal alışı</button>` });
   const ui = state.ui.har ||= { f: 'Tümü', q: '' };
   const data = await api.get('stok_hareketleri', 'select=*,urunler(ad,kod),siparisler(fis_no,cariler(unvan))&order=tarih.desc,id.desc&limit=3000');
   $('#view').innerHTML = `
@@ -1362,7 +1362,7 @@ function cariRow(c) {
   </div>`;
 }
 async function viewCariler() {
-  topbar('Cariler', { actions: `<button class="tb-btn" onclick="cariForm()">${icon('plus')}Yeni</button>` });
+  topbar('Cariler', { actions: `<button class="tb-btn" data-fn="cariForm">${icon('plus')}Yeni</button>` });
   const ui = state.ui.cari ||= { f: 'Toptan', q: '', sirala: 'ad' };
   const data = await cache.cariler(true);
   $('#view').innerHTML = `
@@ -2073,7 +2073,7 @@ async function viewDaha() {
       <div class="row" data-go="#/paytr"><div class="main-col"><div class="t">PayTR tahsilatları</div><div class="st">Kart ödemelerini cariye tahsilat olarak işle, makbuz al</div></div></div>
       <div class="row" data-go="#/fabrikalar"><div class="main-col"><div class="t">Fabrikalar</div><div class="st">Tedarikçi fabrikalar ve bakiyeleri</div></div></div>
       <div class="row" data-go="#/raporlar"><div class="main-col"><div class="t">Raporlar</div><div class="st">Kâr, platform kârlılığı, satış analizi, alacak yaşlandırma, stok ve sipariş önerisi, tahsilatlar</div></div></div>
-      <div class="row" data-go="#/stok/hareketler"><div class="main-col"><div class="t">Stok hareketleri</div><div class="st">Girişler, sevkler, alış maliyetleri</div></div></div>
+      <div class="row" data-nav="#/stok/hareketler"><div class="main-col"><div class="t">Stok hareketleri</div><div class="st">Girişler, sevkler, alış maliyetleri</div></div></div>
       <div class="row" data-go="#/ayarlar"><div class="main-col"><div class="t">Ayarlar</div><div class="st">Firma, KDV, maliyet yöntemi, yedek</div></div></div>
     </div>
     <div class="list">
@@ -3053,7 +3053,7 @@ function odemeYap(p) {
 
 /* ---------- Liste ---------- */
 async function viewCinListe() {
-  topbar('İthalat', { back: !wideScr(), actions: `<button class="tb-btn" onclick="go('#/cin/yeni')">${icon('plus')}Yeni</button>` });
+  topbar('İthalat', { back: !wideScr(), actions: `<button class="tb-btn" data-nav="#/cin/yeni">${icon('plus')}Yeni</button>` });
   const ui = state.ui.cin ||= { f: 'Aktif', q: '', fab: null };
   const [data, plan] = await Promise.all([
     api.get('v_cin_siparisler', 'select=*&order=no.desc&limit=3000'),
@@ -3226,7 +3226,7 @@ async function viewCinDetay(id) {
     api.rpc('cin_maliyet', { p_id: +id }).catch(() => [])
   ]);
   if (!c) { $('#view').innerHTML = '<div class="card empty">Sipariş bulunamadı</div>'; return; }
-  topbar(`${cinNo(c.no)}`, { back: true, actions: c.durum !== 'İptal' ? `<button class="tb-btn" onclick="go('#/cin/${c.id}/duzenle')">${icon('edit')}Düzenle</button>` : '' });
+  topbar(`${cinNo(c.no)}`, { back: true, actions: c.durum !== 'İptal' ? `<button class="tb-btn" data-nav="#/cin/${c.id}/duzenle">${icon('edit')}Düzenle</button>` : '' });
   const aktifSip = msip.filter((s) => s.durum !== 'İptal');
   let ayr = {};
   if (aktifSip.length) {
@@ -4010,7 +4010,15 @@ function nakitDurum(n, durum) {
 /* Baslat                                                              */
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
-const APP_V = '1.47';
+/* Satir ici onclick yerine tek dinleyici (siteye katı script guvenligi uygulanabilsin diye) */
+function geriGit() { if (history.length > 1) history.back(); else location.hash = '#/'; }
+const DATA_FN = { geriGit, render: () => render(), malAlisi: () => malAlisi(), tahsilat: () => tahsilat(), urunForm: () => urunForm(), stokDuzelt: () => stokDuzelt(), cariForm: () => cariForm() };
+document.addEventListener('click', (e) => {
+  const el = e.target.closest?.('[data-nav],[data-fn]'); if (!el) return;
+  if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
+  const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
+});
+const APP_V = '1.48';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
