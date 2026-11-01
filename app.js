@@ -3218,6 +3218,20 @@ async function viewCinForm(id) {
   };
 }
 
+
+/* Ithalat maliyet kuru: elle gir ya da otomatige dondur */
+function cinKurForm(c, kur) {
+  const m = modal({
+    title: `${cinNo(c.no)} · maliyet kuru`,
+    body: `<div class="field"><label>1 ${c.para_birimi} = ? ₺</label><input class="input" id="ck-k" inputmode="decimal" value="${c.kur ? fmtN(c.kur) : kur ? fmtN(Math.round(kur * 10000) / 10000) : ''}"></div>
+      <p class="tiny">Boş bırakırsanız otomatik kur kullanılır: önce ödenen fabrika taksitlerinin ortalaması, o da yoksa güncel TCMB kuru. Gümrük beyannamesindeki kuru biliyorsanız buraya girin; birim maliyetler ve (teslim alındıysa) stok maliyeti hemen güncellenir.</p>`,
+    foot: `<button class="btn" data-close>Vazgeç</button>${c.kur ? '<button class="btn" id="ck-oto">Otomatiğe dön</button>' : ''}<button class="btn primary" id="ck-ok">Kaydet</button>`
+  });
+  const kaydet = (v) => busy($('#ck-ok'), async () => { await api.update('cin_siparisler', `id=eq.${c.id}`, { kur: v }); m.close(); toast('Kur kaydedildi', 'ok'); render(); }).catch(fail);
+  $('#ck-ok').onclick = () => { const v = parseNum($('#ck-k').value); if ($('#ck-k').value.trim() && !(v > 0)) return toast('Geçerli bir kur girin', 'err'); kaydet($('#ck-k').value.trim() ? v : null); };
+  $('#ck-oto') && ($('#ck-oto').onclick = () => kaydet(null));
+}
+
 /* ---------- Detay ---------- */
 async function viewCinDetay(id) {
   topbar('İthalat Siparişi', { back: true });
@@ -3242,6 +3256,7 @@ async function viewCinDetay(id) {
   const indKdvTL = (k) => (malBy[k.id]?.dahil ? 0 : kdvKalem(k) + kal.filter((x) => malBy[x.id]?.dahil && x.dahil_urun_id === k.urun_id).reduce((t, x) => t + kdvKalem(x) * num(k.miktar) / (kal.filter((y) => !malBy[y.id]?.dahil && y.urun_id === k.urun_id).reduce((u, y) => u + num(y.miktar), 0) || 1), 0));
   const kdvTop = kal.reduce((t, k) => t + kdvKalem(k), 0);
   const kur = mal[0]?.kur ? num(mal[0].kur) : null;
+  state.cinKurCtx = { c, kur };
   const fab = plan.filter((p) => p.kategori === 'Fabrika'), mas = plan.filter((p) => p.kategori !== 'Fabrika' && p.yon === 'Ödeme');
   const idx = CIN_ASAMA.indexOf(c.durum), sonraki = c.durum !== 'İptal' ? CIN_ASAMA[idx + 1] : null;
   const iptal = c.durum === 'İptal', teslim = c.durum === 'Teslim Alındı';
@@ -3266,7 +3281,7 @@ async function viewCinDetay(id) {
         ${c.liman ? `<span class="k">Varış limanı</span><span>${esc(c.liman)}</span>` : ''}
         ${c.konteyner_no ? `<span class="k">Konteyner</span><span>${esc(c.konteyner_no)}</span>` : ''}
         ${c.takip_no ? `<span class="k">Takip / B/L</span><span>${esc(c.takip_no)}</span>` : ''}
-        ${c.para_birimi !== 'TRY' ? `<span class="k">Maliyet kuru</span><span>${kur ? `<b>${fmtN(kur)} ₺</b> ${c.kur ? '' : '<span class="tiny">(ödenen taksitlerin ortalaması)</span>'}` : '<span class="tiny">henüz yok — teslimde girilecek</span>'}</span>` : ''}
+        ${c.para_birimi !== 'TRY' ? `<span class="k">Maliyet kuru</span><span>${kur ? `<b>${fmtN(kur)} ₺</b> <span class="tiny">${c.kur ? '(elle girildi)' : plan.some((p) => p.kategori === 'Fabrika' && p.odendi && p.odenen_kur) ? '(ödenen taksitlerin ortalaması)' : '(tahmini · güncel TCMB kuru)'}</span>` : '<span class="tiny">henüz yok</span>'} ${isAdmin() && c.durum !== 'İptal' ? '<a href="#" id="cd-kur" data-fn="cinKur">değiştir</a>' : ''}</span>` : ''}
         ${c.aciklama ? `<span class="k">Açıklama</span><span>${esc(c.aciklama)}</span>` : ''}
       </div>
     </div>
@@ -4019,13 +4034,13 @@ function nakitDurum(n, durum) {
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
 /* Satir ici onclick yerine tek dinleyici (siteye katı script guvenligi uygulanabilsin diye) */
 function geriGit() { if (history.length > 1) history.back(); else location.hash = '#/'; }
-const DATA_FN = { geriGit, render: () => render(), malAlisi: () => malAlisi(), tahsilat: () => tahsilat(), urunForm: () => urunForm(), stokDuzelt: () => stokDuzelt(), cariForm: () => cariForm() };
+const DATA_FN = { cinKur: () => state.cinKurCtx && cinKurForm(state.cinKurCtx.c, state.cinKurCtx.kur), geriGit, render: () => render(), malAlisi: () => malAlisi(), tahsilat: () => tahsilat(), urunForm: () => urunForm(), stokDuzelt: () => stokDuzelt(), cariForm: () => cariForm() };
 document.addEventListener('click', (e) => {
   const el = e.target.closest?.('[data-nav],[data-fn]'); if (!el) return;
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.52';
+const APP_V = '1.53';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
