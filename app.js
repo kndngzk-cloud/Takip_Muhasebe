@@ -3969,16 +3969,29 @@ async function viewVergiSim() {
   const sonK = (uid) => son.find((k) => k.urun_id === uid);
   const sonSifon = (uid) => son.find((k) => (k.dahil_urun_ids || []).map(Number).includes(uid))?.urun_id;
   const vars = sifonlar.find((u) => u.kod === 'U0306') || sifonlar[0];
-  const yeniSatir = (u) => ({ urun_id: u?.id || null, adet: '', fob: u && sonK(u.id) ? num(sonK(u.id).birim_fiyat) : '', kg: u && sonK(u.id)?.gozetim_kg ? num(sonK(u.id).gozetim_kg) : '',
-    sifon: u ? (sonSifon(u.id) || vars?.id || 0) : (vars?.id || 0), satis: u?.satis_fiyati ? num(u.satis_fiyati) : '' });
+  // urun adindan olcu: GRPVD4050B -> 40 x 50, ...4068B2 -> 2 goz
+  const adOlcu = (u) => { const m = /(\d{2})(\d{2})[A-Z_]*?(\d)?(?:_|$|\s)/i.exec(String(u?.ad || '')) || /(\d{2})(\d{2})/.exec(String(u?.ad || '')); return m ? { en: +m[1], boy: +m[2], goz: m[3] && +m[3] > 1 ? +m[3] : 1 } : {}; };
+  const yeniSatir = (u) => { const o = adOlcu(u); return { urun_id: u?.id || null, ad: '', en: o.en || '', boy: o.boy || '', der: '', kal: '', goz: o.goz || 1, kgElle: '', adet: '', fob: u && sonK(u.id) ? num(sonK(u.id).birim_fiyat) : '',
+    sifon: u ? (sonSifon(u.id) || vars?.id || 0) : (vars?.id || 0), satis: u?.satis_fiyati ? num(u.satis_fiyati) : '' }; };
   let S = null;
   try { S = JSON.parse(localStorage.getItem(VSIM_KEY) || 'null'); } catch { S = null; }
-  if (!S || !Array.isArray(S.satirlar)) S = null;
-  S ||= { kur: '', kur2: '', navlun: 4800, sigorta: 100, masraf: 90000, kdv: num(R.kdv ?? 20), satirlar: [yeniSatir(null)], sf: {},
+  if (!S || !Array.isArray(S.satirlar) || !S.ref) S = null;
+  S ||= { ref: { en: 40, boy: 50, der: '', kal: '', kg: 2.7 }, kur: '', kur2: '', navlun: 4800, sigorta: 100, masraf: 90000, kdv: num(R.kdv ?? 20), satirlar: [yeniSatir(null)], sf: {},
     ev: { gv: num(R.gv ?? 2.7), igv: num(R.igv ?? 25), goz: num(R.gozetim_usd_kg ?? 13) }, si: { gv: num(R.sifon_gv ?? 6.5), igv: num(R.sifon_igv ?? 10), goz: num(R.sifon_gozetim_usd_kg ?? 7) } };
   if (!num(S.kur)) S.kur = guncelKur('USD') ? Math.round(guncelKur('USD') * 100) / 100 : '';
   const sfVars = (sid) => { const k = sonK(sid); return { fob: k ? num(k.birim_fiyat) : num(R.sifon_fob ?? 3), kg: k?.gozetim_kg ? num(k.gozetim_kg) : num(R.sifon_kg ?? 0.4) }; };
   const kaydet = () => { try { localStorage.setItem(VSIM_KEY, JSON.stringify(S)); } catch {} };
+  /* Agirlik = referans kg x (sac alani / referans sac alani) x (kalinlik / referans kalinlik)
+     Sac alani = en x boy + (derinlik varsa) yan duvarlar 2(en+boy) x derinlik + cift gozde ara duvar en x derinlik */
+  const alan = (x, derVar) => num(x.en) * num(x.boy) + (derVar ? 2 * (num(x.en) + num(x.boy)) * num(x.der) + (Math.max(1, num(x.goz) || 1) - 1) * num(x.en) * num(x.der) : 0);
+  const kgHesap = (x) => {
+    const rf = S.ref; if (!(num(x.en) > 0 && num(x.boy) > 0 && num(rf.en) > 0 && num(rf.boy) > 0 && num(rf.kg) > 0)) return 0;
+    const derVar = num(rf.der) > 0 && num(x.der) > 0;
+    const kal = num(rf.kal) > 0 && num(x.kal) > 0 ? num(x.kal) / num(rf.kal) : 1;
+    return Math.round(num(rf.kg) * alan(x, derVar) / alan({ ...rf, goz: 1 }, derVar) * kal * 100) / 100;
+  };
+  const kgOf = (x) => num(x.kgElle) > 0 ? num(x.kgElle) : kgHesap(x);
+  const satirAd = (x) => x.urun_id ? uAd(x.urun_id) : (x.ad || `${x.en || '?'}×${x.boy || '?'}${num(x.goz) > 1 ? ` ${x.goz} göz` : ''}`);
   const uAd = (id) => urunler.find((u) => u.id === id)?.ad || '';
   const v = (x) => (x === '' || x === null || x === undefined ? '' : fmtN(x));
   const inp = (cls, val, w = 90, ph = '') => `<input class="input ${cls}" inputmode="decimal" style="width:${w}px;padding:6px 8px;text-align:right" value="${v(val)}" placeholder="${ph}">`;
@@ -3996,6 +4009,14 @@ async function viewVergiSim() {
         <div class="field"><label>Sigorta ($)</label><input class="input" id="vs-sig" inputmode="decimal" value="${v(S.sigorta)}"></div>
         <div class="field"><label>Gümrük masrafları (₺)</label><input class="input" id="vs-mas" inputmode="decimal" value="${v(S.masraf)}"><div class="hint">Müşavirlik, ardiye, iç nakliye, liman toplamı</div></div>
       </div>
+      <div class="section-title" style="margin:4px 0 8px">Ağırlık referansı <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· diğer eviyelerin ağırlığı buna oranlanır</span></div>
+      <div class="grid3">
+        <div class="field"><label>Ölçü (en × boy, cm)</label><div style="display:flex;gap:6px;align-items:center"><input class="input" id="vs-ren" inputmode="decimal" value="${v(S.ref.en)}"><span>×</span><input class="input" id="vs-rboy" inputmode="decimal" value="${v(S.ref.boy)}"></div></div>
+        <div class="field"><label>Derinlik (cm)</label><input class="input" id="vs-rder" inputmode="decimal" value="${v(S.ref.der)}" placeholder="bilinmiyorsa boş"></div>
+        <div class="field"><label>Kalınlık (mm)</label><input class="input" id="vs-rkal" inputmode="decimal" value="${v(S.ref.kal)}" placeholder="bilinmiyorsa boş"></div>
+      </div>
+      <div class="grid3"><div class="field"><label>Ağırlığı (kg)</label><input class="input" id="vs-rkg" inputmode="decimal" value="${v(S.ref.kg)}"></div></div>
+      <p class="tiny" style="margin-top:-4px">Derinlik ve kalınlık hem referansa hem eviyeye yazılırsa hesaba girer; boşsa sadece en × boy oranı kullanılır. Ağırlığı biliyorsan eviye satırında "kg" kutusuna yazman yeterli, o geçerli olur.</p>
       <details class="gum"><summary>Vergi oranları ve gözetim</summary>
         <div class="grid3">
           <div class="field"><label>Eviye GV %</label><input class="input" id="vs-egv" inputmode="decimal" value="${v(S.ev.gv)}"></div>
@@ -4011,7 +4032,7 @@ async function viewVergiSim() {
       </details>
     </div>
     <div class="section-title">Eviyeler <a href="#" id="vs-ekle">+ Eviye ekle</a></div>
-    <div class="list"><div class="table-wrap"><table class="tbl stack" id="vs-tbl"><thead><tr><th>Eviye</th><th class="r">Adet</th><th class="r">FOB $/adet</th><th class="r">Gözetim kg/adet</th><th>Sifon</th><th class="r">Satış ₺ (KDV hariç)</th><th></th></tr></thead><tbody></tbody></table></div></div>
+    <div class="list"><div class="table-wrap"><table class="tbl stack" id="vs-tbl"><thead><tr><th>Eviye</th><th class="r">En × boy (cm)</th><th class="r">Derinlik</th><th class="r">Kalınlık mm</th><th class="r">Göz</th><th class="r">Ağırlık kg</th><th class="r">Adet</th><th class="r">FOB $/adet</th><th>Sifon</th><th class="r">Satış ₺ (KDV hariç)</th><th></th></tr></thead><tbody></tbody></table></div></div>
     <div id="vs-sf"></div>
     <div id="vs-out"></div>
     <div class="btn-row"><button class="btn" id="vs-sifirla">Sıfırla</button><button class="btn primary" id="vs-cin">${icon('ship')}İthalat siparişi olarak aç</button></div>`;
@@ -4019,16 +4040,26 @@ async function viewVergiSim() {
   const tbody = $('#vs-tbl tbody');
   const satirCiz = () => {
     tbody.innerHTML = S.satirlar.map((s, i) => `<tr data-i="${i}">
-      <td class="w"><select class="input vs-u" style="padding:6px 8px;font-size:14px;min-width:170px"><option value="">Eviye seçin…</option>${eviyeler.map((u) => `<option value="${u.id}" ${u.id === s.urun_id ? 'selected' : ''}>${esc(u.ad)}</option>`).join('')}</select></td>
+      <td class="w"><select class="input vs-u" style="padding:6px 8px;font-size:14px;min-width:160px"><option value="">Yeni model (listede yok)</option>${eviyeler.map((u) => `<option value="${u.id}" ${u.id === s.urun_id ? 'selected' : ''}>${esc(u.ad)}</option>`).join('')}</select>
+        ${s.urun_id ? '' : `<input class="input vs-ad" style="margin-top:6px;padding:6px 8px;font-size:14px" value="${esc(s.ad || '')}" placeholder="Model adı (isteğe bağlı)">`}</td>
+      <td class="r" data-l="En × boy cm"><span style="white-space:nowrap">${inp('vs-en', s.en, 56, 'en')} × ${inp('vs-boy', s.boy, 56, 'boy')}</span></td>
+      <td class="r" data-l="Derinlik cm">${inp('vs-der', s.der, 60, 'cm')}</td>
+      <td class="r" data-l="Kalınlık mm">${inp('vs-kal', s.kal, 60, 'mm')}</td>
+      <td class="r" data-l="Göz">${inp('vs-goz', s.goz, 46, '1')}</td>
+      <td class="r" data-l="Ağırlık kg">${inp('vs-kg', s.kgElle, 70, kgHesap(s) ? fmtN(kgHesap(s)) : 'kg')}<div class="tiny vs-kgt">${s.kgElle ? 'elle' : kgHesap(s) ? 'hesaplandı' : ''}</div></td>
       <td class="r" data-l="Adet">${inp('vs-adet', s.adet, 80, 'adet')}</td>
       <td class="r" data-l="FOB $">${inp('vs-fob', s.fob, 80, '$')}</td>
-      <td class="r" data-l="kg/adet">${inp('vs-kg', s.kg, 80, 'kg')}</td>
       <td data-l="Sifon"><select class="input vs-s" style="padding:6px 8px;font-size:14px"><option value="0" ${!s.sifon ? 'selected' : ''}>Sifonsuz</option>${sifonlar.map((u) => `<option value="${u.id}" ${u.id === s.sifon ? 'selected' : ''}>${esc(u.ad)}</option>`).join('')}</select></td>
       <td class="r" data-l="Satış ₺">${inp('vs-sat', s.satis, 100, '₺')}</td>
       <td class="push"><button class="icon-btn vs-del" title="Sil">${icon('trash')}</button></td></tr>`).join('');
     $$('tr[data-i]', tbody).forEach((tr) => {
       const s = S.satirlar[+tr.dataset.i];
-      const oku = () => { s.adet = parseNum($('.vs-adet', tr).value) || ''; s.fob = parseNum($('.vs-fob', tr).value) || ''; s.kg = parseNum($('.vs-kg', tr).value) || ''; s.satis = parseNum($('.vs-sat', tr).value) || ''; s.sifon = +$('.vs-s', tr).value || 0; hesap(); };
+      const oku = () => {
+        const n = (c) => parseNum($(c, tr).value) || '';
+        Object.assign(s, { en: n('.vs-en'), boy: n('.vs-boy'), der: n('.vs-der'), kal: n('.vs-kal'), goz: n('.vs-goz') || 1, kgElle: n('.vs-kg'), adet: n('.vs-adet'), fob: n('.vs-fob'), satis: n('.vs-sat'), sifon: +$('.vs-s', tr).value || 0, ad: $('.vs-ad', tr)?.value || '' });
+        const kh = kgHesap(s); $('.vs-kg', tr).placeholder = kh ? fmtN(kh) : 'kg'; $('.vs-kgt', tr).textContent = s.kgElle ? 'elle' : kh ? 'hesaplandı' : '';
+        hesap();
+      };
       $$('input', tr).forEach((x) => { x.oninput = oku; });
       $('.vs-s', tr).onchange = () => { oku(); sfCiz(); hesap(); };
       $('.vs-u', tr).onchange = (e) => { const u = urunler.find((x) => x.id === +e.target.value); Object.assign(s, yeniSatir(u), { adet: s.adet }); satirCiz(); sfCiz(); hesap(); };
@@ -4048,11 +4079,11 @@ async function viewVergiSim() {
 
   // tek bir kur icin tum hesap
   const hesapla = (kur) => {
-    const ev = S.satirlar.filter((s) => s.urun_id && num(s.adet) > 0 && num(s.fob) > 0);
+    const ev = S.satirlar.filter((s) => (s.urun_id || num(s.en) > 0) && num(s.adet) > 0 && num(s.fob) > 0);
     const sfAdet = {}; ev.forEach((s) => { if (s.sifon) sfAdet[s.sifon] = (sfAdet[s.sifon] || 0) + num(s.adet); });
     const kal = [
-      ...ev.map((s, i) => ({ id: 'e' + i, s, sifonMu: false, birim_fiyat: num(s.fob), miktar: num(s.adet), devreden: 0, gozetim_kg: num(s.kg) || null,
-        urunler: { gumruk: { gozetim: num(s.kg) > 0, gv: num(S.ev.gv), igv: num(S.ev.igv), gozetim_usd_kg: num(S.ev.goz) } } })),
+      ...ev.map((s, i) => ({ id: 'e' + i, s, sifonMu: false, birim_fiyat: num(s.fob), miktar: num(s.adet), devreden: 0, gozetim_kg: kgOf(s) || null,
+        urunler: { gumruk: { gozetim: kgOf(s) > 0, gv: num(S.ev.gv), igv: num(S.ev.igv), gozetim_usd_kg: num(S.ev.goz) } } })),
       ...Object.entries(sfAdet).map(([id, adet]) => ({ id: 's' + id, sid: +id, sifonMu: true, birim_fiyat: num(S.sf[id]?.fob), miktar: adet, devreden: 0, gozetim_kg: num(S.sf[id]?.kg) || null,
         urunler: { gumruk: { gozetim: num(S.sf[id]?.kg) > 0, gv: num(S.si.gv), igv: num(S.si.igv), gozetim_usd_kg: num(S.si.goz) } } }))
     ].filter((k) => k.birim_fiyat > 0);
@@ -4076,6 +4107,7 @@ async function viewVergiSim() {
 
   const hesap = () => {
     const n = (id) => parseNum($(id).value);
+    S.ref = { en: n('#vs-ren') || '', boy: n('#vs-rboy') || '', der: n('#vs-rder') || '', kal: n('#vs-rkal') || '', kg: n('#vs-rkg') || '' };
     Object.assign(S, { kur: n('#vs-kur') || '', kur2: n('#vs-kur2') || '', kdv: n('#vs-kdv') || 0, navlun: n('#vs-nav') || 0, sigorta: n('#vs-sig') || 0, masraf: n('#vs-mas') || 0 });
     S.ev = { gv: n('#vs-egv') || 0, igv: n('#vs-eigv') || 0, goz: n('#vs-egoz') || 0 };
     S.si = { gv: n('#vs-sgv') || 0, igv: n('#vs-sigv') || 0, goz: n('#vs-sgoz') || 0 };
@@ -4089,7 +4121,7 @@ async function viewVergiSim() {
       ${eksikKg ? `<p class="small" style="color:var(--orange);margin:0 4px 8px">${eksikKg} eviyede gözetim ağırlığı boş; o satırlar gözetimsiz (CIF üzerinden) hesaplandı.</p>` : ''}
       <div class="list"><div class="table-wrap"><table class="tbl stack"><thead><tr><th>Eviye</th><th class="r">Adet</th><th class="r">Maliyet KDV hariç</th><th class="r">KDV dahil</th>${B ? `<th class="r">Kur ${fmtN(B.kur)} ile</th>` : ''}<th class="r">Satış</th><th class="r">Kâr / adet</th><th class="r">Marj</th></tr></thead><tbody>
       ${A.eviye.map((x, i) => `<tr>
-        <td class="w"><b>${esc(uAd(x.k.s.urun_id))}</b><div class="tiny">FOB ${fmtPB(x.k.birim_fiyat, 'USD')} · CIF ${fmtPB(x.r.cif, 'USD')}${x.r.goz ? ` · gözetim ${fmtPB(x.r.gozetim, 'USD')}` : ''} · vergi ${fmtTL(x.r.birimVergiTL)}${x.sf ? ` · sifon ${fmtTL(x.sf.birim)}` : ''}</div></td>
+        <td class="w"><b>${esc(satirAd(x.k.s))}</b><div class="tiny">${num(x.k.gozetim_kg) ? `${fmtN(x.k.gozetim_kg)} kg · ` : ''}FOB ${fmtPB(x.k.birim_fiyat, 'USD')} · CIF ${fmtPB(x.r.cif, 'USD')}${x.r.goz ? ` · gözetim ${fmtPB(x.r.gozetim, 'USD')}` : ''} · vergi ${fmtTL(x.r.birimVergiTL)}${x.sf ? ` · sifon ${fmtTL(x.sf.birim)}` : ''}</div></td>
         <td class="r" data-l="Adet">${fmtN(x.k.miktar)}</td>
         <td class="r" data-l="KDV hariç"><b>${fmtTL(x.birimT)}</b></td>
         <td class="r" data-l="KDV dahil">${fmtTL(x.birimT + x.indKdvT)}</td>
@@ -4116,15 +4148,18 @@ async function viewVergiSim() {
       </div>`;
   };
 
+  ['#vs-ren', '#vs-rboy', '#vs-rder', '#vs-rkal', '#vs-rkg'].forEach((s) => { $(s).oninput = () => { hesap(); satirCiz(); }; });
   ['#vs-kur', '#vs-kur2', '#vs-kdv', '#vs-nav', '#vs-sig', '#vs-mas', '#vs-egv', '#vs-eigv', '#vs-egoz', '#vs-sgv', '#vs-sigv', '#vs-sgoz'].forEach((s) => { $(s).oninput = hesap; });
   $('#vs-ekle').onclick = (e) => { e.preventDefault(); S.satirlar.push(yeniSatir(null)); satirCiz(); };
   $('#vs-sifirla').onclick = () => { try { localStorage.removeItem(VSIM_KEY); } catch {} render(); };
   $('#vs-cin').onclick = () => {
     const ev = S.satirlar.filter((s) => s.urun_id && num(s.adet) > 0);
-    if (!ev.length) return toast('Önce eviye ve adet girin', 'err');
+    const yeni = S.satirlar.filter((s) => !s.urun_id && num(s.adet) > 0).length;
+    if (!ev.length) return toast(yeni ? 'Yeni modeller ithalata aktarılamaz; önce ürün kartını açıp listeden seçin' : 'Önce eviye ve adet girin', 'err');
+    if (yeni) toast(`${yeni} yeni model ürün kartı olmadığı için aktarılmadı`, 'err');
     const sfAdet = {}; ev.forEach((s) => { if (s.sifon) (sfAdet[s.sifon] ||= { adet: 0, hedef: new Set() }).adet += num(s.adet), sfAdet[s.sifon].hedef.add(s.urun_id); });
     state.cinTaslak = [
-      ...ev.map((s) => ({ urun_id: s.urun_id, miktar: num(s.adet), fiyat: num(s.fob) || '', kg: num(s.kg) || '' })),
+      ...ev.map((s) => ({ urun_id: s.urun_id, miktar: num(s.adet), fiyat: num(s.fob) || '', kg: kgOf(s) || '' })),
       ...Object.entries(sfAdet).map(([id, x]) => ({ urun_id: +id, miktar: x.adet, fiyat: num(S.sf[id]?.fob) || '', kg: num(S.sf[id]?.kg) || '', dahil: [...x.hedef] }))
     ];
     toast('Eviyeler ve sifonlar yeni ithalat siparişine aktarıldı; fabrikayı seçip kaydedin', 'ok');
@@ -4487,7 +4522,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.64';
+const APP_V = '1.65';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
