@@ -4085,7 +4085,7 @@ async function viewVergiSim() {
       <div class="grid3">
         <div class="field"><label>Navlun ($)</label><input class="input" id="vs-nav" inputmode="decimal" value="${v(S.navlun)}"></div>
         <div class="field"><label>Sigorta ($)</label><input class="input" id="vs-sig" inputmode="decimal" value="${v(S.sigorta)}"></div>
-        <div class="field"><label>Gümrük masrafları (₺)</label><input class="input" id="vs-mas" inputmode="decimal" value="${v(S.masraf)}"><div class="hint">Müşavirlik, ardiye, iç nakliye, liman toplamı</div></div>
+        <div class="field"><label>Türkiye giderleri (₺)</label><input class="input" id="vs-mas" inputmode="decimal" value="${v(S.masraf)}"><div class="hint">Müşavirlik, ardiye, iç nakliye, liman toplamı · adede göre dağıtılır</div></div>
       </div>
       <div class="section-title" style="margin:4px 0 8px">Ağırlık referansı <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· diğer eviyelerin ağırlığı buna oranlanır</span></div>
       <div class="grid3">
@@ -4169,7 +4169,8 @@ async function viewVergiSim() {
     const fob = kal.reduce((a, k) => a + k.birim_fiyat * k.miktar, 0);
     if (!(kur > 0) || !(fob > 0)) return null;
     const ctx = { R, kg: {}, fob, navlun: num(S.navlun), sigorta: num(S.sigorta), kdv: num(S.kdv), kur };
-    const rs = kal.map((k) => { const r = vergiKalem(k, ctx); const masraf = num(S.masraf) * k.birim_fiyat / fob;
+    const adetTop = kal.reduce((a, k) => a + k.miktar, 0); // Turkiye giderleri gercek ithalattaki gibi adede gore (sifon da bir adet)
+    const rs = kal.map((k) => { const r = vergiKalem(k, ctx); const masraf = adetTop ? num(S.masraf) / adetTop : 0;
       return { k, r, birim: r.cif * kur + masraf + r.birimVergiTL, indKdv: (r.kdv - r.indirilemez) * kur }; });
     const sfB = Object.fromEntries(rs.filter((x) => x.k.sifonMu).map((x) => [x.k.sid, x]));
     const eviye = rs.filter((x) => !x.k.sifonMu).map((x) => { const sf = x.k.s.sifon ? sfB[x.k.s.sifon] : null;
@@ -4220,7 +4221,7 @@ async function viewVergiSim() {
           <div class="tr"><span class="muted">İthalat KDV</span><span>${fmtTL(A.kdv)}</span></div>
           <div class="tr"><span class="muted">· indirilebilir (beyannamede geri alınır)</span><span>${fmtTL(A.kdv - A.ind)}</span></div>
           <div class="tr"><span class="muted">· indirilemeyen (maliyete eklenir)</span><span>${fmtTL(A.ind)}</span></div>
-          <div class="tr"><span class="muted">Gümrük masrafları</span><span>${fmtTL(num(S.masraf))}</span></div>
+          <div class="tr"><span class="muted">Türkiye giderleri</span><span>${fmtTL(num(S.masraf))}</span></div>
           <div class="tr big"><span>Gümrükte ödenecek vergi</span><span>${fmtTL(A.gv + A.igv + A.kdv)}</span></div>
           <div class="tr big"><span>Toplam nakit ihtiyacı</span><span>${fmtTL(A.nakit)}${B ? `<div class="tiny">kur ${fmtN(B.kur)} ile ${fmtTL(B.nakit)}</div>` : ''}</span></div>
           <div class="tr"><span class="muted">Toplam maliyet (indirilebilir KDV hariç)</span><span><b>${fmtTL(A.maliyet)}</b></span></div>
@@ -4616,7 +4617,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.70';
+const APP_V = '1.71';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
