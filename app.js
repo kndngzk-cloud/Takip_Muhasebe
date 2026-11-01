@@ -3237,6 +3237,10 @@ async function viewCinDetay(id) {
     sk.forEach((k) => { ayr[k.urun_id] = (ayr[k.urun_id] || 0) + num(k.miktar); });
   }
   const malBy = Object.fromEntries(mal.map((r) => [r.kalem_id, r]));
+  // indirilebilir KDV (TL, kalem toplami): vergi hesabindaki KDV - indirilemeyen; dahil kalemlerinki hedef urune eklenir
+  const kdvKalem = (k) => { const v = k.vergi_detay || {}; return Math.max(0, num(v.kdv_tutar) - num(v.indirilemez)) * num(v.kur) * num(k.miktar); };
+  const indKdvTL = (k) => (malBy[k.id]?.dahil ? 0 : kdvKalem(k) + kal.filter((x) => malBy[x.id]?.dahil && x.dahil_urun_id === k.urun_id).reduce((t, x) => t + kdvKalem(x) * num(k.miktar) / (kal.filter((y) => !malBy[y.id]?.dahil && y.urun_id === k.urun_id).reduce((u, y) => u + num(y.miktar), 0) || 1), 0));
+  const kdvTop = kal.reduce((t, k) => t + kdvKalem(k), 0);
   const kur = mal[0]?.kur ? num(mal[0].kur) : null;
   const fab = plan.filter((p) => p.kategori === 'Fabrika'), mas = plan.filter((p) => p.kategori !== 'Fabrika' && p.yon === 'Ödeme');
   const idx = CIN_ASAMA.indexOf(c.durum), sonraki = c.durum !== 'İptal' ? CIN_ASAMA[idx + 1] : null;
@@ -3284,17 +3288,17 @@ async function viewCinDetay(id) {
     <div class="section-title">Ürünler</div>
     <div class="list"><div class="table-wrap"><table class="tbl stack">
       <thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Fabrika fiyatı</th><th class="r">Tutar</th><th class="r">Müşterilere</th><th class="r">Depoya kalan</th><th class="r">Birim maliyet</th></tr></thead>
-      <tbody>${kal.map((k) => { const m = malBy[k.id]; const a = satirAyr(k); return `<tr>
+      <tbody>${kal.map((k) => { const m = malBy[k.id]; const a = satirAyr(k); const kdvB = indKdvTL(k) / (num(k.miktar) || 1); return `<tr>
         <td class="w"><a href="#/urun/${k.urun_id}"><b>${esc(k.urunler?.ad)}</b></a><div class="tiny">${esc(k.urunler?.kod)}${gozetimli(k.urunler) ? ` · gözetim ${k.gozetim_kg !== null && k.gozetim_kg !== undefined ? fmtN(k.gozetim_kg) + ' kg' : '<span style="color:var(--orange)">ağırlık girilmedi</span>'}` : ''}</div>${m?.dahil ? `<span class="badge b-blue">stoğa girmez · ${esc(kal.find((x) => x.urun_id === k.dahil_urun_id)?.urunler?.ad || '')} maliyetine dahil</span>` : ''}</td>
         <td class="r" data-l="Miktar">${fmtN(k.miktar)} ${esc(k.urunler?.birim || '')}</td>
         <td class="r" data-l="Fiyat">${fmtPB(k.birim_fiyat, c.para_birimi)}</td>
         <td class="r" data-l="Tutar">${fmtPB(num(k.miktar) * num(k.birim_fiyat), c.para_birimi)}</td>
         <td class="r" data-l="Müşterilere">${a ? fmtN(a) : '–'}</td>
         <td class="r" data-l="Depoya kalan"><b>${m?.dahil ? '–' : fmtN(num(k.miktar) - a)}</b></td>
-        <td class="r" data-l="Birim maliyet">${m?.dahil ? `<span class="muted">${fmtTL(m.birim_maliyet)}</span><div class="tiny">ayrı stok maliyeti yok</div>` : m && m.birim_maliyet !== null ? `<b>${fmtTL(m.birim_maliyet)}</b><div class="tiny">FOB ${fmtTL(num(m.fob_tl) / num(k.miktar))}${num(k.vergi_tl) ? ` + vergi ${fmtTL(num(k.vergi_tl) / num(k.miktar))}` : ''} + masraf ${fmtTL((num(m.masraf_tl) - num(k.vergi_tl)) / num(k.miktar))}${num(m.dahil_ek_tl) ? ` + ${esc(kal.filter((x) => malBy[x.id]?.dahil && x.dahil_urun_id === k.urun_id).map((x) => x.urunler?.ad).join(', '))} ${fmtTL(num(m.dahil_ek_tl) / num(k.miktar))}` : ''}</div>` : '<span class="tiny">kur yok</span>'}</td></tr>`; }).join('')}</tbody>
-      ${mal.length && kur ? `<tfoot><tr><td class="w">Toplam maliyet</td><td></td><td></td><td class="r" data-l="FOB ₺">${fmtTL(fobTL)}</td><td></td><td class="r" data-l="Masraf ₺">+ ${fmtTL(masTL)}</td><td class="r" data-l="Toplam ₺"><b>${fmtTL(fobTL + masTL)}</b></td></tr></tfoot>` : ''}
+        <td class="r" data-l="Birim maliyet">${m?.dahil ? `<span class="muted">${fmtTL(m.birim_maliyet)}</span><div class="tiny">ayrı stok maliyeti yok</div>` : m && m.birim_maliyet !== null ? `<div class="tiny">KDV hariç</div><b>${fmtTL(m.birim_maliyet)}</b><div class="tiny">FOB ${fmtTL(num(m.fob_tl) / num(k.miktar))}${num(k.vergi_tl) ? ` + vergi ${fmtTL(num(k.vergi_tl) / num(k.miktar))}` : ''} + masraf ${fmtTL((num(m.masraf_tl) - num(k.vergi_tl)) / num(k.miktar))}${num(m.dahil_ek_tl) ? ` + ${esc(kal.filter((x) => malBy[x.id]?.dahil && x.dahil_urun_id === k.urun_id).map((x) => x.urunler?.ad).join(', '))} ${fmtTL(num(m.dahil_ek_tl) / num(k.miktar))}` : ''}</div>${kdvB > 0 ? `<div class="kdv-dahil">+ indirilebilir KDV ${fmtTL(kdvB)} → KDV dahil <b>${fmtTL(num(m.birim_maliyet) + kdvB)}</b></div>` : ''}` : '<span class="tiny">kur yok</span>'}</td></tr>`; }).join('')}</tbody>
+      ${mal.length && kur ? `<tfoot><tr><td class="w">Toplam maliyet <span class="tiny">KDV hariç</span></td><td></td><td></td><td class="r" data-l="FOB ₺">${fmtTL(fobTL)}</td><td></td><td class="r" data-l="Masraf ₺">+ ${fmtTL(masTL)}</td><td class="r" data-l="Toplam ₺"><b>${fmtTL(fobTL + masTL)}</b></td></tr>${kdvTop > 0 ? `<tr><td class="w">İndirilebilir KDV <span class="tiny">gümrükte ödenir, beyannamede geri alınır</span></td><td></td><td></td><td></td><td></td><td></td><td class="r" data-l="İndirilebilir KDV">+ ${fmtTL(kdvTop)}</td></tr><tr><td class="w"><b>KDV dahil toplam nakit</b></td><td></td><td></td><td></td><td></td><td></td><td class="r" data-l="KDV dahil"><b>${fmtTL(fobTL + masTL + kdvTop)}</b></td></tr>` : ''}</tfoot>` : ''}
     </table></div></div>
-    <p class="tiny" style="margin:0 4px 10px">Birim maliyet = fabrika fiyatı × kur + gümrük vergisi (GV + İGV + indirilemeyen KDV) + “maliyete dahil” masrafların payı. ${teslim ? 'Depo girişi bu maliyetle yapıldı; masraf ya da kur değişirse stoktaki maliyet de otomatik güncellenir.' : 'Teslim alındığında ürünler bu maliyetle depo stoğuna girer.'}</p>
+    <p class="tiny" style="margin:0 4px 10px"><b>Birim maliyet KDV hariçtir</b> (stoğa ve kâr hesabına bu girer). “KDV dahil” satırı gümrükte cebinizden çıkan parayı gösterir; aradaki indirilebilir KDV beyannamede geri alındığı için maliyet sayılmaz. Birim maliyet = fabrika fiyatı × kur + gümrük vergisi (GV + İGV + indirilemeyen KDV) + “maliyete dahil” masrafların payı. ${teslim ? 'Depo girişi bu maliyetle yapıldı; masraf ya da kur değişirse stoktaki maliyet de otomatik güncellenir.' : 'Teslim alındığında ürünler bu maliyetle depo stoğuna girer.'}</p>
     <div class="section-title">Müşteri siparişleri ${!iptal ? `<span style="display:flex;gap:14px"><a href="#" id="ms-bagla">Mevcut siparişi bağla</a><a href="#/siparis/yeni?cin=${c.id}">+ Yeni müşteri siparişi</a></span>` : ''}</div>
     <div class="list" id="ms-lst">${msip.length ? msip.map((s) => siparisRow(s, teslim)).join('') : '<div class="empty">Bu ithalat siparişine bağlı müşteri siparişi yok</div>'}</div>
     <div class="section-title">Fabrika ödemeleri ${!iptal ? '<a href="#" id="pf-add">+ Taksit / plan</a>' : ''}</div>
@@ -4021,7 +4025,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.51';
+const APP_V = '1.52';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

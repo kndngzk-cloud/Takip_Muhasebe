@@ -400,3 +400,5 @@ details.gum[open] summary { margin-bottom: 10px; }
 .rapor-k.on { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand) inset; }
 @media (prefers-color-scheme: dark) { .rapor-k.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; } }
 @media (max-width: 600px) { .rapor-sec { grid-template-columns: 1fr 1fr; } .rapor-k span { display: none; } }
+.kdv-dahil { margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--text-2); }
+.kdv-dahil b { color: var(--text); }
