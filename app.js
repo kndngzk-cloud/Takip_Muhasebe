@@ -1113,7 +1113,7 @@ function hareketTable(har, showUrun) {
       <td class="r" ${h.tur === 'Giriş' ? 'data-l="Maliyet"' : ''}>${h.tur === 'Giriş'
         ? (isAdmin() ? `<input class="input mal-in" data-id="${h.id}" inputmode="decimal" style="width:110px;padding:6px 8px;text-align:right;font-size:14px" placeholder="girin" value="${h.birim_maliyet !== null ? fmtN(h.birim_maliyet) : ''}">` : (h.birim_maliyet !== null ? fmtTL(h.birim_maliyet) : '–'))
         : ''}${h.para_birimi && h.para_birimi !== 'TRY' && h.doviz_maliyet !== null ? `<div class="tiny">${fmtPB(h.doviz_maliyet, h.para_birimi)} × ${fmtN(h.kur)}</div>` : ''}</td>
-      <td class="small w">${h.siparisler ? `<a href="#/siparis/${h.siparis_id}">Fiş ${h.siparisler.fis_no}</a> · ${esc(h.siparisler.cariler?.unvan || '')}` : esc([h.tedarikci, h.belge_no, h.aciklama].filter(Boolean).join(' · ') || '')}</td>
+      <td class="small w">${h.siparisler && h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">Fiş ${h.siparisler.fis_no}</a> · ${esc(h.siparisler.cariler?.unvan || '')}` : esc([h.tedarikci, h.belge_no, h.aciklama].filter(Boolean).join(' · ') || '')}</td>
       ${isAdmin() ? `<td class="push">${!h.siparis_id && !h.cin_kalem_id ? `<button class="icon-btn h-del" data-id="${h.id}" title="Sil">${icon('trash')}</button>` : ''}</td>` : ''}
     </tr>`).join('')}</tbody></table></div>`;
 }
@@ -2344,7 +2344,7 @@ async function entegrasyonKart() {
   let ent, alan;
   try { [ent, alan] = await Promise.all([api.get('entegrasyonlar', 'select=platform,aktif,son_calisma,son_durum,son_adet&order=platform'), api.rpc('entegrasyon_alanlar')]); }
   catch (e) { el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2><p class="tiny" style="color:var(--red)">${esc(e.message)}</p>`; return; }
-  const dolu = Object.fromEntries((alan || []).map((a) => [a.platform, new Set(a.alanlar || [])]));
+  const dolu = Object.fromEntries((Array.isArray(alan) ? alan : []).map((a) => [a.platform, new Set(a.alanlar || [])]));
   const sira = ['PayTR', 'PayTR 2', 'Trendyol', 'Hepsiburada', 'Koçtaş', 'N11'];
   const ENT_AD = { PayTR: 'PayTR · 1. hesap', 'PayTR 2': 'PayTR · 2. hesap' };
   el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2>
