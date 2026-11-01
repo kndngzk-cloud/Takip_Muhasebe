@@ -3298,7 +3298,8 @@ async function viewCinForm(id) {
   if (lines.some((l) => l.kaynak)) { try { const ks = await api.get('cin_kalemler', `select=id,devreden,cin_siparisler(no,kod)&id=in.(${lines.filter((l) => l.kaynak).map((l) => l.kaynak).join(',')})`); lines.forEach((l) => { const k = ks.find((x) => x.id === l.kaynak); if (k) { l.kaynakAd = cinNo(k.cin_siparisler?.no, k.cin_siparisler?.kod); l.kaynakMax = num(k.devreden); } }); } catch {} }
   lines.push(bos());
   // bu kalemin dahil edilebilecegi urunler: siparisteki diger, kendisi dahil olmayan urunler (adetleriyle)
-  const dahilAday = (l) => { const m = new Map(); lines.filter((o) => o !== l && o.urun && o.urun.id !== l.urun?.id && !o.dahil && !!o.kaynak === !!l.kaynak).forEach((o) => { const x = m.get(o.urun.id) || { id: o.urun.id, ad: o.urun.ad, adet: 0 }; x.adet += num(o.miktar) - num(o.devreden || 0); m.set(o.urun.id, x); }); return [...m.values()]; };
+  const dahilAday = (l) => { const m = new Map(); const baskasi = new Set(lines.filter((o) => o !== l && o.dahil && !!o.kaynak === !!l.kaynak).flatMap((o) => o.dahil)); // baska dahil satirinda secilenler burada gorunmez
+    lines.filter((o) => o !== l && o.urun && o.urun.id !== l.urun?.id && !o.dahil && !!o.kaynak === !!l.kaynak && !baskasi.has(o.urun.id)).forEach((o) => { const x = m.get(o.urun.id) || { id: o.urun.id, ad: o.urun.ad, adet: 0 }; x.adet += num(o.miktar) - num(o.devreden || 0); m.set(o.urun.id, x); }); return [...m.values()]; };
   const d = (k) => (c && c[k]) || '';
   $('#view').innerHTML = `
     <div class="card">
@@ -3346,6 +3347,8 @@ async function viewCinForm(id) {
     $('#c-tot').innerHTML = `<div class="tr"><span class="muted">Toplam miktar</span><span>${fmtN(m)}</span></div>${kal2 ? `<div class="tr"><span class="muted">Konteynere sığmayıp sonraki sevkiyata kalan</span><span>${fmtN(kal2)}</span></div>` : ''}${dv ? `<div class="tr"><span class="muted">Önceki siparişlerden devreden (parası ödenmiş)</span><span>${fmtN(dv)}</span></div>` : ''}<div class="tr big"><span>Sipariş toplamı <span class="tiny">fabrikaya ödenecek</span></span><span>${fmtPB(t, f.pb)}</span></div>`;
   };
   const draw = (focusIdx = null) => {
+    // ayni urun iki dahil satirinda secilmisse ilk satirda kalir (bir eviyeye iki sifon eklenmesin)
+    const sahip = {}; lines.forEach((l) => { if (!l.dahil) return; const g = l.kaynak ? 'd' : 'y'; sahip[g] ||= new Set(); l.dahil = l.dahil.filter((id) => !sahip[g].has(id)); l.dahil.forEach((id) => sahip[g].add(id)); });
     $('#c-lines').innerHTML = lines.map((l, i) => `<div class="line" data-i="${i}">
         <div class="picker" style="display:flex;gap:6px"><input class="input c-urun" placeholder="${i + 1}. ürün ara…" value="${esc(l.urun?.ad || '')}" autocomplete="off" ${l.kaynak ? 'readonly' : ''}><button class="icon-btn c-del" title="Kaldır">${icon('trash')}</button></div>
         ${l.kaynak ? `<span class="badge b-blue" style="margin-top:6px">Devreden · ${esc(l.kaynakAd || 'önceki sipariş')} · parası ödendi, fabrika toplamına girmez</span>` : ''}
@@ -4634,7 +4637,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.73';
+const APP_V = '1.74';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
