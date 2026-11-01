@@ -4073,7 +4073,12 @@ async function nakitForm(n = null, tur0 = 'Çek') {
         };
         try {
           await busy(btn, async () => {
-            if (n) { await api.update('nakit_girisleri', `id=eq.${n.id}`, row); return; }
+            if (n) {
+              await api.update('nakit_girisleri', `id=eq.${n.id}`, row);
+              // cariye islenmis tahsilat varsa tutar / tarih / kur / belge onunla birlikte guncellenir
+              if (n.cari_hareket_id && !plat()) await api.update('cari_hareketler', `id=eq.${n.cari_hareket_id}`, { tarih: row.alis_tarihi, alacak: Math.round(t * d.kur * 100) / 100, para_birimi: d.pb, kur: d.kur, doviz_tutar: d.pb === 'TRY' ? null : t, belge_no: [tur, row.belge_no].filter(Boolean).join(' ') || null });
+              return;
+            }
             const [r] = await api.insert('nakit_girisleri', [row]);
             if (isle) {
               const tlT = Math.round(t * d.kur * 100) / 100;
@@ -4089,8 +4094,8 @@ async function nakitForm(n = null, tur0 = 'Çek') {
       E('#nk-ok2')?.addEventListener('click', (e) => kaydet(e.currentTarget, true));
       $$('[data-dz]', m.el).forEach((b) => b.onclick = () => { m.close(); nakitDurum(n, b.dataset.dz); });
       E('#nk-del')?.addEventListener('click', async () => {
-        if (!await confirmBox('Silinsin mi?', n.cari_hareket_id ? 'Kayıt silinecek. Cariye işlenmiş tahsilat kaydı yerinde kalır; gerekirse cari ekstresinden silin.' : 'Kayıt silinecek.', 'Sil', true)) return;
-        try { await api.del('nakit_girisleri', `id=eq.${n.id}`); toast('Silindi', 'ok'); render(); } catch (err) { fail(err); }
+        if (!await confirmBox('Silinsin mi?', n.cari_hareket_id ? 'Kayıt ve cariye işlenmiş tahsilatı birlikte silinecek (cari bakiyesi buna göre düzelir).' : 'Kayıt silinecek.', 'Sil', true)) return;
+        try { await api.del('nakit_girisleri', `id=eq.${n.id}`); if (n.cari_hareket_id) { await api.del('cari_hareketler', `id=eq.${n.cari_hareket_id}`); cache.dirty('cariler'); } toast('Silindi', 'ok'); render(); } catch (err) { fail(err); }
       });
     }
   });
@@ -4138,7 +4143,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.58';
+const APP_V = '1.59';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
