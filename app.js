@@ -1677,14 +1677,14 @@ function taksitBind(root, id, getCari, getTL) {
     box.style.display = '';
     let kalan = getTL() || 0;
     const dag = liste.map((p) => { const a = secili.has(p.id) ? Math.max(0, Math.min(kalan, num(p.tutar_hesap))) : 0; kalan -= a; return { p, a }; });
-    box.innerHTML = `<div class="tiny" style="margin-bottom:6px"><b>Bu müşterinin açık taksitleri</b> · tahsilat işaretlilere vade sırasıyla sayılır; yetmeyen kısım taksitte açık kalır.</div>`
+    box.innerHTML = `<div class="tiny" style="margin-bottom:6px"><b>Hangi ödeme planından düşülsün?</b> · Seçtiklerine vade sırasıyla sayılır, yetmeyen kısım açık kalır. Hiçbirini seçmezsen tahsilat sadece cari bakiyeden düşer.</div>`
       + dag.map(({ p, a }) => `<label class="check" style="margin:0 0 4px"><input type="checkbox" class="tk-c" value="${p.id}" ${secili.has(p.id) ? 'checked' : ''}> ${p.fis_no ? `Fiş ${p.fis_no} · ` : ''}${esc(p.aciklama || 'Taksit')} · vade ${p.vade ? fmtD(p.vade) : '—'} · <b>${fmtTL(p.tutar_hesap)}</b>${a > 0 ? ` <span class="badge b-green">${a >= num(p.tutar_hesap) - 0.01 ? 'kapanır' : fmtTL(a) + ' sayılır'}</span>` : ''}</label>`).join('')
-      + (kalan > 0.01 && secili.size ? `<div class="tiny">${fmtTL(kalan)} hiçbir taksite sayılmadan cari bakiyeden düşer.</div>` : '');
+      + (!secili.size ? `<div class="tiny muted">Hiçbir ödeme planı seçilmedi.</div>` : '') + (kalan > 0.01 && secili.size ? `<div class="tiny">${fmtTL(kalan)} hiçbir taksite sayılmadan cari bakiyeden düşer.</div>` : '');
     $$('.tk-c', box).forEach((cb) => { cb.onchange = () => { if (cb.checked) secili.add(+cb.value); else secili.delete(+cb.value); ciz(); }; });
   };
   return {
     ciz,
-    async yukle() { const c = getCari(); liste = c ? await api.get('v_odeme_takvimi', `select=*&yon=eq.Tahsilat&kategori=eq.${encodeURIComponent('Müşteri')}&odendi=is.false&cari_id=eq.${c.id}&order=vade.asc.nullslast,id.asc`).catch(() => []) : []; secili = new Set(liste.map((p) => p.id)); ciz(); },
+    async yukle() { const c = getCari(); liste = c ? await api.get('v_odeme_takvimi', `select=*&yon=eq.Tahsilat&kategori=eq.${encodeURIComponent('Müşteri')}&odendi=is.false&cari_id=eq.${c.id}&order=vade.asc.nullslast,id.asc`).catch(() => []) : []; secili = new Set(); ciz(); },
     async uygula(hareketId, tarih, sekli) {
       let kalan = getTL() || 0;
       for (const p of liste) { if (!secili.has(p.id) || kalan <= 0.01) continue; const a = Math.min(kalan, num(p.tutar_hesap)); await api.rpc('taksit_tahsil', { p_plan_id: p.id, p_tutar: Math.round(a * 100) / 100, p_hareket_id: hareketId, p_tarih: tarih, p_sekli: sekli }); kalan -= a; }
@@ -4284,7 +4284,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.60';
+const APP_V = '1.61';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
