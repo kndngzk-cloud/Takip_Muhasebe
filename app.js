@@ -359,7 +359,7 @@ async function render() {
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
-const go = (h) => { if (location.hash === h) render(); else location.hash = h; };
+const go = (h, yerine = false) => { if (location.hash === h) render(); else if (yerine) { history.replaceState(null, '', h); render(); } else location.hash = h; };
 
 /* ------------------------------------------------------------------ */
 /* GIRIS                                                               */
@@ -445,7 +445,7 @@ async function viewHome() {
     <div class="section-title">Yoldaki ithalat siparişleri <a href="#/cin">Tümü</a></div>
     <div class="list">${cinAktif.length ? cinAktif.map(cinRow).join('') : '<div class="empty">Aktif ithalat siparişi yok</div>'}</div>`;
   bindRows();
-  $('#h-pl') && $$('[data-pl]', $('#h-pl')).forEach((el) => el.addEventListener('click', () => plDetay(plSon.find((x) => x.id === +el.dataset.pl))));
+  $('#h-pl') && $$('[data-pl]', $('#h-pl')).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; plDetay(plSon.find((x) => x.id === +el.dataset.pl)); }));
   bindPlanRows($('#h-plan'), plan14, null);
   bindNakitRows($('#h-plan'), nakit14);
   $('#tum-alacak').onclick = (e) => { e.preventDefault(); state.ui.cari = { f: 'Bakiyesi olan', q: '', sirala: 'bakiye' }; go('#/cariler'); };
@@ -599,7 +599,7 @@ async function viewSiparisDetay(id) {
     ${pls.map((p) => platformKart(p)).join('')}
     <div class="list"><div class="table-wrap"><table class="tbl">
       <thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim fiyat</th><th class="r">Tutar</th></tr></thead>
-      <tbody>${kal.map((k) => `<tr><td>${esc(k.urunler?.ad)}<div class="tiny">${esc(k.urunler?.kod)}</div></td><td class="r">${fmtN(k.miktar)} ${esc(k.urunler?.birim || '')}</td><td class="r">${fmtTL(k.birim_fiyat)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(k.doviz_fiyat, s.para_birimi)}</div>` : ''}</td><td class="r">${fmtTL(k.tutar)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(num(k.doviz_fiyat) * num(k.miktar), s.para_birimi)}</div>` : ''}</td></tr>`).join('')}</tbody>
+      <tbody>${kal.map((k) => `<tr><td><a href="#/urun/${k.urun_id}">${esc(k.urunler?.ad)}</a><div class="tiny">${esc(k.urunler?.kod)}</div></td><td class="r">${fmtN(k.miktar)} ${esc(k.urunler?.birim || '')}</td><td class="r">${fmtTL(k.birim_fiyat)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(k.doviz_fiyat, s.para_birimi)}</div>` : ''}</td><td class="r">${fmtTL(k.tutar)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(num(k.doviz_fiyat) * num(k.miktar), s.para_birimi)}</div>` : ''}</td></tr>`).join('')}</tbody>
       <tfoot>
         <tr><td colspan="3" class="r">Ara toplam</td><td class="r">${fmtTL(s.ara_toplam)}</td></tr>
         ${s.fatura_tipi === 'R' ? `<tr><td colspan="3" class="r">KDV (%${fmtN(num(s.kdv_orani) * 100)})</td><td class="r">${fmtTL(s.kdv_tutari)}</td></tr>` : ''}
@@ -622,11 +622,12 @@ async function viewSiparisDetay(id) {
   $('#cin-kaldir')?.addEventListener('click', async (e) => {
     e.preventDefault();
     if (!await confirmBox('Bağlantı kaldırılsın mı?', `Fiş ${s.fis_no}, ${cinNo(s.cin_no, s.cin_kod)} ithalat siparişinden ayrılacak. Sipariş ve cari kaydı değişmez.`, 'Kaldır')) return;
-    try { await api.update('siparisler', `id=eq.${s.id}`, { cin_siparis_id: null }); toast('Bağlantı kaldırıldı', 'ok'); render(); } catch (err) { fail(err); }
+    try { await api.update('siparisler', `id=eq.${s.id}`, { cin_siparis_id: null }); cache.dirty('urunler'); toast('Bağlantı kaldırıldı', 'ok'); render(); } catch (err) { fail(err); }
   });
   const tpCtx = { yon: 'Tahsilat', kategori: 'Müşteri', siparis_id: s.id, pb: 'TRY', toplam: num(s.genel_toplam), tetikler: s.cin_siparis_id ? ['Sipariş', 'Üretim Bitti', 'Yüklendi', 'Limanda', 'Teslim Alındı', 'Sevk', 'Tarih'] : ['Sipariş', 'Sevk', 'Tarih'] };
+  const sq = renderSeq;
   api.get('v_odeme_takvimi', `select=*&siparis_id=eq.${s.id}&order=sira.asc,id.asc`).then((tp) => {
-    if (!$('#tp-lst')) return;
+    if (sq !== renderSeq || !$('#tp-lst')) return;
     tpCtx.sira = tp.length;
     $('#tp-lst').innerHTML = tp.length ? tp.map((p) => planRow(p)).join('') + planOzet(tp, 'TRY', num(s.genel_toplam)) : '<div class="empty">Tahsilat planı yok. Vadeli satışlarda taksitleri buradan girin.</div>';
     bindPlanRows($('#tp-lst'), tp, tpCtx);
@@ -648,7 +649,7 @@ async function viewSiparisDetay(id) {
   };
   if (s.durum === 'Sevk Edildi') {
     api.rpc('kar_raporu', { p_baslangic: null, p_bitis: null, p_yontem: null }).then((rows) => {
-      const r = rows.filter((x) => x.siparis_id === s.id); if (!r.length || !$('#kar-kart')) return;
+      const r = rows.filter((x) => x.siparis_id === s.id); if (sq !== renderSeq || !r.length || !$('#kar-kart')) return;
       const sat = r.reduce((a, x) => a + num(x.satis_tutari), 0), mal = r.reduce((a, x) => a + num(x.maliyet), 0), ek = r.reduce((a, x) => a + num(x.maliyetsiz_miktar), 0);
       $('#kar-kart').innerHTML = `<div class="card"><h2>Kâr (${esc(s.maliyet_yontemi)})</h2><div class="stats">
         <div class="stat"><div class="l">Satış</div><div class="v">${fmtTL(sat)}</div></div>
@@ -1004,7 +1005,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
       });
       cache.dirty('urunler', 'cariler');
       toast(`Fiş ${r.fis_no} ${editId ? 'güncellendi' : 'kaydedildi'} · ${fmtTL(r.genel_toplam)}${eksik.length ? ` · ${eksik.length} üründe stok yetersiz, tedarik edilince sevk edin` : ''}`, 'ok');
-      go(`#/siparis/${r.id}`);
+      go(`#/siparis/${r.id}`, true);
     } catch (err) { fail(err); }
   };
 }
@@ -1060,7 +1061,7 @@ async function viewUrunDetay(id) {
   topbar('Ürün', { back: true });
   const [[u], har] = await Promise.all([
     api.get('v_stok', `select=*&id=eq.${id}`),
-    api.get('stok_hareketleri', `select=*,siparisler(fis_no,cariler(unvan))&urun_id=eq.${id}&order=tarih.desc,id.desc&limit=1000`)
+    api.get('stok_hareketleri', `select=*,siparisler(fis_no,cari_id,cariler(unvan)),cin_kalemler(cin_siparis_id,cin_siparisler(no,kod))&urun_id=eq.${id}&order=tarih.desc,id.desc&limit=1000`)
   ]);
   if (!u) { $('#view').innerHTML = '<div class="card empty">Ürün bulunamadı</div>'; return; }
   topbar(u.ad, { back: true, actions: `<button class="tb-btn" id="ed">${icon('edit')}Düzenle</button>` });
@@ -1092,7 +1093,7 @@ async function viewUrunDetay(id) {
   $('#b-dz').onclick = () => stokDuzelt(u);
   $('#b-usil')?.addEventListener('click', async () => {
     if (!await confirmBox(`${esc(u.ad)} silinsin mi?`, 'Ürün kartı ve müşteri fiyatları silinir. Hareketi (alış, sipariş, ithalat) olan ürünler silinemez; onlar pasif yapılabilir.', 'Sil', true)) return;
-    try { await api.del('urunler', `id=eq.${u.id}`); cache.dirty('urunler'); toast(`${u.ad} silindi`, 'ok'); go('#/stok'); }
+    try { await api.del('urunler', `id=eq.${u.id}`); cache.dirty('urunler'); toast(`${u.ad} silindi`, 'ok'); go('#/stok', true); }
     catch (e) {
       if (!/kullanıldığı/.test(e.message)) return fail(e);
       if (!await confirmBox('Bu ürün silinemiyor', `${esc(u.ad)} ürününün stok hareketleri, siparişleri ya da ithalat kayıtları var; silinirse geçmiş kayıtlar bozulur. Bunun yerine <b>pasif</b> yapılsın mı? Pasif ürünler listelerde ve seçimlerde görünmez, geçmiş kayıtlar korunur.`, 'Pasif yap')) return;
@@ -1113,7 +1114,7 @@ function hareketTable(har, showUrun) {
       <td class="r" ${h.tur === 'Giriş' ? 'data-l="Maliyet"' : ''}>${h.tur === 'Giriş'
         ? (isAdmin() ? `<input class="input mal-in" data-id="${h.id}" inputmode="decimal" style="width:110px;padding:6px 8px;text-align:right;font-size:14px" placeholder="girin" value="${h.birim_maliyet !== null ? fmtN(h.birim_maliyet) : ''}">` : (h.birim_maliyet !== null ? fmtTL(h.birim_maliyet) : '–'))
         : ''}${h.para_birimi && h.para_birimi !== 'TRY' && h.doviz_maliyet !== null ? `<div class="tiny">${fmtPB(h.doviz_maliyet, h.para_birimi)} × ${fmtN(h.kur)}</div>` : ''}</td>
-      <td class="small w">${h.siparisler && h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">Fiş ${h.siparisler.fis_no}</a> · ${esc(h.siparisler.cariler?.unvan || '')}` : esc([h.tedarikci, h.belge_no, h.aciklama].filter(Boolean).join(' · ') || '')}</td>
+      <td class="small w">${h.siparisler && h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">Fiş ${h.siparisler.fis_no}</a> · ${h.siparisler.cari_id ? `<a href="#/cari/${h.siparisler.cari_id}">${esc(h.siparisler.cariler?.unvan || '')}</a>` : esc(h.siparisler.cariler?.unvan || '')}` : h.cin_kalemler?.cin_siparis_id ? `<a href="#/cin/${h.cin_kalemler.cin_siparis_id}">İthalat ${esc(cinNo(h.cin_kalemler.cin_siparisler?.no, h.cin_kalemler.cin_siparisler?.kod))}</a>${h.aciklama ? ' · ' + esc(h.aciklama) : ''}` : esc([h.tedarikci, h.belge_no, h.aciklama].filter(Boolean).join(' · ') || '')}</td>
       ${isAdmin() ? `<td class="push">${!h.siparis_id && !h.cin_kalem_id ? `<button class="icon-btn h-del" data-id="${h.id}" title="Sil">${icon('trash')}</button>` : ''}</td>` : ''}
     </tr>`).join('')}</tbody></table></div>`;
 }
@@ -1133,7 +1134,7 @@ function bindHareketEdit() {
 async function viewStokHareketleri() {
   topbar('Stok Hareketleri', { back: true, actions: `<button class="tb-btn" data-fn="malAlisi">${icon('inbox')}Mal alışı</button>` });
   const ui = state.ui.har ||= { f: 'Tümü', q: '' };
-  const data = await api.get('stok_hareketleri', 'select=*,urunler(ad,kod),siparisler(fis_no,cariler(unvan))&order=tarih.desc,id.desc&limit=3000');
+  const data = await api.get('stok_hareketleri', 'select=*,urunler(ad,kod),siparisler(fis_no,cari_id,cariler(unvan)),cin_kalemler(cin_siparis_id,cin_siparisler(no,kod))&order=tarih.desc,id.desc&limit=3000');
   $('#view').innerHTML = `
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Ürün, fiş, tedarikçi ara…" value="${esc(ui.q)}"></div></div>
     <div class="chips" id="c1">${['Tümü', 'Girişler', 'R alışlar', 'GR alışlar', 'Maliyeti eksik', 'Sevkler', 'Sayım / fire'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}</div>
@@ -1307,7 +1308,7 @@ async function viewMalAlisi(urunId) {
       });
       cache.dirty('urunler', 'cariler');
       toast(`${tip} alış fişi kaydedildi · ${dolu.length} kalem${borcYaz ? (odemeTur === 'vadeli' ? ` · ${fmtTL(topTL)} borç ödeme takvimine eklendi` : ' · peşin ödeme işlendi') : ''}`, 'ok');
-      go('#/stok/hareketler');
+      go('#/stok/hareketler', true);
     } catch (err) { fail(err); }
   };
 }
@@ -1980,7 +1981,7 @@ async function raporSatis(el, ui) {
       </div>
       ${rTablo('Satış kanalları', ['Kanal', 'Sipariş', 'Tutar (KDV dahil)', 'Pay'], kn.map((x) => [`<b>${esc(x.k)}</b>`, fmtN(x.n), fmtTL(x.t), yuzde(x.t, top)]))}
       ${rTablo('En çok satan ürünler', ['Ürün', 'Adet', 'Sipariş', 'Tutar (KDV hariç)', 'Ort. fiyat'], Object.values(U).sort((a, b) => b.adet - a.adet).slice(0, 25).map((u) => [`<b>${esc(u.ad)}</b> <span class="tiny">${esc(u.kod || '')}</span>`, fmtN(u.adet), fmtN(u.n.size), fmtTL(u.t), fmtTL(u.adet ? u.t / u.adet : 0)]))}
-      ${rTablo('En çok alım yapan müşteriler', ['Müşteri', 'Sipariş', 'Tutar (KDV dahil)', 'Pay'], grp((s) => s.cari_unvan).slice(0, 20).map((x) => { const c = f.find((s) => s.cari_unvan === x.k); return [`<a href="#/cari/${c?.cari_id}"><b>${esc(x.k)}</b></a> <span class="tiny">${esc(c?.cari_tip || '')}</span>`, fmtN(x.n), fmtTL(x.t), yuzde(x.t, top)]; }))}
+      ${rTablo('En çok alım yapan müşteriler', ['Müşteri', 'Sipariş', 'Tutar (KDV dahil)', 'Pay'], grp((s) => s.cari_id).slice(0, 20).map((x) => { const c = f.find((s) => String(s.cari_id) === String(x.k)); return [`${c?.cari_id ? `<a href="#/cari/${c.cari_id}"><b>${esc(c.cari_unvan || '—')}</b></a>` : '<b>—</b>'} <span class="tiny">${esc(c?.cari_tip || '')}</span>`, fmtN(x.n), fmtTL(x.t), yuzde(x.t, top)]; }))}
       ${rTablo('Şehirler', ['Şehir', 'Sipariş', 'Tutar (KDV dahil)', 'Pay'], grp((s) => (s.sevk_sehri || '').toLocaleUpperCase('tr')).slice(0, 20).map((x) => [`<b>${esc(x.k)}</b>`, fmtN(x.n), fmtTL(x.t), yuzde(x.t, top)]))}
       ${rTablo('Gönderim şekli', ['Gönderim', 'Sipariş', 'Tutar (KDV dahil)'], grp((s) => s.gonderim_sekli).map((x) => [`<b>${esc(x.k)}</b>`, fmtN(x.n), fmtTL(x.t)]))}
       ${rTablo('Aylık satış (tüm zamanlar)', ['Ay', 'Sipariş', 'R (KDV hariç)', 'GR', 'Platform (KDV dahil)', 'Toplam (KDV dahil)'], Object.keys(ay).sort().reverse().map((k) => [`<b>${AY[+k.slice(5) - 1]} ${k.slice(0, 4)}</b>`, fmtN(ay[k].n), fmtTL(ay[k].r), fmtTL(ay[k].gr), fmtTL(ay[k].p), `<b>${fmtTL(ay[k].top)}</b>`]), null, 'İptal edilen siparişler hariç, sipariş tarihine göre. Platform siparişlerinde tutar komisyon ve kargo düşülmüş net tutardır.')}`;
@@ -2479,7 +2480,7 @@ const siparisTabs = (k, n = 0) => `<div class="chips" style="margin-bottom:10px"
 
 const plRow = (p) => `<div class="row" data-pl="${p.id}">
         <div class="main-col"><div class="t">${esc(p.musteri || '–')}</div>
-          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${plIadeBadge(p)}${!p.sevk_tarihi && p.durum !== 'İptal' && p.durum !== 'Eski' ? sonKargoBadge(p.son_kargo) : ''}${p.fis_no ? ` <span class="tiny">Fiş ${p.fis_no}</span>` : ''}</div>
+          <div class="st">${plBadge(p.platform)} <span class="num">${esc(p.siparis_no)}</span> · ${fmtD(p.tarih)} ${plDurumBadge(p)}${plIadeBadge(p)}${!p.sevk_tarihi && p.durum !== 'İptal' && p.durum !== 'Eski' ? sonKargoBadge(p.son_kargo) : ''}${p.fis_no && p.siparis_id ? ` <a class="tiny" href="#/siparis/${p.siparis_id}">Fiş ${p.fis_no}</a>` : ''}</div>
           <div class="tiny" style="margin-top:3px">${esc((p.satirlar || []).map((s) => `${s.miktar > 1 ? s.miktar + ' × ' : ''}${s.ad}`).join(', ').slice(0, 90))}</div>
           <div class="tiny" style="margin-top:2px"><span class="ic-s">${icon('truck')}</span> ${esc(p.kargo_firma || '')} ${p.kargo_takip ? `<span class="num">${esc(p.kargo_takip)}</span> · ` : ''}${esc(plKargoDurum(p))}</div>
           ${p.hata && p.durum !== 'Aktarıldı' ? `<div class="tiny" style="color:var(--red);margin-top:2px">${esc(p.hata)}</div>` : ''}</div>
@@ -2506,7 +2507,7 @@ async function viewPlatformSiparisler() {
       && (!q || norm(`${p.musteri || ''} ${p.siparis_no} ${p.kargo_takip || ''} ${p.sehir || ''} ${p.fis_no ? 'fis ' + p.fis_no : ''} ${(p.satirlar || []).map((s) => s.ad + ' ' + s.kod).join(' ')}`).includes(q)));
     $('#sum').innerHTML = `${f.length} sipariş${sorun ? ` · <b style="color:var(--red)">${sorun} sipariş sizden ürün seçimi / kontrol bekliyor</b>` : ''}`;
     $('#lst').innerHTML = f.length ? f.slice(0, 400).map(plRow).join('') : `<div class="empty">${data.length ? 'Kayıt bulunamadı' : 'Henüz platform siparişi çekilmedi.'}</div>`;
-    $$('[data-pl]', $('#lst')).forEach((el) => el.addEventListener('click', () => plDetay(data.find((x) => x.id === +el.dataset.pl), data)));
+    $$('[data-pl]', $('#lst')).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; plDetay(data.find((x) => x.id === +el.dataset.pl), data); }));
   };
   $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
   $('#pl-c').onclick = (e) => {
@@ -2630,7 +2631,7 @@ async function viewPaytr() {
       <div class="main-col">
         <div class="t"><span class="num">${iade ? '−' : ''}${fmtTL(p.islem_tutari)}</span> ${iade ? '<span class="badge b-orange">İade</span>' : ''} ${num(p.taksit) > 1 ? `<span class="badge b-blue">${p.taksit} taksit</span>` : ''}</div>
         <div class="st">${[ptSaat(p), p.kart_marka, p.kart_no, p.siparis_no ? `Sipariş ${esc(p.siparis_no)}` : '', hesaplar.length > 1 ? ptHesap(p.hesap) : ''].filter(Boolean).map(esc).join(' · ')}</div>
-        ${ok ? `<div class="pt-es">✓ ${p.durum === 'Perakende' ? '<b>Perakende</b>' : `<b>${esc(p.cari_unvan || 'Cari')}</b> · ${p.fatura_tipi}`} · Makbuz #${p.makbuz_no}</div>` : ''}
+        ${ok ? `<div class="pt-es">✓ ${p.durum === 'Perakende' ? '<b>Perakende</b>' : `${p.cari_id ? `<a href="#/cari/${p.cari_id}"><b>${esc(p.cari_unvan || 'Cari')}</b></a>` : `<b>${esc(p.cari_unvan || 'Cari')}</b>`} · ${p.fatura_tipi}`} · Makbuz #${p.makbuz_no}</div>` : ''}
       </div>
       <div class="pt-act">${ok
         ? `<button class="btn sm" data-mk="${p.id}">${icon('download')}Makbuz</button>${isAdmin() ? `<button class="btn sm" data-ga="${p.id}">Geri al</button>` : ''}`
@@ -2955,9 +2956,13 @@ function cinRow(c) {
 /* ---------- Odeme plani satirlari (fabrika, vergi/masraf, musteri) ---------- */
 function planRow(p, { baslik = false } = {}) {
   const gec = !p.odendi && p.vade && p.vade < today();
-  const kim = p.kategori === 'Müşteri' ? `${esc(p.cari_unvan || 'Müşteri')}${p.fis_no ? ` · Fiş ${p.fis_no}` : ''}`
-    : p.kategori === 'Fabrika' ? `${esc(p.fabrika_ad || 'Fabrika')}${p.cin_no ? ` · ${cinNo(p.cin_no, p.cin_kod)}` : ''}`
-      : `${esc(p.kategori)}${p.cin_no ? ` · ${cinNo(p.cin_no, p.cin_kod)}` : ''}`;
+  const cariA = p.cari_id ? `<a href="#/cari/${p.cari_id}">${esc(p.cari_unvan || p.kategori)}</a>` : esc(p.cari_unvan || p.kategori);
+  const fisA = p.fis_no && p.siparis_id ? ` · <a href="#/siparis/${p.siparis_id}">Fiş ${p.fis_no}</a>` : p.fis_no ? ` · Fiş ${p.fis_no}` : '';
+  const cinA = p.cin_no ? ` · ${p.cin_id || p.cin_siparis_id ? `<a href="#/cin/${p.cin_id || p.cin_siparis_id}">${cinNo(p.cin_no, p.cin_kod)}</a>` : cinNo(p.cin_no, p.cin_kod)}` : '';
+  const kim = p.kategori === 'Müşteri' ? `${cariA}${fisA}`
+    : p.kategori === 'Fabrika' ? `${esc(p.fabrika_ad || 'Fabrika')}${cinA}`
+      : p.kategori === 'Tedarikçi' ? `${cariA}${cinA}`
+        : `${esc(p.kategori)}${cinA}`;
   const zaman = p.tetik === 'Tarih' ? '' : `${TETIK[p.tetik]}${p.gun_sonra ? ` + ${p.gun_sonra} gün` : ''}`;
   const vadeTxt = p.vade ? `${p.vade_kesin ? '' : '≈ '}${fmtD(p.vade)}` : 'tarihi belli değil';
   const masrafMi = p.yon === 'Ödeme' && p.kategori !== 'Fabrika';
@@ -3156,7 +3161,7 @@ function odemeYap(p) {
             if (tah) {
               tut = parseNum($('#o-tut', m.el).value);
               if (!(tut > 0)) throw new Error('Tutar girin');
-              const [h] = await api.insert('cari_hareketler', [{ tarih, cari_id: p.cari_id, islem: 'Tahsilat', fatura_tipi: tip, alacak: Math.round(tut * 100) / 100, para_birimi: 'TRY', kur: 1, odeme_sekli: os, belge_no: cek.aktif() ? cek.belge() : p.fis_no ? `Fiş ${p.fis_no}` : null, aciklama: `Ödeme planı${p.aciklama ? ': ' + p.aciklama : ''}${p.fis_no ? ` · Fiş ${p.fis_no}` : ''}` }]);
+              const [h] = await api.insert('cari_hareketler', [{ tarih, cari_id: p.cari_id, siparis_id: p.siparis_id || null, islem: 'Tahsilat', fatura_tipi: tip, alacak: Math.round(tut * 100) / 100, para_birimi: 'TRY', kur: 1, odeme_sekli: os, belge_no: cek.aktif() ? cek.belge() : p.fis_no ? `Fiş ${p.fis_no}` : null, aciklama: `Ödeme planı${p.aciklama ? ': ' + p.aciklama : ''}${p.fis_no ? ` · Fiş ${p.fis_no}` : ''}` }]);
               chId = h?.id || null;
               await cek.kaydet({ cari_id: p.cari_id, unvan: p.cari_unvan, tarih, tutar: Math.round(tut * 100) / 100, pb: 'TRY', kur: 1, tip, hareketId: chId, aciklama: p.fis_no ? `Fiş ${p.fis_no} taksiti` : null });
             }
@@ -3399,7 +3404,7 @@ async function viewCinForm(id) {
         if (plan) await api.insert('odeme_plani', PLAN_SABLON[plan].map(([y, t, a, g], i) => ({ yon: 'Ödeme', kategori: 'Fabrika', cin_siparis_id: cid, aciklama: a, tetik: t, gun_sonra: g || 0, yuzde: y, para_birimi: f.pb, sira: i })));
         return cid;
       });
-      cache.dirty('urunler'); toast(id ? 'Güncellendi' : 'İthalat siparişi kaydedildi', 'ok'); go(`#/cin/${cid}`);
+      cache.dirty('urunler'); toast(id ? 'Güncellendi' : 'İthalat siparişi kaydedildi', 'ok'); go(`#/cin/${cid}`, true);
     } catch (err) { if (/kod_uq|duplicate key/i.test(err?.message || '')) toast('Bu sipariş adı başka bir ithalat siparişinde kullanılıyor; farklı bir ad girin', 'err'); else fail(err); }
   };
 }
@@ -3413,7 +3418,7 @@ function cinKurForm(c, kur) {
       <p class="tiny">Boş bırakırsanız otomatik kur kullanılır: önce ödenen fabrika taksitlerinin ortalaması, o da yoksa güncel TCMB kuru. Gümrük beyannamesindeki kuru biliyorsanız buraya girin; birim maliyetler ve (teslim alındıysa) stok maliyeti hemen güncellenir.</p>`,
     foot: `<button class="btn" data-close>Vazgeç</button>${c.kur ? '<button class="btn" id="ck-oto">Otomatiğe dön</button>' : ''}<button class="btn primary" id="ck-ok">Kaydet</button>`
   });
-  const kaydet = (v) => busy($('#ck-ok'), async () => { await api.update('cin_siparisler', `id=eq.${c.id}`, { kur: v }); m.close(); toast('Kur kaydedildi', 'ok'); render(); }).catch(fail);
+  const kaydet = (v) => busy($('#ck-ok'), async () => { await api.update('cin_siparisler', `id=eq.${c.id}`, { kur: v }); m.close(); cache.dirty('urunler'); toast('Kur kaydedildi', 'ok'); render(); }).catch(fail);
   $('#ck-ok').onclick = () => { const v = parseNum($('#ck-k').value); if ($('#ck-k').value.trim() && !(v > 0)) return toast('Geçerli bir kur girin', 'err'); kaydet($('#ck-k').value.trim() ? v : null); };
   $('#ck-oto') && ($('#ck-oto').onclick = () => kaydet(null));
 }
@@ -3546,7 +3551,7 @@ async function viewCinDetay(id) {
   });
   $('#b-sil')?.addEventListener('click', async () => {
     if (!await confirmBox(`${cinNo(c.no, c.kod)} kalıcı olarak silinsin mi?`, 'Sipariş; ürünleri, fabrika ödeme planı, vergi ve masraf kayıtlarıyla birlikte silinir. Bu işlem geri alınamaz. Bağlı müşteri siparişleri silinmez, sadece bağlantıları kalkar.', 'Sil', true)) return;
-    try { await api.del('cin_siparisler', `id=eq.${c.id}`); cache.dirty('urunler'); toast(`${cinNo(c.no, c.kod)} silindi`, 'ok'); go('#/cin'); } catch (e) { fail(e); }
+    try { await api.del('cin_siparisler', `id=eq.${c.id}`); cache.dirty('urunler'); toast(`${cinNo(c.no, c.kod)} silindi`, 'ok'); go('#/cin', true); } catch (e) { fail(e); }
   });
   $('#b-geri')?.addEventListener('click', async () => {
     if (!await confirmBox('Teslim geri alınsın mı?', 'Bu siparişle depoya giren stok girişleri silinir ve sipariş “Limanda” aşamasına döner.', 'Geri al', true)) return;
@@ -4025,7 +4030,7 @@ const AY_AD = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz',
 function nakitRow(n) {
   const gec = n.durum === 'Bekliyor' && n.vade < today();
   const kim = n.cari_unvan || n.kesideci;
-  const baslik = n.tur === 'Platform' ? esc(n.kaynak || 'Platform') : `${esc(kim || n.tur)}`;
+  const baslik = n.tur === 'Platform' ? esc(n.kaynak || 'Platform') : n.cari_id ? `<a href="#/cari/${n.cari_id}">${esc(kim || n.tur)}</a>` : `${esc(kim || n.tur)}`;
   const alt = n.tur === 'Platform' ? [n.aciklama] : [n.belge_no ? `No ${n.belge_no}` : '', n.kaynak, n.aciklama];
   return `<div class="row" data-nid="${n.id}">
     <div class="main-col"><div class="t"><span class="badge ${n.tur === 'Platform' ? 'b-purple' : 'b-blue'}" style="margin-right:6px">${esc(n.tur)}</span>${baslik}</div>
@@ -4037,7 +4042,7 @@ function nakitRow(n) {
 }
 function bindNakitRows(root, rows) {
   if (!root) return;
-  $$('[data-nid]', root).forEach((el) => el.addEventListener('click', (e) => { const n = rows.find((x) => x.id === +el.dataset.nid); if (!n) return; if (e.target.closest('[data-nok]')) nakitDurum(n, 'Tahsil edildi'); else nakitForm(n); }));
+  $$('[data-nid]', root).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; const n = rows.find((x) => x.id === +el.dataset.nid); if (!n) return; if (e.target.closest('[data-nok]')) nakitDurum(n, 'Tahsil edildi'); else nakitForm(n); }));
 }
 
 /* Kasa: eldeki para (TL, dolar…) aciklamalariyla; nakit akisinin baslangici */
@@ -4287,14 +4292,15 @@ function nakitDurum(n, durum) {
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
 /* Satir ici onclick yerine tek dinleyici (siteye katı script guvenligi uygulanabilsin diye) */
-function geriGit() { if (history.length > 1) history.back(); else location.hash = '#/'; }
+let icGecmis = 0; window.addEventListener('hashchange', () => { icGecmis++; });
+function geriGit() { if (icGecmis > 0 && history.length > 1) { icGecmis -= 2; history.back(); } else go('#/', true); }
 const DATA_FN = { cinKur: () => state.cinKurCtx && cinKurForm(state.cinKurCtx.c, state.cinKurCtx.kur), geriGit, render: () => render(), malAlisi: () => malAlisi(), tahsilat: () => tahsilat(), urunForm: () => urunForm(), stokDuzelt: () => stokDuzelt(), cariForm: () => cariForm() };
 document.addEventListener('click', (e) => {
   const el = e.target.closest?.('[data-nav],[data-fn]'); if (!el) return;
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.62';
+const APP_V = '1.63';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
