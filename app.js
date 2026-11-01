@@ -3088,10 +3088,20 @@ function planForm(p, ctx) {
         try { await api.del('odeme_plani', `id=eq.${p.id}`); m.close(); cache.dirty('urunler'); toast('Silindi', 'ok'); render(); } catch (err) { fail(err); }
       });
       E('#pf-geri')?.addEventListener('click', async () => {
-        if (!await confirmBox('Ödeme geri alınsın mı?', `Kalem tekrar “ödenmedi” olur${p.cari_hareket_id ? ', cariye işlenen kayıt silinir' : ''}${p.kasa_hareket_id ? ', kasaya işlenen tutar geri alınır' : ''}.`, 'Geri al', true)) return;
+        // cari kaydi bu ekrandan (odeme plani) olusturulduysa ve baska taksite bagli degilse silinir;
+        // tahsilat ekranindan girilip taksite eslestirilen kayit caride kalir, sadece bag kopar
+        let chSil = false;
+        if (p.cari_hareket_id) {
+          const [[h], diger] = await Promise.all([
+            api.get('cari_hareketler', `select=id,aciklama&id=eq.${p.cari_hareket_id}`).catch(() => []),
+            api.get('odeme_plani', `select=id&cari_hareket_id=eq.${p.cari_hareket_id}&id=neq.${p.id}`).catch(() => [])
+          ]);
+          chSil = !!h && /^(Ödeme planı|Tedarikçi ödemesi)/.test(h.aciklama || '') && !diger.length;
+        }
+        if (!await confirmBox('Ödeme geri alınsın mı?', `Kalem tekrar “ödenmedi” olur${chSil ? ', cariye işlenen kayıt silinir' : p.cari_hareket_id ? '. Tahsilat kaydı caride kalır, sadece bu taksitle bağı kopar' : ''}${p.kasa_hareket_id ? ', kasaya işlenen tutar geri alınır' : ''}.`, 'Geri al', true)) return;
         try {
           await api.update('odeme_plani', `id=eq.${p.id}`, { odendi: false, odeme_tarihi: null, odenen_kur: null, odeme_sekli: null, cari_hareket_id: null });
-          if (p.cari_hareket_id) await api.del('cari_hareketler', `id=eq.${p.cari_hareket_id}`);
+          if (chSil) await api.del('cari_hareketler', `id=eq.${p.cari_hareket_id}`);
           m.close(); cache.dirty('cariler', 'urunler'); toast('Geri alındı', 'ok'); render();
         } catch (err) { fail(err); }
       });
@@ -4284,7 +4294,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.61';
+const APP_V = '1.62';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
