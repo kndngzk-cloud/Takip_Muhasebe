@@ -3481,7 +3481,7 @@ async function viewCinDetay(id) {
   topbar('İthalat Siparişi', { back: true });
   const [[c], kal, plan, msip, mal] = await Promise.all([
     api.get('v_cin_siparisler', `select=*&id=eq.${id}`),
-    api.get('cin_kalemler', `select=*,urunler(ad,kod,birim,gumruk)&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
+    api.get('cin_kalemler', `select=*,urunler(ad,kod,birim,gumruk,kategori)&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
     api.get('v_odeme_takvimi', `select=*&cin_siparis_id=eq.${id}&order=sira.asc,id.asc`),
     api.get('v_siparisler', `select=*&cin_siparis_id=eq.${id}&order=fis_no.asc`),
     api.rpc('cin_maliyet', { p_id: +id }).catch(() => [])
@@ -3494,6 +3494,21 @@ async function viewCinDetay(id) {
   const vergiEski0 = vergiVar ? kal.filter((k) => { const v = k.vergi_detay; const eq = num(k.miktar) - num(k.devreden); if (eq <= 0) return false; if (!v || !v.kur) return true; if (v.adet !== undefined && v.adet !== null) return Math.abs(num(v.adet) - eq) > 0.0001; return num(k.devreden) > 0; }) : [];
   if (vergiEski0.length && !state.ui.vergiOto?.[id]) { (state.ui.vergiOto ||= {})[id] = true; try { if (await vergiOtomatik(+id)) { toast('Ürünler değiştiği için gümrük vergisi ve ödeme takvimi güncellendi', 'ok'); return viewCinDetay(id); } } catch (e) { console.warn('vergi otomatik', e); } }
   const vergiEski = vergiEski0;
+  // adet ozeti ve sifon (dahil) kontrolu
+  const eqK = (k) => num(k.miktar) - num(k.devreden);
+  const dahilK = kal.filter((k) => (k.dahil_urun_ids || []).length), urunK = kal.filter((k) => !(k.dahil_urun_ids || []).length);
+  const sifonMu = (k) => k.urunler?.kategori === 'SİFON' || /SİFON|SIFON/i.test(k.urunler?.ad || '');
+  const eviyeMu = (k) => !sifonMu(k) && (k.urunler?.kategori === 'EVİYE' || /GRPVD|EVİYE/i.test(k.urunler?.ad || ''));
+  const adetUrun = urunK.reduce((a, k) => a + eqK(k), 0), adetDahil = dahilK.reduce((a, k) => a + eqK(k), 0);
+  const uyari = [];
+  dahilK.forEach((d) => {
+    const ids = d.dahil_urun_ids.map(Number); const hedef = urunK.filter((k) => ids.includes(k.urun_id)).reduce((a, k) => a + eqK(k), 0);
+    if (Math.abs(hedef - eqK(d)) > 0.001) uyari.push(`<b>${esc(d.urunler?.ad)}</b> ${fmtN(eqK(d))} adet, eklendiği ürünlerin toplamı ${fmtN(hedef)} adet (${fmtN(Math.abs(eqK(d) - hedef))} ${eqK(d) > hedef ? 'fazla' : 'eksik'}). Sifon maliyetinin tamamı bu ürünlere paylaştırılır; adet yanlışsa eviye maliyeti de yanlış çıkar.`);
+  });
+  const sifonsuz = [...new Map(urunK.filter((k) => eviyeMu(k) && !dahilK.some((d) => d.dahil_urun_ids.map(Number).includes(k.urun_id))).map((k) => [k.urun_id, k])).values()];
+  if (dahilK.length && sifonsuz.length) uyari.push(`Sifon eklenmemiş eviye: <b>${esc(sifonsuz.map((k) => k.urunler?.ad).join(', '))}</b>. Bunların sifonu varsa sifon satırının “Hangi ürünlere eklensin” listesinden işaretleyin.`);
+  const ayriSifon = urunK.filter(sifonMu);
+  if (ayriSifon.length && dahilK.length) uyari.push(`<b>${esc(ayriSifon.map((k) => `${k.urunler?.ad} ${fmtN(eqK(k))} adet${k.kaynak_kalem_id ? ' (devreden)' : ''}`).join(', '))}</b> eviyeye dahil değil; depoya ayrı sifon olarak girer ve eviye maliyetine eklenmez. Eviyelerle satılıyorsa düzenleyip “Stoğa girmesin, maliyeti başka ürünlere eklensin” seçin.`);
   topbar(`${cinNo(c.no, c.kod)}`, { back: true, actions: c.durum !== 'İptal' ? `<button class="tb-btn" data-nav="#/cin/${c.id}/duzenle">${icon('edit')}Düzenle</button>` : '' });
   const aktifSip = msip.filter((s) => s.durum !== 'İptal');
   let ayr = {};
@@ -3528,7 +3543,7 @@ async function viewCinDetay(id) {
       <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
         <div><div style="font-size:19px;font-weight:800">${c.fabrika_id ? `<a href="#" id="cd-fab" style="color:inherit">${esc(c.fabrika_ad)} ›</a>` : esc(c.fabrika_ad)}</div>
           <div class="st muted small" style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${cinBadge(c.durum)} ${tipBadge(c.fatura_tipi)} ${c.nakliye_sekli ? `<span class="badge">${esc(c.nakliye_sekli)}</span>` : ''}</div></div>
-        <div class="right"><div class="tiny">Sipariş toplamı</div><div style="font-size:21px;font-weight:800" class="num">${fmtPB(c.toplam, c.para_birimi)}</div><div class="tiny">${fmtN(c.toplam_miktar)} adet · ${c.kalem_sayisi} kalem</div></div>
+        <div class="right"><div class="tiny">Sipariş toplamı</div><div style="font-size:21px;font-weight:800" class="num">${fmtPB(c.toplam, c.para_birimi)}</div><div class="tiny">${fmtN(adetUrun)} adet${adetDahil ? ` + ${fmtN(adetDahil)} ${dahilK.every(sifonMu) ? 'sifon' : 'dahil ürün'}` : ''} · ${c.kalem_sayisi} kalem</div></div>
       </div>
       <div class="stats" style="margin-top:12px">
         <div class="stat"><div class="l">Fabrikaya ödenen</div><div class="v">${fmtPB(c.fabrika_odenen, c.para_birimi)}</div></div>
@@ -3561,6 +3576,7 @@ async function viewCinDetay(id) {
     </div>
     ${vergiEski.length ? `<div class="card" style="border-left:4px solid var(--red);margin-bottom:10px"><b style="color:var(--red)">Gümrük vergisi otomatik güncellenemedi.</b> <span class="small">Vergi hesaplandıktan sonra ürünler değişti: ${esc(vergiEski.map((k) => k.urunler?.ad).join(', '))}. Ödeme takvimindeki gümrük vergisi ve maliyet bu ürünleri ${vergiEski.some((k) => k.kaynak_kalem_id) ? '(devreden mallar dahil) ' : ''}doğru içermiyor.</span>
       <div style="margin-top:8px"><button class="btn sm primary" id="b-vergi2">${icon('chart')}Gümrük vergisini yeniden hesapla</button></div></div>` : ''}
+    ${uyari.length && !iptal ? `<div class="card" style="border-left:4px solid var(--orange);margin-bottom:10px"><b style="color:var(--orange)">Adet kontrolü</b><ul class="small" style="margin:6px 0 0;padding-left:18px">${uyari.map((u) => `<li style="margin-bottom:4px">${u}</li>`).join('')}</ul>${c.durum !== 'Teslim Alındı' ? `<div style="margin-top:8px"><button class="btn sm" data-nav="#/cin/${c.id}/duzenle">${icon('edit')}Düzenle</button></div>` : ''}</div>` : ''}
     <div class="section-title">Ürünler</div>
     <div class="list"><div class="table-wrap"><table class="tbl stack">
       <thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Fabrika fiyatı</th><th class="r">Tutar</th><th class="r">Müşterilere</th><th class="r">Depoya kalan</th><th class="r">Birim maliyet</th></tr></thead>
@@ -4617,7 +4633,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.71';
+const APP_V = '1.72';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
