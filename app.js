@@ -3296,6 +3296,9 @@ async function viewCinDetay(id) {
   if (!c) { $('#view').innerHTML = '<div class="card empty">Sipariş bulunamadı</div>'; return; }
   const kaynakAd = {};
   if (kal.some((k) => k.kaynak_kalem_id)) { try { (await api.get('cin_kalemler', `select=id,cin_siparisler(no,kod)&id=in.(${kal.filter((k) => k.kaynak_kalem_id).map((k) => k.kaynak_kalem_id).join(',')})`)).forEach((x) => { kaynakAd[x.id] = cinNo(x.cin_siparisler?.no, x.cin_siparisler?.kod); }); } catch {} }
+  // vergi hesaplandiysa ve sonradan satir eklendi / adet degistiyse uyar
+  const vergiVar = plan.some((p) => p.kaynak === 'vergi');
+  const vergiEski = vergiVar ? kal.filter((k) => { const v = k.vergi_detay; const eq = num(k.miktar) - num(k.devreden); if (eq <= 0) return false; if (!v || !v.kur) return true; if (v.adet !== undefined && v.adet !== null) return Math.abs(num(v.adet) - eq) > 0.0001; return num(k.devreden) > 0; }) : [];
   topbar(`${cinNo(c.no, c.kod)}`, { back: true, actions: c.durum !== 'İptal' ? `<button class="tb-btn" data-nav="#/cin/${c.id}/duzenle">${icon('edit')}Düzenle</button>` : '' });
   const aktifSip = msip.filter((s) => s.durum !== 'İptal');
   let ayr = {};
@@ -3357,6 +3360,8 @@ async function viewCinDetay(id) {
       ${iptal ? `<button class="btn" id="b-geriac">İptali geri al</button>` : ''}
       ${iptal && isAdmin() ? `<button class="btn red" id="b-sil">${icon('trash')}Kalıcı olarak sil</button>` : ''}
     </div>
+    ${vergiEski.length ? `<div class="card" style="border-left:4px solid var(--red);margin-bottom:10px"><b style="color:var(--red)">Gümrük vergisi güncel değil.</b> <span class="small">Vergi hesaplandıktan sonra ürünler değişti: ${esc(vergiEski.map((k) => k.urunler?.ad).join(', '))}. Ödeme takvimindeki gümrük vergisi ve maliyet bu ürünleri ${vergiEski.some((k) => k.kaynak_kalem_id) ? '(devreden mallar dahil) ' : ''}doğru içermiyor.</span>
+      <div style="margin-top:8px"><button class="btn sm primary" id="b-vergi2">${icon('chart')}Gümrük vergisini yeniden hesapla</button></div></div>` : ''}
     <div class="section-title">Ürünler</div>
     <div class="list"><div class="table-wrap"><table class="tbl stack">
       <thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Fabrika fiyatı</th><th class="r">Tutar</th><th class="r">Müşterilere</th><th class="r">Depoya kalan</th><th class="r">Birim maliyet</th></tr></thead>
@@ -3387,6 +3392,7 @@ async function viewCinDetay(id) {
   $('#pf-add')?.addEventListener('click', (e) => { e.preventDefault(); planEkleMenu(ctxF, PLAN_SABLON); });
   $('#pm-add')?.addEventListener('click', (e) => { e.preventDefault(); planForm(null, ctxM); });
   $('#b-vergi')?.addEventListener('click', () => vergiHesapla(c, kal, plan, kur));
+  $('#b-vergi2')?.addEventListener('click', () => vergiHesapla(c, kal, plan, kur));
   $('#b-trg')?.addEventListener('click', () => trGiderleri(c, kal, mas.length));
   $$('#steps .step').forEach((el) => el.onclick = () => {
     if (iptal) return;
@@ -3678,7 +3684,7 @@ async function vergiHesapla(c, kal, plan, kur0) {
   const R = ayar.ithalat || {};
   if (!kal.length) return toast('Önce ürün ekleyin', 'err');
   const fob = kal.reduce((a, k) => a + (num(k.miktar) - num(k.devreden)) * num(k.birim_fiyat), 0);
-  const kurV = c.kur || kur0 || num(sonKur(c.para_birimi)) || '';
+  const kurV = num(kal.find((k) => k.vergi_detay?.kur)?.vergi_detay.kur) || c.kur || kur0 || num(sonKur(c.para_birimi)) || ''; // once son vergi hesabinda kullanilan gumruk kuru
   const dvz = (p) => (p.para_birimi === c.para_birimi ? num(p.tutar_hesap) : p.para_birimi === 'TRY' && kurV ? num(p.tutar_hesap) / num(kurV) : num(p.tutar_hesap) * (num(p.kur || sonKur(p.para_birimi)) || 0) / (num(kurV) || 1));
   const nav = plan.filter((p) => p.kategori === 'Navlun').reduce((a, p) => a + dvz(p), 0);
   const sig = plan.filter((p) => p.kategori === 'Sigorta').reduce((a, p) => a + dvz(p), 0);
@@ -3777,7 +3783,7 @@ async function vergiHesapla(c, kal, plan, kur0) {
               if (JSON.stringify(eskiG) !== JSON.stringify(yeni)) await api.update('urunler', `id=eq.${k.urun_id}`, { gumruk: yeni });
             }
             for (const { k, r } of rs) {
-              await api.update('cin_kalemler', `id=eq.${k.id}`, { ...(r.gozVar ? { gozetim_kg: r.kg || null } : {}), vergi_tl: r.vergiTL, vergi_detay: { gozetim_kg: r.kg || null,  kur: ctx.kur, navlun: ctx.navlun, sigorta: ctx.sigorta, kdv: ctx.kdv, cif: r.cif, gozetim: r.gozetim, kiymet: r.kiymet, gv: r.gv, igv: r.igv, kdv_tutar: r.kdv, indirilemez: r.indirilemez, tarih: today() } });
+              await api.update('cin_kalemler', `id=eq.${k.id}`, { ...(r.gozVar ? { gozetim_kg: r.kg || null } : {}), vergi_tl: r.vergiTL, vergi_detay: { adet: r.Q, gozetim_kg: r.kg || null,  kur: ctx.kur, navlun: ctx.navlun, sigorta: ctx.sigorta, kdv: ctx.kdv, cif: r.cif, gozetim: r.gozetim, kiymet: r.kiymet, gv: r.gv, igv: r.igv, kdv_tutar: r.kdv, indirilemez: r.indirilemez, tarih: today() } });
             }
             if (E('#vh-nsk')?.checked) {
               const ek = [['Navlun', ctx.navlun], ['Sigorta', ctx.sigorta]].filter(([, v]) => v > 0)
@@ -4097,7 +4103,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.56';
+const APP_V = '1.57';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
