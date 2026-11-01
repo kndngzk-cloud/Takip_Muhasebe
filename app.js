@@ -3515,7 +3515,8 @@ async function viewCinDetay(id) {
   const fab = plan.filter((p) => p.kategori === 'Fabrika'), mas = plan.filter((p) => p.kategori !== 'Fabrika' && p.yon === 'Ödeme');
   // maliyete dahil masraflar (navlun, sigorta, ardiye...): birim maliyette adlariyla gosterilir
   const masD = mas.filter((p) => p.maliyete_dahil && p.kaynak !== 'vergi');
-  const masAd = [...new Set(masD.map((p) => String(p.kategori).toLocaleLowerCase('tr-TR')))].join('/') || 'masraf';
+  const TRG = ['Ardiye', 'Müşavirlik', 'İç nakliye', 'Liman', 'Gümrük masrafı', 'Diğer'];
+  const masAd = [...new Set(masD.map((p) => (TRG.includes(p.kategori) ? 'Türkiye giderleri' : String(p.kategori).toLocaleLowerCase('tr-TR'))))].join(' / ') || 'masraf';
   const idx = CIN_ASAMA.indexOf(c.durum), sonraki = c.durum !== 'İptal' ? CIN_ASAMA[idx + 1] : null;
   const iptal = c.durum === 'İptal', teslim = c.durum === 'Teslim Alındı';
   const fobTL = mal.reduce((a, r) => a + num(r.fob_tl), 0), masTL = mal.reduce((a, r) => a + num(r.masraf_tl), 0);
@@ -3573,7 +3574,7 @@ async function viewCinDetay(id) {
         <td class="r" data-l="Birim maliyet">${m?.dahil ? `<span class="muted">${fmtTL(m.birim_maliyet)}</span><div class="tiny">ayrı stok maliyeti yok</div>` : m && m.birim_maliyet !== null ? `<div class="tiny">KDV hariç</div><b>${fmtTL(m.birim_maliyet)}</b><div class="tiny">FOB ${fmtTL(num(m.fob_tl) / (num(m.miktar) || num(k.miktar)))}${num(k.vergi_tl) ? ` + vergi ${fmtTL(num(k.vergi_tl) / (num(m.miktar) || num(k.miktar)))}` : ''}${num(m.masraf_tl) - num(k.vergi_tl) > 0.005 ? ` + ${esc(masAd)} ${fmtTL((num(m.masraf_tl) - num(k.vergi_tl)) / (num(m.miktar) || num(k.miktar)))}` : ''}${num(m.dahil_ek_tl) ? ` + ${esc(dahilOlan(k).map((x) => x.urunler?.ad).join(', '))} ${fmtTL(num(m.dahil_ek_tl) / num(k.miktar))}` : ''}</div>${kdvB > 0 ? `<div class="kdv-dahil">+ indirilebilir KDV ${fmtTL(kdvB)} → KDV dahil <b>${fmtTL(num(m.birim_maliyet) + kdvB)}</b></div>` : ''}` : '<span class="tiny">kur yok</span>'}</td></tr>`; }).join('')}</tbody>
       ${mal.length && kur ? `<tfoot><tr><td class="w">Toplam maliyet <span class="tiny">KDV hariç</span></td><td></td><td></td><td class="r" data-l="FOB ₺">${fmtTL(fobTL)}</td><td></td><td class="r" data-l="Masraf ₺">+ ${fmtTL(masTL)}</td><td class="r" data-l="Toplam ₺"><b>${fmtTL(fobTL + masTL)}</b></td></tr>${kdvTop > 0 ? `<tr><td class="w">İndirilebilir KDV <span class="tiny">gümrükte ödenir, beyannamede geri alınır</span></td><td></td><td></td><td></td><td></td><td></td><td class="r" data-l="İndirilebilir KDV">+ ${fmtTL(kdvTop)}</td></tr><tr><td class="w"><b>KDV dahil toplam nakit</b></td><td></td><td></td><td></td><td></td><td></td><td class="r" data-l="KDV dahil"><b>${fmtTL(fobTL + masTL + kdvTop)}</b></td></tr>` : ''}</tfoot>` : ''}
     </table></div></div>
-    <p class="tiny" style="margin:0 4px 10px"><b>Birim maliyet KDV hariçtir</b> (stoğa ve kâr hesabına bu girer). “KDV dahil” satırı gümrükte cebinizden çıkan parayı gösterir; aradaki indirilebilir KDV beyannamede geri alındığı için maliyet sayılmaz. Birim maliyet = fabrika fiyatı × kur + gümrük vergisi (GV + İGV + indirilemeyen KDV) + “maliyete dahil” masrafların payı.${masD.length ? ` <b>Maliyete dahil masraflar:</b> ${masD.map((p) => `${esc(p.kategori)} ${fmtPB(p.tutar_hesap, p.para_birimi)}`).join(', ')} (${masD.every((p) => p.dagitim === 'Adet') ? 'adede' : 'fabrika fiyatına'} göre dağıtıldı).` : ' Bu siparişte maliyete dahil navlun / sigorta gibi bir masraf yok.'} ${teslim ? 'Depo girişi bu maliyetle yapıldı; masraf ya da kur değişirse stoktaki maliyet de otomatik güncellenir.' : 'Teslim alındığında ürünler bu maliyetle depo stoğuna girer.'}</p>
+    <p class="tiny" style="margin:0 4px 10px"><b>Birim maliyet KDV hariçtir</b> (stoğa ve kâr hesabına bu girer). “KDV dahil” satırı gümrükte cebinizden çıkan parayı gösterir; aradaki indirilebilir KDV beyannamede geri alındığı için maliyet sayılmaz. Birim maliyet = fabrika fiyatı × kur + gümrük vergisi (GV + İGV + indirilemeyen KDV) + “maliyete dahil” masrafların payı.${masD.length ? ` <b>Maliyete dahil masraflar:</b> ${masD.map((p) => `${esc(p.kategori)} ${fmtPB(p.tutar_hesap, p.para_birimi)} <span class="muted">(${p.dagitim === 'Adet' ? 'adede' : 'fabrika fiyatına'} göre)</span>`).join(', ')}. Adede göre dağıtılanlarda sifon da bir adet sayılır; sifonun payı da eviyenin maliyetine eklenir.` : ' Bu siparişte maliyete dahil navlun / sigorta gibi bir masraf yok.'} ${teslim ? 'Depo girişi bu maliyetle yapıldı; masraf ya da kur değişirse stoktaki maliyet de otomatik güncellenir.' : 'Teslim alındığında ürünler bu maliyetle depo stoğuna girer.'}</p>
     <div class="section-title">Müşteri siparişleri ${!iptal ? `<span style="display:flex;gap:14px"><a href="#" id="ms-bagla">Mevcut siparişi bağla</a><a href="#/siparis/yeni?cin=${c.id}">+ Yeni müşteri siparişi</a></span>` : ''}</div>
     <div class="list" id="ms-lst">${msip.length ? msip.map((s) => siparisRow(s, teslim)).join('') : '<div class="empty">Bu ithalat siparişine bağlı müşteri siparişi yok</div>'}</div>
     ${aktifSip.length ? '<div id="ms-tah"></div>' : ''}
@@ -4615,7 +4616,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.69';
+const APP_V = '1.70';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
