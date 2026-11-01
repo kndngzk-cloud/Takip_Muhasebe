@@ -3163,7 +3163,7 @@ async function viewCinForm(id) {
           <div class="field"><label>Tutar</label><input class="input c-tut" readonly value="${fmt2(num(l.miktar) * num(l.fiyat))}" style="background:var(--surface-2)"></div>
         </div>
         ${l.kaynak && l.kaynakMax ? `<div class="tiny" style="margin-top:4px">${esc(l.kaynakAd || '')} siparişinden kalan: ${fmtN(l.kaynakMax)} adet</div>` : ''}
-        ${l.urun && !l.kaynak ? (num(l.devreden) || l.dvAc ? `<div class="field" style="margin:8px 0 0;max-width:340px"><label>Konteynere sığmayan · sonraki sevkiyata kalan adet</label><input class="input c-dvr" inputmode="decimal" value="${num(l.devreden) ? fmtN(l.devreden) : ''}" placeholder="0"><div class="hint">Parası bu siparişte ödenir; stoğa ve gümrük vergisine bu siparişte girmez. Sonraki siparişte “Önceki siparişten devreden mal ekle” ile eklenir.</div></div>` : `<a href="#" class="tiny c-dvr-ac" style="display:inline-block;margin-top:6px">Konteynere sığmayan var mı?</a>`) : ''}
+        ${l.urun && !l.kaynak ? (num(l.devreden) || l.dvAc ? `<div class="field" style="margin:8px 0 0;max-width:340px"><label>Konteynere sığmayan · sonraki sevkiyata kalan adet</label><input class="input c-dvr" inputmode="decimal" value="${num(l.devreden) ? fmtN(l.devreden) : ''}" placeholder="0"><div class="hint">Parası bu siparişte ödenir; stoğa ve gümrük vergisine bu siparişte girmez. Sonraki siparişte “Önceki siparişten devreden mal ekle” ile eklenir.</div></div>` : `<button type="button" class="btn sm c-dvr-ac" style="margin-top:8px">${icon('plus')}Konteynere sığmayan var mı? (sonraki sevkiyata kalan adet)</button>`) : ''}
         ${gozetimli(l.urun) ? `<div class="field" style="margin:8px 0 0;max-width:260px"><label>Gözetim ağırlığı (kg / adet)</label><input class="input c-kg" inputmode="decimal" value="${l.kg === '' || l.kg === undefined ? '' : fmtN(l.kg)}" placeholder="bu siparişteki ağırlık"></div>` : ''}
         ${l.urun && dahilAday(l).length ? `<div class="field" style="margin:8px 0 0"><label>Stoğa girişi</label><select class="input c-dahil" style="max-width:420px">
           <option value="">Ayrı ürün olarak stoğa girsin</option>
@@ -4097,7 +4097,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.55';
+const APP_V = '1.56';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
