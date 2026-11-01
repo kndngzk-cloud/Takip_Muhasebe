@@ -3971,24 +3971,34 @@ async function viewVergiSim() {
   const vars = sifonlar.find((u) => u.kod === 'U0306') || sifonlar[0];
   // urun adindan olcu: GRPVD4050B -> 40 x 50, ...4068B2 -> 2 goz
   const adOlcu = (u) => { const m = /(\d{2})(\d{2})[A-Z_]*?(\d)?(?:_|$|\s)/i.exec(String(u?.ad || '')) || /(\d{2})(\d{2})/.exec(String(u?.ad || '')); return m ? { en: +m[1], boy: +m[2], goz: m[3] && +m[3] > 1 ? +m[3] : 1 } : {}; };
-  const yeniSatir = (u) => { const o = adOlcu(u); return { urun_id: u?.id || null, ad: '', en: o.en || '', boy: o.boy || '', der: '', kal: '', goz: o.goz || 1, kgElle: '', adet: '', fob: u && sonK(u.id) ? num(sonK(u.id).birim_fiyat) : '',
+  const yeniSatir = (u) => { const o = adOlcu(u); return { urun_id: u?.id || null, ad: '', en: o.en || '', boy: o.boy || '', der: S?.ref?.der || '', kal: S?.ref?.kal || '', goz: o.goz || 1, kgElle: '', adet: '', fob: u && sonK(u.id) ? num(sonK(u.id).birim_fiyat) : '',
     sifon: u ? (sonSifon(u.id) || vars?.id || 0) : (vars?.id || 0), satis: u?.satis_fiyati ? num(u.satis_fiyati) : '' }; };
   let S = null;
   try { S = JSON.parse(localStorage.getItem(VSIM_KEY) || 'null'); } catch { S = null; }
   if (!S || !Array.isArray(S.satirlar) || !S.ref) S = null;
-  S ||= { ref: { en: 40, boy: 50, der: '', kal: '', kg: 2.7 }, kur: '', kur2: '', navlun: 4800, sigorta: 100, masraf: 90000, kdv: num(R.kdv ?? 20), satirlar: [yeniSatir(null)], sf: {},
+  S ||= { ref: { en: 40, boy: 50, der: '', kal: '', cer: '', kg: 2.7 }, kur: '', kur2: '', navlun: 4800, sigorta: 100, masraf: 90000, kdv: num(R.kdv ?? 20), satirlar: [yeniSatir(null)], sf: {},
     ev: { gv: num(R.gv ?? 2.7), igv: num(R.igv ?? 25), goz: num(R.gozetim_usd_kg ?? 13) }, si: { gv: num(R.sifon_gv ?? 6.5), igv: num(R.sifon_igv ?? 10), goz: num(R.sifon_gozetim_usd_kg ?? 7) } };
   if (!num(S.kur)) S.kur = guncelKur('USD') ? Math.round(guncelKur('USD') * 100) / 100 : '';
   const sfVars = (sid) => { const k = sonK(sid); return { fob: k ? num(k.birim_fiyat) : num(R.sifon_fob ?? 3), kg: k?.gozetim_kg ? num(k.gozetim_kg) : num(R.sifon_kg ?? 0.4) }; };
   const kaydet = () => { try { localStorage.setItem(VSIM_KEY, JSON.stringify(S)); } catch {} };
   /* Agirlik = referans kg x (sac alani / referans sac alani) x (kalinlik / referans kalinlik)
      Sac alani = en x boy + (derinlik varsa) yan duvarlar 2(en+boy) x derinlik + cift gozde ara duvar en x derinlik */
-  const alan = (x, derVar) => num(x.en) * num(x.boy) + (derVar ? 2 * (num(x.en) + num(x.boy)) * num(x.der) + (Math.max(1, num(x.goz) || 1) - 1) * num(x.en) * num(x.der) : 0);
+  // kalinlik "0,55 + 2" -> govde 0,55 mm, cerceve 2 mm (tek sayi: ikisi ayni)
+  const kalOku = (t) => { const p = String(t ?? '').split('+').map((x) => parseNum(x)).filter((x) => x > 0); return p.length ? { g: p[0], c: p[1] || p[0] } : null; };
+  const kalYaz = (k) => (k ? (k.c !== k.g ? `${fmtN(k.g)} + ${fmtN(k.c)}` : fmtN(k.g)) : '');
+  // agirlik puani: govde alani x govde kalinligi + cerceve alani x cerceve kalinligi
+  const kutle = (x, derVar, kal) => {
+    const en = num(x.en), boy = num(x.boy), fw = Math.min(num(S.ref.cer), en / 2, boy / 2) || 0;
+    const ie = en - 2 * fw, ib = boy - 2 * fw, goz = Math.max(1, num(x.goz) || 1);
+    const govde = ie * ib + (derVar ? 2 * (ie + ib) * num(x.der) + (goz - 1) * ie * num(x.der) : 0);
+    const cerceve = en * boy - ie * ib;
+    return govde * (kal ? kal.g : 1) + cerceve * (kal ? kal.c : 1);
+  };
   const kgHesap = (x) => {
     const rf = S.ref; if (!(num(x.en) > 0 && num(x.boy) > 0 && num(rf.en) > 0 && num(rf.boy) > 0 && num(rf.kg) > 0)) return 0;
     const derVar = num(rf.der) > 0 && num(x.der) > 0;
-    const kal = num(rf.kal) > 0 && num(x.kal) > 0 ? num(x.kal) / num(rf.kal) : 1;
-    return Math.round(num(rf.kg) * alan(x, derVar) / alan({ ...rf, goz: 1 }, derVar) * kal * 100) / 100;
+    const kr = kalOku(rf.kal), kx = kalOku(x.kal), kalVar = kr && kx;
+    return Math.round(num(rf.kg) * kutle(x, derVar, kalVar ? kx : null) / kutle({ ...rf, goz: 1 }, derVar, kalVar ? kr : null) * 100) / 100;
   };
   const kgOf = (x) => num(x.kgElle) > 0 ? num(x.kgElle) : kgHesap(x);
   const satirAd = (x) => x.urun_id ? uAd(x.urun_id) : (x.ad || `${x.en || '?'}×${x.boy || '?'}${num(x.goz) > 1 ? ` ${x.goz} göz` : ''}`);
@@ -4013,10 +4023,11 @@ async function viewVergiSim() {
       <div class="grid3">
         <div class="field"><label>Ölçü (en × boy, cm)</label><div style="display:flex;gap:6px;align-items:center"><input class="input" id="vs-ren" inputmode="decimal" value="${v(S.ref.en)}"><span>×</span><input class="input" id="vs-rboy" inputmode="decimal" value="${v(S.ref.boy)}"></div></div>
         <div class="field"><label>Derinlik (cm)</label><input class="input" id="vs-rder" inputmode="decimal" value="${v(S.ref.der)}" placeholder="bilinmiyorsa boş"></div>
-        <div class="field"><label>Kalınlık (mm)</label><input class="input" id="vs-rkal" inputmode="decimal" value="${v(S.ref.kal)}" placeholder="bilinmiyorsa boş"></div>
+        <div class="field"><label>Kalınlık mm (gövde + çerçeve)</label><input class="input" id="vs-rkal" value="${esc(S.ref.kal || '')}" placeholder="örn. 0,55 + 2"></div>
       </div>
-      <div class="grid3"><div class="field"><label>Ağırlığı (kg)</label><input class="input" id="vs-rkg" inputmode="decimal" value="${v(S.ref.kg)}"></div></div>
-      <p class="tiny" style="margin-top:-4px">Derinlik ve kalınlık hem referansa hem eviyeye yazılırsa hesaba girer; boşsa sadece en × boy oranı kullanılır. Ağırlığı biliyorsan eviye satırında "kg" kutusuna yazman yeterli, o geçerli olur.</p>
+      <div class="grid3"><div class="field"><label>Çerçeve eni (cm)</label><input class="input" id="vs-rcer" inputmode="decimal" value="${v(S.ref.cer)}" placeholder="örn. 1,5"><div class="hint">Kalın çerçeve şeridinin genişliği; tüm eviyelerde aynı kabul edilir</div></div>
+        <div class="field"><label>Ağırlığı (kg)</label><input class="input" id="vs-rkg" inputmode="decimal" value="${v(S.ref.kg)}"></div></div>
+      <p class="tiny" style="margin-top:-4px">Kalınlığı "gövde + çerçeve" şeklinde yaz (örn. <b>0,55 + 2</b>); tek sayı yazarsan ikisi aynı kabul edilir. Derinlik ve kalınlık hem referansa hem eviyeye yazılırsa hesaba girer; boşsa sadece en × boy oranı kullanılır. Ağırlığı biliyorsan eviye satırında "kg" kutusuna yazman yeterli, o geçerli olur.</p>
       <details class="gum"><summary>Vergi oranları ve gözetim</summary>
         <div class="grid3">
           <div class="field"><label>Eviye GV %</label><input class="input" id="vs-egv" inputmode="decimal" value="${v(S.ev.gv)}"></div>
@@ -4044,7 +4055,7 @@ async function viewVergiSim() {
         ${s.urun_id ? '' : `<input class="input vs-ad" style="margin-top:6px;padding:6px 8px;font-size:14px" value="${esc(s.ad || '')}" placeholder="Model adı (isteğe bağlı)">`}</td>
       <td class="r" data-l="En × boy cm"><span style="white-space:nowrap">${inp('vs-en', s.en, 56, 'en')} × ${inp('vs-boy', s.boy, 56, 'boy')}</span></td>
       <td class="r" data-l="Derinlik cm">${inp('vs-der', s.der, 60, 'cm')}</td>
-      <td class="r" data-l="Kalınlık mm">${inp('vs-kal', s.kal, 60, 'mm')}</td>
+      <td class="r" data-l="Kalınlık mm"><input class="input vs-kal" style="width:96px;padding:6px 8px;text-align:right" value="${esc(s.kal || '')}" placeholder="0,55 + 2"></td>
       <td class="r" data-l="Göz">${inp('vs-goz', s.goz, 46, '1')}</td>
       <td class="r" data-l="Ağırlık kg">${inp('vs-kg', s.kgElle, 70, kgHesap(s) ? fmtN(kgHesap(s)) : 'kg')}<div class="tiny vs-kgt">${s.kgElle ? 'elle' : kgHesap(s) ? 'hesaplandı' : ''}</div></td>
       <td class="r" data-l="Adet">${inp('vs-adet', s.adet, 80, 'adet')}</td>
@@ -4056,7 +4067,7 @@ async function viewVergiSim() {
       const s = S.satirlar[+tr.dataset.i];
       const oku = () => {
         const n = (c) => parseNum($(c, tr).value) || '';
-        Object.assign(s, { en: n('.vs-en'), boy: n('.vs-boy'), der: n('.vs-der'), kal: n('.vs-kal'), goz: n('.vs-goz') || 1, kgElle: n('.vs-kg'), adet: n('.vs-adet'), fob: n('.vs-fob'), satis: n('.vs-sat'), sifon: +$('.vs-s', tr).value || 0, ad: $('.vs-ad', tr)?.value || '' });
+        Object.assign(s, { en: n('.vs-en'), boy: n('.vs-boy'), der: n('.vs-der'), kal: $('.vs-kal', tr).value.trim(), goz: n('.vs-goz') || 1, kgElle: n('.vs-kg'), adet: n('.vs-adet'), fob: n('.vs-fob'), satis: n('.vs-sat'), sifon: +$('.vs-s', tr).value || 0, ad: $('.vs-ad', tr)?.value || '' });
         const kh = kgHesap(s); $('.vs-kg', tr).placeholder = kh ? fmtN(kh) : 'kg'; $('.vs-kgt', tr).textContent = s.kgElle ? 'elle' : kh ? 'hesaplandı' : '';
         hesap();
       };
@@ -4107,7 +4118,7 @@ async function viewVergiSim() {
 
   const hesap = () => {
     const n = (id) => parseNum($(id).value);
-    S.ref = { en: n('#vs-ren') || '', boy: n('#vs-rboy') || '', der: n('#vs-rder') || '', kal: n('#vs-rkal') || '', kg: n('#vs-rkg') || '' };
+    S.ref = { en: n('#vs-ren') || '', boy: n('#vs-rboy') || '', der: n('#vs-rder') || '', kal: $('#vs-rkal').value.trim(), cer: n('#vs-rcer') || '', kg: n('#vs-rkg') || '' };
     Object.assign(S, { kur: n('#vs-kur') || '', kur2: n('#vs-kur2') || '', kdv: n('#vs-kdv') || 0, navlun: n('#vs-nav') || 0, sigorta: n('#vs-sig') || 0, masraf: n('#vs-mas') || 0 });
     S.ev = { gv: n('#vs-egv') || 0, igv: n('#vs-eigv') || 0, goz: n('#vs-egoz') || 0 };
     S.si = { gv: n('#vs-sgv') || 0, igv: n('#vs-sigv') || 0, goz: n('#vs-sgoz') || 0 };
@@ -4121,7 +4132,7 @@ async function viewVergiSim() {
       ${eksikKg ? `<p class="small" style="color:var(--orange);margin:0 4px 8px">${eksikKg} eviyede gözetim ağırlığı boş; o satırlar gözetimsiz (CIF üzerinden) hesaplandı.</p>` : ''}
       <div class="list"><div class="table-wrap"><table class="tbl stack"><thead><tr><th>Eviye</th><th class="r">Adet</th><th class="r">Maliyet KDV hariç</th><th class="r">KDV dahil</th>${B ? `<th class="r">Kur ${fmtN(B.kur)} ile</th>` : ''}<th class="r">Satış</th><th class="r">Kâr / adet</th><th class="r">Marj</th></tr></thead><tbody>
       ${A.eviye.map((x, i) => `<tr>
-        <td class="w"><b>${esc(satirAd(x.k.s))}</b><div class="tiny">${num(x.k.gozetim_kg) ? `${fmtN(x.k.gozetim_kg)} kg · ` : ''}FOB ${fmtPB(x.k.birim_fiyat, 'USD')} · CIF ${fmtPB(x.r.cif, 'USD')}${x.r.goz ? ` · gözetim ${fmtPB(x.r.gozetim, 'USD')}` : ''} · vergi ${fmtTL(x.r.birimVergiTL)}${x.sf ? ` · sifon ${fmtTL(x.sf.birim)}` : ''}</div></td>
+        <td class="w"><b>${esc(satirAd(x.k.s))}</b><div class="tiny">${kalOku(x.k.s.kal) ? `${kalYaz(kalOku(x.k.s.kal))} mm · ` : ''}${num(x.k.gozetim_kg) ? `${fmtN(x.k.gozetim_kg)} kg · ` : ''}FOB ${fmtPB(x.k.birim_fiyat, 'USD')} · CIF ${fmtPB(x.r.cif, 'USD')}${x.r.goz ? ` · gözetim ${fmtPB(x.r.gozetim, 'USD')}` : ''} · vergi ${fmtTL(x.r.birimVergiTL)}${x.sf ? ` · sifon ${fmtTL(x.sf.birim)}` : ''}</div></td>
         <td class="r" data-l="Adet">${fmtN(x.k.miktar)}</td>
         <td class="r" data-l="KDV hariç"><b>${fmtTL(x.birimT)}</b></td>
         <td class="r" data-l="KDV dahil">${fmtTL(x.birimT + x.indKdvT)}</td>
@@ -4148,7 +4159,7 @@ async function viewVergiSim() {
       </div>`;
   };
 
-  ['#vs-ren', '#vs-rboy', '#vs-rder', '#vs-rkal', '#vs-rkg'].forEach((s) => { $(s).oninput = () => { hesap(); satirCiz(); }; });
+  ['#vs-ren', '#vs-rboy', '#vs-rder', '#vs-rkal', '#vs-rcer', '#vs-rkg'].forEach((s) => { $(s).oninput = () => { hesap(); satirCiz(); }; });
   ['#vs-kur', '#vs-kur2', '#vs-kdv', '#vs-nav', '#vs-sig', '#vs-mas', '#vs-egv', '#vs-eigv', '#vs-egoz', '#vs-sgv', '#vs-sigv', '#vs-sgoz'].forEach((s) => { $(s).oninput = hesap; });
   $('#vs-ekle').onclick = (e) => { e.preventDefault(); S.satirlar.push(yeniSatir(null)); satirCiz(); };
   $('#vs-sifirla').onclick = () => { try { localStorage.removeItem(VSIM_KEY); } catch {} render(); };
@@ -4522,7 +4533,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.65';
+const APP_V = '1.66';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
