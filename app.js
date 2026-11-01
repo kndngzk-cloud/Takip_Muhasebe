@@ -3260,6 +3260,7 @@ async function viewCinForm(id) {
           else yeni.push(row);
         }
         if (yeni.length) await api.insert('cin_kalemler', yeni);
+        if (id) { try { await vergiOtomatik(cid); } catch (e) { console.warn('vergi otomatik', e); } }
         const plan = !id && $('#c-plan').value;
         if (plan) await api.insert('odeme_plani', PLAN_SABLON[plan].map(([y, t, a, g], i) => ({ yon: 'Ödeme', kategori: 'Fabrika', cin_siparis_id: cid, aciklama: a, tetik: t, gun_sonra: g || 0, yuzde: y, para_birimi: f.pb, sira: i })));
         return cid;
@@ -3298,7 +3299,9 @@ async function viewCinDetay(id) {
   if (kal.some((k) => k.kaynak_kalem_id)) { try { (await api.get('cin_kalemler', `select=id,cin_siparisler(no,kod)&id=in.(${kal.filter((k) => k.kaynak_kalem_id).map((k) => k.kaynak_kalem_id).join(',')})`)).forEach((x) => { kaynakAd[x.id] = cinNo(x.cin_siparisler?.no, x.cin_siparisler?.kod); }); } catch {} }
   // vergi hesaplandiysa ve sonradan satir eklendi / adet degistiyse uyar
   const vergiVar = plan.some((p) => p.kaynak === 'vergi');
-  const vergiEski = vergiVar ? kal.filter((k) => { const v = k.vergi_detay; const eq = num(k.miktar) - num(k.devreden); if (eq <= 0) return false; if (!v || !v.kur) return true; if (v.adet !== undefined && v.adet !== null) return Math.abs(num(v.adet) - eq) > 0.0001; return num(k.devreden) > 0; }) : [];
+  const vergiEski0 = vergiVar ? kal.filter((k) => { const v = k.vergi_detay; const eq = num(k.miktar) - num(k.devreden); if (eq <= 0) return false; if (!v || !v.kur) return true; if (v.adet !== undefined && v.adet !== null) return Math.abs(num(v.adet) - eq) > 0.0001; return num(k.devreden) > 0; }) : [];
+  if (vergiEski0.length && !state.ui.vergiOto?.[id]) { (state.ui.vergiOto ||= {})[id] = true; try { if (await vergiOtomatik(+id)) { toast('Ürünler değiştiği için gümrük vergisi ve ödeme takvimi güncellendi', 'ok'); return viewCinDetay(id); } } catch (e) { console.warn('vergi otomatik', e); } }
+  const vergiEski = vergiEski0;
   topbar(`${cinNo(c.no, c.kod)}`, { back: true, actions: c.durum !== 'İptal' ? `<button class="tb-btn" data-nav="#/cin/${c.id}/duzenle">${icon('edit')}Düzenle</button>` : '' });
   const aktifSip = msip.filter((s) => s.durum !== 'İptal');
   let ayr = {};
@@ -3360,7 +3363,7 @@ async function viewCinDetay(id) {
       ${iptal ? `<button class="btn" id="b-geriac">İptali geri al</button>` : ''}
       ${iptal && isAdmin() ? `<button class="btn red" id="b-sil">${icon('trash')}Kalıcı olarak sil</button>` : ''}
     </div>
-    ${vergiEski.length ? `<div class="card" style="border-left:4px solid var(--red);margin-bottom:10px"><b style="color:var(--red)">Gümrük vergisi güncel değil.</b> <span class="small">Vergi hesaplandıktan sonra ürünler değişti: ${esc(vergiEski.map((k) => k.urunler?.ad).join(', '))}. Ödeme takvimindeki gümrük vergisi ve maliyet bu ürünleri ${vergiEski.some((k) => k.kaynak_kalem_id) ? '(devreden mallar dahil) ' : ''}doğru içermiyor.</span>
+    ${vergiEski.length ? `<div class="card" style="border-left:4px solid var(--red);margin-bottom:10px"><b style="color:var(--red)">Gümrük vergisi otomatik güncellenemedi.</b> <span class="small">Vergi hesaplandıktan sonra ürünler değişti: ${esc(vergiEski.map((k) => k.urunler?.ad).join(', '))}. Ödeme takvimindeki gümrük vergisi ve maliyet bu ürünleri ${vergiEski.some((k) => k.kaynak_kalem_id) ? '(devreden mallar dahil) ' : ''}doğru içermiyor.</span>
       <div style="margin-top:8px"><button class="btn sm primary" id="b-vergi2">${icon('chart')}Gümrük vergisini yeniden hesapla</button></div></div>` : ''}
     <div class="section-title">Ürünler</div>
     <div class="list"><div class="table-wrap"><table class="tbl stack">
@@ -3803,6 +3806,38 @@ async function vergiHesapla(c, kal, plan, kur0) {
   });
 }
 
+
+/* Gumruk vergisini sessizce yeniden hesaplar (son hesaptaki gumruk kuru, KDV orani, navlun/sigorta ile).
+   Vergi hic hesaplanmadiysa ya da kur bilinmiyorsa bir sey yapmaz. Odenmis vergi kalemlerinin tutari guncellenir, vadesi korunur. */
+async function vergiOtomatik(cid) {
+  const [[c], kal, plan] = await Promise.all([
+    api.get('cin_siparisler', `select=*&id=eq.${cid}`),
+    api.get('cin_kalemler', `select=*,urunler(ad,kod,birim,gumruk)&cin_siparis_id=eq.${cid}&order=sira.asc,id.asc`),
+    api.get('v_odeme_takvimi', `select=*&cin_siparis_id=eq.${cid}&order=sira.asc,id.asc`)
+  ]);
+  const eski = plan.filter((p) => p.kaynak === 'vergi');
+  if (!c || !eski.length || !kal.length) return false;
+  const onceki = kal.find((k) => k.vergi_detay?.kur)?.vergi_detay;
+  const kur = num(onceki?.kur); if (!(kur > 0)) return false;
+  const R = (await cache.ayarlar()).ithalat || {};
+  const fob = kal.reduce((a, k) => a + (num(k.miktar) - num(k.devreden)) * num(k.birim_fiyat), 0);
+  const dvz = (p) => (p.para_birimi === c.para_birimi ? num(p.tutar_hesap) : p.para_birimi === 'TRY' ? num(p.tutar_hesap) / kur : num(p.tutar_hesap) * (num(p.kur) || guncelKur(p.para_birimi) || kur) / kur);
+  const navP = plan.filter((p) => p.kategori === 'Navlun'), sigP = plan.filter((p) => p.kategori === 'Sigorta');
+  const ctx = { R, kg: {}, fob, kur, kdv: num(onceki.kdv ?? R.kdv ?? 20),
+    navlun: navP.length ? navP.reduce((a, p) => a + dvz(p), 0) : num(onceki.navlun), sigorta: sigP.length ? sigP.reduce((a, p) => a + dvz(p), 0) : num(onceki.sigorta) };
+  const rs = kal.map((k) => ({ k, r: vergiKalem(k, ctx) }));
+  const T = (f) => rs.reduce((a, { r }) => a + f(r) * r.Q, 0);
+  const gv = T((r) => r.gv) * kur, igv = T((r) => r.igv) * kur, kdv = T((r) => r.kdv) * kur, ind = T((r) => r.indirilemez) * kur;
+  for (const { k, r } of rs) {
+    await api.update('cin_kalemler', `id=eq.${k.id}`, { vergi_tl: r.vergiTL, vergi_detay: { adet: r.Q, gozetim_kg: r.kg || null, kur, navlun: ctx.navlun, sigorta: ctx.sigorta, kdv: ctx.kdv, cif: r.cif, gozetim: r.gozetim, kiymet: r.kiymet, gv: r.gv, igv: r.igv, kdv_tutar: r.kdv, indirilemez: r.indirilemez, tarih: today(), otomatik: true } });
+  }
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const yeni = { 'Gümrük vergisi': { tutar: r2(gv + igv), aciklama: `GV ${fmtTL(gv)} + İGV ${fmtTL(igv)} · kur ${fmtN(kur)}` },
+    'İthalat KDV': { tutar: r2(kdv), aciklama: `İndirilebilir ${fmtTL(kdv - ind)} · indirilemeyen ${fmtTL(ind)} (maliyete işlendi)` } };
+  for (const p of eski) if (yeni[p.kategori]) await api.update('odeme_plani', `id=eq.${p.id}`, yeni[p.kategori]);
+  return true;
+}
+
 /* ---------- Turkiye giderleri (konteyner basina, adede gore dagitilir) ---------- */
 function trGiderleri(c, kal, sira) {
   let son = {}; try { son = JSON.parse(localStorage.getItem('ssc_trg') || '{}'); } catch {}
@@ -4103,7 +4138,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.57';
+const APP_V = '1.58';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
