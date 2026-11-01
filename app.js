@@ -362,7 +362,17 @@ async function render() {
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
-const go = (h, yerine = false) => { if (location.hash === h) render(); else if (yerine) { history.replaceState(null, '', h); render(); } else location.hash = h; };
+// uygulama ici gezinme yigini: geri tusu uygulamadan cikmasin, kaydet/sil sonrasi forma donulmesin
+const yigin = [location.hash || '#/'];
+window.addEventListener('hashchange', () => { const h = location.hash || '#/'; if (yigin.length > 1 && yigin[yigin.length - 2] === h) yigin.pop(); else if (yigin[yigin.length - 1] !== h) yigin.push(h); });
+const go = (h, yerine = false) => {
+  if (location.hash === h) { render(); return; }
+  if (yerine) {
+    if (yigin.length > 1 && yigin[yigin.length - 2] === h) { history.back(); return; } // hedef zaten bir onceki sayfa: ona don
+    history.replaceState(null, '', h); yigin[yigin.length - 1] = h; render(); return;
+  }
+  location.hash = h;
+};
 
 /* ------------------------------------------------------------------ */
 /* GIRIS                                                               */
@@ -1097,7 +1107,7 @@ async function viewUrunDetay(id) {
     ${bekSip.length ? `<div class="section-title" id="u-bek">Bekleyen siparişler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${fmtN(bekSip.reduce((a, x) => a + x.adet, 0))} adet</span></div>
     <div class="list">${bekSip.map((x) => `<div class="row" data-go="#/siparis/${x.id}"><div class="main-col"><div class="t">Fiş ${x.fis_no} · ${x.cari_id ? `<a href="#/cari/${x.cari_id}">${esc(x.cariler?.unvan || '')}</a>` : ''}</div><div class="st"><span>${fmtD(x.tarih)}</span></div></div><div class="end"><div class="amt">${fmtN(x.adet)} adet</div></div></div>`).join('')}</div>` : ''}
     ${yolC.length ? `<div class="section-title" id="u-yol">Yoldaki ithalatlar</div>
-    <div class="list">${yolC.map((x) => `<div class="row" data-go="#/cin/${x.id}"><div class="main-col"><div class="t">${cinNo(x.no, x.kod)} · ${esc(x.fabrikalar?.ad || '')}</div><div class="st">${cinBadge(x.durum)}${x.tahmini_varis ? `<span>tahmini varış ${fmtD(x.tahmini_varis)}</span>` : ''}</div></div><div class="end"><div class="amt">${fmtN(x.adet)} adet</div></div></div>`).join('')}</div>` : ''}
+    <div class="list">${yolC.map((x) => `<div class="row" data-go="#/cin/${x.id}"><div class="main-col"><div class="t">${esc(cinNo(x.no, x.kod))} · ${esc(x.fabrikalar?.ad || '')}</div><div class="st">${cinBadge(x.durum)}${x.tahmini_varis ? `<span>tahmini varış ${fmtD(x.tahmini_varis)}</span>` : ''}</div></div><div class="end"><div class="amt">${fmtN(x.adet)} adet</div></div></div>`).join('')}</div>` : ''}
     <div class="section-title">Stok hareketleri</div>
     <div class="list">${hareketTable(har, false)}</div>`;
   $('#ed').onclick = () => urunForm(u, null, () => { cache.dirty('urunler'); render(); });
@@ -1129,7 +1139,7 @@ function hareketTable(har, showUrun) {
         ? (isAdmin() ? `<input class="input mal-in" data-id="${h.id}" inputmode="decimal" style="width:110px;padding:6px 8px;text-align:right;font-size:14px" placeholder="girin" value="${h.birim_maliyet !== null ? fmtN(h.birim_maliyet) : ''}">` : (h.birim_maliyet !== null ? fmtTL(h.birim_maliyet) : '–'))
         : ''}${h.para_birimi && h.para_birimi !== 'TRY' && h.doviz_maliyet !== null ? `<div class="tiny">${fmtPB(h.doviz_maliyet, h.para_birimi)} × ${fmtN(h.kur)}</div>` : ''}</td>
       <td class="small w">${h.siparisler && h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">Fiş ${h.siparisler.fis_no}</a> · ${h.siparisler.cari_id ? `<a href="#/cari/${h.siparisler.cari_id}">${esc(h.siparisler.cariler?.unvan || '')}</a>` : esc(h.siparisler.cariler?.unvan || '')}` : h.cin_kalemler?.cin_siparis_id ? `<a href="#/cin/${h.cin_kalemler.cin_siparis_id}">İthalat ${esc(cinNo(h.cin_kalemler.cin_siparisler?.no, h.cin_kalemler.cin_siparisler?.kod))}</a>${h.aciklama ? ' · ' + esc(h.aciklama) : ''}` : h.cari_id && h.tedarikci ? `<a href="#/cari/${h.cari_id}">${esc(h.tedarikci)}</a>${[h.belge_no, h.aciklama].filter(Boolean).map((x) => ' · ' + esc(x)).join('')}` : esc([h.tedarikci, h.belge_no, h.aciklama].filter(Boolean).join(' · ') || '')}</td>
-      ${isAdmin() ? `<td class="push">${!h.siparis_id && !h.cin_kalem_id ? `<button class="icon-btn h-del" data-id="${h.id}" title="Sil">${icon('trash')}</button>` : ''}</td>` : ''}
+      ${isAdmin() ? `<td class="push">${!h.siparis_id && !h.cin_kalem_id ? `<button class="icon-btn h-del" data-id="${h.id}" ${h.cari_id ? `data-cari="${h.cari_id}" data-ted="${esc(h.tedarikci || '')}"` : ''} title="Sil">${icon('trash')}</button>` : ''}</td>` : ''}
     </tr>`).join('')}</tbody></table></div>`;
 }
 function bindHareketEdit() {
@@ -1140,8 +1150,9 @@ function bindHareketEdit() {
     catch (e) { fail(e); }
   }));
   $$('.h-del').forEach((b) => b.addEventListener('click', async () => {
-    if (!await confirmBox('Hareket silinsin mi?', 'Bu stok hareketi kalıcı olarak silinecek ve stok miktarı buna göre değişecek.', 'Sil', true)) return;
-    try { await api.del('stok_hareketleri', `id=eq.${b.dataset.id}`); cache.dirty('urunler'); toast('Silindi', 'ok'); render(); } catch (e) { fail(e); }
+    const ted = b.dataset.cari;
+    if (!await confirmBox('Hareket silinsin mi?', `Bu stok hareketi kalıcı olarak silinecek ve stok miktarı buna göre değişecek.${ted ? `<br><br><b>Bu alış ${esc(b.dataset.ted || 'tedarikçi')} carisine borç olarak işlenmişti.</b> Cari borç kendiliğinden değişmez; silindikten sonra tedarikçinin carisi açılır, oradaki alış (ve varsa ödeme) kaydını düzeltin.` : ''}`, 'Sil', true)) return;
+    try { await api.del('stok_hareketleri', `id=eq.${b.dataset.id}`); cache.dirty('urunler', 'cariler'); toast('Silindi', 'ok'); if (ted) go(`#/cari/${ted}`); else render(); } catch (e) { fail(e); }
   }));
 }
 
@@ -1466,7 +1477,7 @@ async function viewCariDetay(id) {
   topbar(c.unvan, { back: true, actions: `<button class="tb-btn" id="ed">${icon('edit')}Düzenle</button>` });
   $('#view').innerHTML = `
     <div class="card">
-      <div class="st small muted" style="margin-bottom:10px">${esc(c.kod)} · ${c.tip === 'Perakende' ? '<span class="badge">Perakende</span>' : '<span class="badge b-blue">Toptan</span>'}
+      <div class="st small muted" style="margin-bottom:10px">${esc(c.kod)} · ${c.tip === 'Perakende' ? '<span class="badge">Perakende</span>' : c.tip === 'Tedarikçi' ? '<span class="badge b-purple">Tedarikçi</span>' : '<span class="badge b-blue">Toptan</span>'}
         ${c.sehir ? '· ' + esc(c.sehir) : ''} ${c.telefon ? `· <a href="tel:${esc(c.telefon)}">${esc(c.telefon)}</a>` : ''} ${c.yetkili ? '· ' + esc(c.yetkili) : ''}</div>
       <div class="stats">
         <div class="stat"><div class="l">R bakiye</div><div class="v ${balCls(c.bakiye_r)}">${fmtTL(c.bakiye_r)}</div></div>
@@ -1480,8 +1491,9 @@ async function viewCariDetay(id) {
       <button class="btn primary" id="b-sip">${icon('order')}Yeni sipariş</button>
       <button class="btn" id="b-acl">Açılış / düzeltme</button>
     </div>
-    ${acikTk.length ? `<div class="section-title">Açık ${acikTk[0].yon === 'Ödeme' && acikTk.every((p) => p.yon === 'Ödeme') ? 'ödemeler' : 'taksitler'} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${acikTk.length} kalem · ${fmtTL(acikTk.reduce((a, p) => a + num(p.tutar_tl ?? p.tutar_hesap), 0))}</span></div>
-    <div class="list" id="cd-tk">${acikTk.map((p) => planRow(p, { baslik: true })).join('')}</div>` : ''}
+    ${acikTk.length ? (() => { const tl = (p) => num(p.tutar_tl) || (p.para_birimi === 'TRY' ? num(p.tutar_hesap) : tlTahmin(p)); const ta = acikTk.filter((p) => p.yon === 'Tahsilat').reduce((a, p) => a + tl(p), 0), od = acikTk.filter((p) => p.yon === 'Ödeme').reduce((a, p) => a + tl(p), 0);
+      return `<div class="section-title">Açık taksit / ödemeler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${acikTk.length} kalem${ta ? ` · tahsil edilecek ${fmtTL(ta)}` : ''}${od ? ` · ödenecek ${fmtTL(od)}` : ''}</span></div>
+    <div class="list" id="cd-tk">${acikTk.map((p) => planRow(p, { baslik: true })).join('')}</div>`; })() : ''}
     ${bekSip.length ? `<div class="section-title">Bekleyen siparişler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${bekSip.length} sipariş · ${fmtTL(bekSip.reduce((a, x) => a + num(x.genel_toplam), 0))}</span></div>
     <div class="list" id="cd-sip">${bekSip.map((x) => siparisRow(x, true)).join('')}</div>` : ''}
     ${cekler.length ? `<div class="section-title">Çek / senetler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· bekleyen ${fmtTL(cekler.filter((n) => n.durum === 'Bekliyor').reduce((a, n) => a + num(n.tutar_tl ?? n.tutar), 0))}</span></div>
@@ -1540,7 +1552,7 @@ async function viewCariDetay(id) {
    siparisten otomatik gelen kayitlar siparis uzerinden duzenlenir. */
 function cariHareketDuzenle(h, c) {
   if (!h) return;
-  if (h.otomatik || h.siparis_id) {
+  if (h.otomatik) {
     modal({
       title: `${h.islem} · ${fmtD(h.tarih)}`,
       body: `<p style="margin-top:0">Bu kayıt <b>${esc(h.belge_no || 'siparişten')}</b> otomatik oluştu (${esc(h.islem)} · ${fmtTL(num(h.borc) || num(h.alacak))}).</p>
@@ -1555,7 +1567,7 @@ function cariHareketDuzenle(h, c) {
   modal({
     title: 'Cari hareketi düzenle',
     body: `<div class="field"><label>Cari</label><input class="input" value="${esc(c.unvan)}" readonly style="background:var(--surface-2)"></div>
-      <div class="field"><label>Kayıt türü</label><div class="seg" id="hd-is">${['Tahsilat', 'Açılış', 'Düzeltme'].map((x) => `<button type="button" data-v="${x}">${x === 'Açılış' ? 'Açılış bakiyesi' : x}</button>`).join('')}</div></div>
+      <div class="field"><label>Kayıt türü</label><div class="seg" id="hd-is">${(['Alış', 'Ödeme'].includes(h.islem) ? [h.islem] : ['Tahsilat', 'Açılış', 'Düzeltme']).map((x) => `<button type="button" data-v="${x}">${x === 'Açılış' ? 'Açılış bakiyesi' : x}</button>`).join('')}</div></div>
       <div class="field"><label>Hesap</label><div class="seg" id="hd-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
       <div class="field" id="hd-yonf"><label>Yön</label><div class="seg" id="hd-yon"><button type="button" data-v="borc">Müşteri bize borçlu</button><button type="button" data-v="alacak">Biz müşteriye borçluyuz</button></div></div>
       ${dovizHtml('hd-dv', pb, pb === 'TRY' ? '' : num(h.kur))}
@@ -1571,8 +1583,8 @@ function cariHareketDuzenle(h, c) {
         $$('#hd-is button', m.el).forEach((b) => b.classList.toggle('on', b.dataset.v === v.is));
         $$('#hd-tip button', m.el).forEach((b) => b.classList.toggle('on', b.dataset.v === v.tip));
         $$('#hd-yon button', m.el).forEach((b) => b.classList.toggle('on', b.dataset.v === v.yon));
-        $('#hd-yonf', m.el).classList.toggle('hidden', v.is === 'Tahsilat');
-        $('#hd-osf', m.el).style.visibility = v.is === 'Tahsilat' ? 'visible' : 'hidden';
+        $('#hd-yonf', m.el).classList.toggle('hidden', ['Tahsilat', 'Alış', 'Ödeme'].includes(v.is));
+        $('#hd-osf', m.el).style.visibility = ['Tahsilat', 'Ödeme'].includes(v.is) ? 'visible' : 'hidden';
       };
       ['is', 'tip', 'yon'].forEach((k) => { $(`#hd-${k}`, m.el).onclick = (e) => { const b = e.target.closest('button'); if (b) { v[k] = b.dataset.v; if (k === 'is' && v.is === 'Tahsilat') v.yon = 'alacak'; ui(); } }; });
       ui();
@@ -1584,12 +1596,27 @@ function cariHareketDuzenle(h, c) {
         if (!(t0 > 0)) return toast('Tutar girin', 'err');
         const d = dv.check(); if (!d) return;
         const t = Math.round(t0 * d.kur * 100) / 100;
-        const yon = v.is === 'Tahsilat' ? 'alacak' : v.yon;
+        const yon = v.is === 'Tahsilat' || v.is === 'Alış' ? 'alacak' : v.is === 'Ödeme' ? 'borc' : v.yon;
+        const eskiT = num(h.borc) || num(h.alacak);
         const patch = { tarih: $('#hd-t', m.el).value || h.tarih, islem: v.is, fatura_tipi: v.tip, borc: yon === 'borc' ? t : 0, alacak: yon === 'alacak' ? t : 0,
-          para_birimi: d.pb, kur: d.kur, doviz_tutar: d.pb === 'TRY' ? null : t0, odeme_sekli: v.is === 'Tahsilat' ? $('#hd-os', m.el).value : null,
+          para_birimi: d.pb, kur: d.kur, doviz_tutar: d.pb === 'TRY' ? null : t0, odeme_sekli: ['Tahsilat', 'Ödeme'].includes(v.is) ? $('#hd-os', m.el).value : null,
           belge_no: $('#hd-bel', m.el).value.trim() || null, aciklama: $('#hd-ac', m.el).value.trim() || null };
+        // alis kaydinda matrah / KDV ayni oranda guncellenir
+        if (num(h.matrah) && eskiT > 0) { patch.matrah = Math.round(num(h.matrah) * t / eskiT * 100) / 100; patch.kdv_tutari = Math.round((t - patch.matrah) * 100) / 100; }
         try {
-          await busy(e.currentTarget, () => api.update('cari_hareketler', `id=eq.${h.id}`, patch));
+          await busy(e.currentTarget, async () => {
+            await api.update('cari_hareketler', `id=eq.${h.id}`, patch);
+            // kasaya islenmis tutar da yeni tutara gore duzeltilir (kasa bakiyesi kendiliginden guncellenir)
+            const [ch] = await api.get('cari_hareketler', `select=kasa_hareket_id&id=eq.${h.id}`).catch(() => []);
+            if (ch?.kasa_hareket_id && Math.abs(t - eskiT) > 0.009) {
+              const [kh] = await api.get('kasa_hareketleri', `select=id,tutar,kasa(para_birimi,kur)&id=eq.${ch.kasa_hareket_id}`).catch(() => []);
+              if (kh) {
+                const k = kh.kasa || {}; const isaret = num(kh.tutar) < 0 ? -1 : 1;
+                const yeni = k.para_birimi === d.pb && d.pb !== 'TRY' ? t0 : k.para_birimi === 'TRY' || !k.para_birimi ? t : t / (num(k.kur) || guncelKur(k.para_birimi) || 1);
+                await api.update('kasa_hareketleri', `id=eq.${kh.id}`, { tutar: Math.round(yeni * 100) / 100 * isaret });
+              }
+            }
+          });
           m.close(); cache.dirty('cariler'); toast('Hareket güncellendi', 'ok'); render();
         } catch (err) { fail(err); }
       };
@@ -2983,7 +3010,7 @@ function planRow(p, { baslik = false } = {}) {
   const gec = !p.odendi && p.vade && p.vade < today();
   const cariA = p.cari_id ? `<a href="#/cari/${p.cari_id}">${esc(p.cari_unvan || p.kategori)}</a>` : esc(p.cari_unvan || p.kategori);
   const fisA = p.fis_no && p.siparis_id ? ` · <a href="#/siparis/${p.siparis_id}">Fiş ${p.fis_no}</a>` : p.fis_no ? ` · Fiş ${p.fis_no}` : '';
-  const cinA = p.cin_no ? ` · ${p.cin_id || p.cin_siparis_id ? `<a href="#/cin/${p.cin_id || p.cin_siparis_id}">${cinNo(p.cin_no, p.cin_kod)}</a>` : cinNo(p.cin_no, p.cin_kod)}` : '';
+  const cinA = p.cin_no ? ` · ${p.cin_id || p.cin_siparis_id ? `<a href="#/cin/${p.cin_id || p.cin_siparis_id}">${esc(cinNo(p.cin_no, p.cin_kod))}</a>` : esc(cinNo(p.cin_no, p.cin_kod))}` : '';
   const kim = p.kategori === 'Müşteri' ? `${cariA}${fisA}`
     : p.kategori === 'Fabrika' ? `${esc(p.fabrika_ad || 'Fabrika')}${cinA}`
       : p.kategori === 'Tedarikçi' ? `${cariA}${cinA}`
@@ -3123,10 +3150,10 @@ function planForm(p, ctx) {
         let chSil = false;
         if (p.cari_hareket_id) {
           const [[h], diger] = await Promise.all([
-            api.get('cari_hareketler', `select=id,aciklama&id=eq.${p.cari_hareket_id}`).catch(() => []),
+            api.get('cari_hareketler', `select=id,aciklama,kaynak&id=eq.${p.cari_hareket_id}`).catch(() => []),
             api.get('odeme_plani', `select=id&cari_hareket_id=eq.${p.cari_hareket_id}&id=neq.${p.id}`).catch(() => [])
           ]);
-          chSil = !!h && /^(Ödeme planı|Tedarikçi ödemesi)/.test(h.aciklama || '') && !diger.length;
+          chSil = !!h && (h.kaynak === 'plan' || /^(Ödeme planı|Tedarikçi ödemesi)/.test(h.aciklama || '')) && !diger.length;
         }
         if (!await confirmBox('Ödeme geri alınsın mı?', `Kalem tekrar “ödenmedi” olur${chSil ? ', cariye işlenen kayıt silinir' : p.cari_hareket_id ? '. Tahsilat kaydı caride kalır, sadece bu taksitle bağı kopar' : ''}${p.kasa_hareket_id ? ', kasaya işlenen tutar geri alınır' : ''}.`, 'Geri al', true)) return;
         try {
@@ -3186,14 +3213,14 @@ function odemeYap(p) {
             if (tah) {
               tut = parseNum($('#o-tut', m.el).value);
               if (!(tut > 0)) throw new Error('Tutar girin');
-              const [h] = await api.insert('cari_hareketler', [{ tarih, cari_id: p.cari_id, siparis_id: p.siparis_id || null, islem: 'Tahsilat', fatura_tipi: tip, alacak: Math.round(tut * 100) / 100, para_birimi: 'TRY', kur: 1, odeme_sekli: os, belge_no: cek.aktif() ? cek.belge() : p.fis_no ? `Fiş ${p.fis_no}` : null, aciklama: `Ödeme planı${p.aciklama ? ': ' + p.aciklama : ''}${p.fis_no ? ` · Fiş ${p.fis_no}` : ''}` }]);
+              const [h] = await api.insert('cari_hareketler', [{ tarih, cari_id: p.cari_id, siparis_id: p.siparis_id || null, kaynak: 'plan', islem: 'Tahsilat', fatura_tipi: tip, alacak: Math.round(tut * 100) / 100, para_birimi: 'TRY', kur: 1, odeme_sekli: os, belge_no: cek.aktif() ? cek.belge() : p.fis_no ? `Fiş ${p.fis_no}` : null, aciklama: `Ödeme planı${p.aciklama ? ': ' + p.aciklama : ''}${p.fis_no ? ` · Fiş ${p.fis_no}` : ''}` }]);
               chId = h?.id || null;
               await cek.kaydet({ cari_id: p.cari_id, unvan: p.cari_unvan, tarih, tutar: Math.round(tut * 100) / 100, pb: 'TRY', kur: 1, tip, hareketId: chId, aciklama: p.fis_no ? `Fiş ${p.fis_no} taksiti` : null });
             }
             const tlTop = tah ? Math.round(tut * 100) / 100 : Math.round(num(p.tutar_hesap) * (dvz ? k : 1) * 100) / 100;
             // tedarikci odemesi cariye de islenir
             if (!tah && p.kategori === 'Tedarikçi' && p.cari_id) {
-              const [h] = await api.insert('cari_hareketler', [{ tarih, cari_id: p.cari_id, islem: 'Ödeme', fatura_tipi: ttip, borc: tlTop, para_birimi: p.para_birimi, kur: dvz ? k : 1, doviz_tutar: dvz ? num(p.tutar_hesap) : null, odeme_sekli: os, belge_no: p.aciklama || null, aciklama: 'Tedarikçi ödemesi' }]);
+              const [h] = await api.insert('cari_hareketler', [{ tarih, cari_id: p.cari_id, kaynak: 'plan', islem: 'Ödeme', fatura_tipi: ttip, borc: tlTop, para_birimi: p.para_birimi, kur: dvz ? k : 1, doviz_tutar: dvz ? num(p.tutar_hesap) : null, odeme_sekli: os, belge_no: p.aciklama || null, aciklama: 'Tedarikçi ödemesi' }]);
               chId = h?.id || null;
             }
             // kasa hareketi
@@ -4164,8 +4191,10 @@ async function viewVergiSim() {
     if (!A) { $('#vs-out').innerHTML = `<div class="card empty">${num(S.kur) > 0 ? 'Eviye, adet ve FOB fiyatı girin.' : 'Kuru girin.'}</div>`; return; }
     const b2 = (i) => B?.eviye[i];
     const eksikKg = A.eviye.filter((x) => !(num(x.k.gozetim_kg) > 0)).length;
+    const fiyatsizSf = [...new Set(S.satirlar.filter((x) => x.sifon && !(num(S.sf[x.sifon]?.fob) > 0)).map((x) => uAd(x.sifon)))];
     $('#vs-out').innerHTML = `
       <div class="section-title">Birim maliyet (depoya giriş)</div>
+      ${fiyatsizSf.length ? `<p class="small" style="color:var(--orange);margin:0 4px 8px">${esc(fiyatsizSf.join(', '))} için FOB fiyatı girilmedi; sifon maliyeti hesaba katılmadı.</p>` : ''}
       ${eksikKg ? `<p class="small" style="color:var(--orange);margin:0 4px 8px">${eksikKg} eviyede gözetim ağırlığı boş; o satırlar gözetimsiz (CIF üzerinden) hesaplandı.</p>` : ''}
       <div class="list"><div class="table-wrap"><table class="tbl stack"><thead><tr><th>Eviye</th><th class="r">Adet</th><th class="r">Maliyet KDV hariç</th><th class="r">KDV dahil</th>${B ? `<th class="r">Kur ${fmtN(B.kur)} ile</th>` : ''}<th class="r">Satış</th><th class="r">Kâr / adet</th><th class="r">Marj</th></tr></thead><tbody>
       ${A.eviye.map((x, i) => `<tr>
@@ -4576,15 +4605,14 @@ function nakitDurum(n, durum) {
 /* ------------------------------------------------------------------ */
 /* Yeni surum yayinlaninca acik uygulamayi kendiliginden yenile */
 /* Satir ici onclick yerine tek dinleyici (siteye katı script guvenligi uygulanabilsin diye) */
-let icGecmis = 0; window.addEventListener('hashchange', () => { icGecmis++; });
-function geriGit() { if (icGecmis > 0 && history.length > 1) { icGecmis -= 2; history.back(); } else go('#/', true); }
+function geriGit() { if (yigin.length > 1) history.back(); else go('#/', true); }
 const DATA_FN = { cinKur: () => state.cinKurCtx && cinKurForm(state.cinKurCtx.c, state.cinKurCtx.kur), geriGit, render: () => render(), malAlisi: () => malAlisi(), tahsilat: () => tahsilat(), urunForm: () => urunForm(), stokDuzelt: () => stokDuzelt(), cariForm: () => cariForm() };
 document.addEventListener('click', (e) => {
   const el = e.target.closest?.('[data-nav],[data-fn]'); if (!el) return;
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.67';
+const APP_V = '1.68';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
