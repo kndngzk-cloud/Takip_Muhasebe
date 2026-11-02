@@ -451,8 +451,6 @@ async function viewHome() {
     <div class="list">${bek.length ? bek.map((s) => siparisRow(s, true)).join('') : '<div class="empty">Bekleyen sipariş yok 🎉</div>'}</div>
     <div class="section-title">En çok alacaklı olduğumuz cariler <a href="#" id="tum-alacak">Tümü</a></div>
     <div class="list">${alacak10.length ? alacak10.map(cariRow).join('') : '<div class="empty">Açık alacak yok</div>'}</div>
-    <div class="section-title">Eksi stoktaki ürünler <a href="#/stok">Stok</a></div>
-    <div class="list">${eksi.length ? eksi.map(urunRow).join('') : '<div class="empty">Eksi stokta ürün yok</div>'}</div>
     <div class="section-title">Yaklaşan ödemeler ve tahsilatlar (14 gün) <a href="#/odemeler">Ödemeler</a></div>
     <div class="list" id="h-plan">${plan14.length || nakit14.length ? [...plan14, ...nakit14.map(nakitKalem)].sort((x, y) => String(x.vade).localeCompare(String(y.vade))).map((p) => (p._n ? nakitRow(p) : planRow(p, { baslik: true }))).join('') : '<div class="empty">Önümüzdeki 14 günde ödeme / tahsilat yok</div>'}</div>
     <div class="section-title">Yoldaki ithalat siparişleri <a href="#/cin">Tümü</a></div>
@@ -4647,7 +4645,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.77';
+const APP_V = '1.78';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
