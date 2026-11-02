@@ -1427,7 +1427,8 @@ function cariRow(c) {
     <div class="main-col"><div class="t">${esc(c.unvan)}</div>
       <div class="st"><span class="tiny">${esc(c.kod)}</span>${c.sehir ? `<span class="tiny">· ${esc(c.sehir)}</span>` : ''}${c.tip === 'Perakende' ? '<span class="badge">Perakende</span>' : ''}</div></div>
     <div class="end"><div class="amt ${balCls(c.bakiye)}">${fmtTL(c.bakiye)}</div>
-      ${num(c.bakiye_r) || num(c.bakiye_gr) ? `<div class="tiny">R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}</div>` : ''}</div>
+      ${num(c.bakiye_r) || num(c.bakiye_gr) ? `<div class="tiny">R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}</div>` : ''}
+      ${Math.abs(num(c.sevk_bekleyen)) > 0.005 ? `<div class="tiny" style="color:var(--orange)">+ sevk bekleyen ${fmtTL(c.sevk_bekleyen)}</div>` : ''}</div>
   </div>`;
 }
 async function viewCariler() {
@@ -1484,8 +1485,9 @@ async function viewCariDetay(id) {
         <div class="stat"><div class="l">R bakiye</div><div class="v ${balCls(c.bakiye_r)}">${fmtTL(c.bakiye_r)}</div></div>
         <div class="stat"><div class="l">GR bakiye</div><div class="v ${balCls(c.bakiye_gr)}">${fmtTL(c.bakiye_gr)}</div></div>
         <div class="stat"><div class="l">Toplam</div><div class="v ${balCls(c.bakiye)}">${fmtTL(c.bakiye)}</div></div>
+        ${Math.abs(num(c.sevk_bekleyen)) > 0.005 ? `<div class="stat"><div class="l">Sevk bekleyen</div><div class="v" style="color:var(--orange)">${fmtTL(c.sevk_bekleyen)}</div><div class="tiny">${c.sevk_bekleyen_sayi} sipariş · bakiyeye dahil değil</div></div>` : ''}
       </div>
-      <p class="tiny" style="margin:8px 0 0">Pozitif bakiye: müşteri size borçlu. Negatif: siz müşteriye borçlusunuz.</p>
+      <p class="tiny" style="margin:8px 0 0">Pozitif bakiye: müşteri size borçlu. Negatif: siz müşteriye borçlusunuz. Sevk edilmemiş siparişler sevk edilince bakiyeye girer; önceden alınan ödemeler bakiyede görünür.</p>
     </div>
     <div class="btn-row" style="margin-bottom:6px">
       <button class="btn orange" id="b-tah">${icon('cash')}Tahsilat</button>
@@ -1513,11 +1515,12 @@ async function viewCariDetay(id) {
   const drawEks = () => {
     const rows = eks.filter((h) => ui.tip === 'Tümü' || h.fatura_tipi === ui.tip);
     const yb = (h) => (ui.tip === 'Tümü' ? h.yuruyen_bakiye : h.yuruyen_bakiye_tip);
-    const tb = rows.reduce((a, h) => a + num(h.borc), 0), ta = rows.reduce((a, h) => a + num(h.alacak), 0);
+    const say = rows.filter((h) => !h.sevk_bekliyor);
+    const tb = say.reduce((a, h) => a + num(h.borc), 0), ta = say.reduce((a, h) => a + num(h.alacak), 0);
     $('#eks').innerHTML = rows.length ? `<div class="table-wrap"><table class="tbl stack"><thead><tr><th>Tarih</th><th>İşlem</th><th>Belge</th><th class="r">Matrah</th><th class="r">KDV</th><th class="r">Borç</th><th class="r">Alacak</th><th class="r">Bakiye</th>${isAdmin() ? '<th></th>' : ''}</tr></thead>
-      <tbody>${rows.slice().reverse().map((h) => `<tr class="click" data-hid="${h.id}">
+      <tbody>${rows.slice().reverse().map((h) => `<tr class="click" data-hid="${h.id}"${h.sevk_bekliyor ? ' style="opacity:.6"' : ''}>
         <td class="num">${fmtD(h.tarih)}</td>
-        <td>${esc(h.islem)} ${tipBadge(h.fatura_tipi)}${h.odeme_sekli ? `<div class="tiny">${esc(h.odeme_sekli)}</div>` : ''}${h.aciklama ? `<div class="tiny">${esc(h.aciklama)}</div>` : ''}</td>
+        <td>${esc(h.islem)} ${tipBadge(h.fatura_tipi)}${h.sevk_bekliyor ? ' <span class="badge b-orange">Sevk bekliyor · bakiyede yok</span>' : ''}${h.odeme_sekli ? `<div class="tiny">${esc(h.odeme_sekli)}</div>` : ''}${h.aciklama ? `<div class="tiny">${esc(h.aciklama)}</div>` : ''}</td>
         <td class="small">${h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">${esc(h.belge_no || '')}</a>` : esc(h.belge_no || '')}</td>
         <td class="r small" ${num(h.matrah) ? 'data-l="Matrah"' : ''}>${num(h.matrah) ? fmtTL(h.matrah) : ''}</td><td class="r small" ${num(h.kdv_tutari) ? 'data-l="KDV"' : ''}>${num(h.kdv_tutari) ? fmtTL(h.kdv_tutari) : ''}</td>
         <td class="r" ${num(h.borc) ? 'data-l="Borç"' : ''}>${num(h.borc) ? fmtTL(h.borc) + dvzNot(h) : ''}</td><td class="r" ${num(h.alacak) ? 'data-l="Alacak"' : ''}>${num(h.alacak) ? fmtTL(h.alacak) + dvzNot(h) : ''}</td>
@@ -4645,7 +4648,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.79';
+const APP_V = '1.80';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
