@@ -405,3 +405,8 @@ details.gum[open] summary { margin-bottom: 10px; }
 .dahil-sec { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
 .dahil-liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; }
 .dahil-liste .check { margin: 0; }
+/* istatistik kutulari uzun tutarlarda ekrani tasirmasin */
+.stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stats.stats4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 640px) { .stats.stats4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat { min-width: 0; }
