@@ -35,7 +35,7 @@ type Sip = { platform: string; siparis_no: string; platform_durum?: string; tari
   sevk_tarihi?: string | null; teslim_tarihi?: string | null; paket_no?: string | null; son_kargo?: string | null; iptal?: boolean; bekle?: boolean; ham?: unknown };
 
 /* ---------- Ticimax (kendi internet siteleri): SiparisServis.svc SOAP ----------
-   Yetki kodu: Ticimax paneli -> Ayarlar -> Entegrasyon -> Web Servisleri. Durum kodlari:
+   Yetki kodu: Ticimax paneli -> Ayarlar -> WS Yetki Kodu Yonetimi. Durum kodlari:
    0 on siparis, 1 onay bekliyor, 2 onaylandi, 3 odeme bekliyor, 4 paketleniyor, 5 tedarik, 6 kargoda, 7 teslim,
    8 iptal, 9 iade, 10 silinmis, 11 iade talebi, 12 iade ulasti, 13 iade odendi, 14/15 iptal talebi, 16/17 kismi iade */
 type XN = { n: string; c: XN[]; t: string; nil?: boolean };
@@ -75,8 +75,10 @@ function ticimax(alan: string, etiket: string) {
     const url = `https://${site.startsWith("www.") ? site : "www." + site}/Servis/SiparisServis.svc`;
     const xe = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const tar = (ms: number) => new Date(ms + 3 * 3600000).toISOString().slice(0, 19); // Istanbul saati
-    // kargoya verilen / teslim edilen eski siparisleri de yakalamak icin en az 21 gun geriye bakilir
-    const bas = Date.now() - Math.max(gunSay, 21) * 86400000, bit = Date.now() - bitGun * 86400000 + 86400000;
+    // sadece aktarim baslangicindan (siparis_aktarim_baslangic) sonraki siparisler istenir; kargoya verilenlerin durumunu
+    // yakalamak icin son 21 gune kadar geriye bakilir ama baslangic tarihinden oncesine asla
+    const basT = a.__bas ? Date.parse(`${a.__bas}T00:00:00+03:00`) : 0;
+    const bas = Math.max(Date.now() - Math.max(gunSay, 21) * 86400000, isNaN(basT) ? 0 : basT), bit = Date.now() - bitGun * 86400000 + 86400000;
     const tum: any[] = [];
     for (let sayfa = 0; sayfa < 20; sayfa++) {
       const f = [["EFaturaURL", "-1"], ["EntegrasyonAktarildi", "-1"], ["IptalEdilmisUrunler", "false"], ["KampanyaGetir", "false"], ["KargoEntegrasyonTakipDurumu", "-1"], ["KargoFirmaID", "-1"],
@@ -100,18 +102,31 @@ function ticimax(alan: string, etiket: string) {
       const durum = tmxSay(o.Durum);
       const no = String(o.SiparisNo || o.ID || "");
       if (!no || durum === 10) continue; // silinmis
+      if (basT && tmxT(o.SiparisTarihi) && Date.parse(tmxT(o.SiparisTarihi)!) < basT) continue; // baslangictan once
       const ta = o.TeslimatAdresi || {}, fa = o.FaturaAdresi || {};
       const urunler = dizi(o.Urunler?.WebSiparisUrun);
       const satirlar = urunler.map((u: any) => {
         const adet = tmxSay(u.Adet) || 1;
-        const birim = tmxSay(u.SatisAniIndirimliFiyatKdv) || tmxSay(u.SatisAniSatisFiyatKdv) || (tmxSay(u.Tutar) + tmxSay(u.KdvTutari));
+        // Ticimax'ta ...FiyatKdv alani fiyatin KDV TUTARIDIR; KDV dahil birim = fiyat + KDV tutari
+        const birim = (tmxSay(u.SatisAniIndirimliFiyat) + tmxSay(u.SatisAniIndirimliFiyatKdv)) || (tmxSay(u.SatisAniSatisFiyat) + tmxSay(u.SatisAniSatisFiyatKdv)) || (tmxSay(u.Tutar) + tmxSay(u.KdvTutari));
         return { kod: String(u.StokKodu || u.Barkod || u.UrunKartiID || ""), ad: String(u.UrunAdi || "").trim(), miktar: adet, tutar: r2(birim * adet) };
       });
       const brut = r2(tmxSay(o.SiparisToplamTutari) || tmxSay(o.ToplamTutar) || satirlar.reduce((t: number, x: any) => t + x.tutar, 0));
+      // satir tutarlari siparis toplamina orantili olcekle (kargo / indirim dahil toplam satirlara dagilir)
+      const satTop = satirlar.reduce((t: number, x: any) => t + x.tutar, 0);
+      if (satTop > 0 && brut > 0 && Math.abs(satTop - brut) > 0.01) { let kalan = brut; satirlar.forEach((x: any, i: number) => { x.tutar = i === satirlar.length - 1 ? r2(kalan) : r2(x.tutar * brut / satTop); kalan -= x.tutar; }); }
+      else if (!(satTop > 0) && satirlar.length) { const adetTop = satirlar.reduce((t: number, x: any) => t + x.miktar, 0) || 1; satirlar.forEach((x: any) => { x.tutar = r2(brut * x.miktar / adetTop); }); }
       const tarih = iso(tmxT(o.SiparisTarihi));
       const degis = d10(o.DurumGuncellemeTarihi) || d10(o.DuzenlemeTarihi); // takvim gunu (Istanbul)
       if ([9, 11, 12, 13, 16, 17].includes(durum) && (d10(tarih) || "") >= IADE_ALT) iadeler.push({ no, durum: durum === 11 || durum === 16 ? "İade talebi" : "Kabul edildi", tarih: degis, adet: null, iade_no: null, neden: String(o.SiparisDurumu || "") || null });
-      const odeme = dizi(o.Odemeler?.WebSiparisOdeme)[0] || {};
+      const ods = dizi(o.Odemeler?.WebSiparisOdeme); const odeme = ods[0] || {};
+      // Ticimax'ta odenmis siparis de "Siparisiniz Alindi" (0) durumunda kalabilir: karar odeme kaydina gore verilir.
+      // Onaylandi: 0 bekliyor, 1 onaylandi, 2 hatali. OdemeTipi 2/3: kapida odeme (teslimde odenir, beklemeden aktarilir)
+      const onayli = ods.filter((p: any) => tmxSay(p.Onaylandi) === 1).reduce((t: number, p: any) => t + tmxSay(p.Tutar), 0);
+      const kapida = ods.some((p: any) => [2, 3].includes(tmxSay(p.OdemeTipi)));
+      const odendi = kapida || Math.max(tmxSay(o.OdenenTutar), onayli) >= brut - 0.01;
+      const hatali = !odendi && ods.length > 0 && ods.every((p: any) => tmxSay(p.Onaylandi) === 2) && tmxSay(o.OdenenTutar) <= 0;
+      const erken = [0, 1, 3].includes(durum); // henuz onaylanip paketlenmemis
       out.push({
         platform: etiket, siparis_no: no, platform_durum: String(o.SiparisDurumu || durum), tarih,
         musteri: String(o.AdiSoyadi || `${o.UyeAdi || ""} ${o.UyeSoyadi || ""}`).trim() || null, alici: ta.AliciAdi || null,
@@ -120,9 +135,12 @@ function ticimax(alan: string, etiket: string) {
         satirlar, brut, komisyon: null, kargo_kesinti: null, net: null, kesinti_kesin: false,
         kargo_firma: o.KargoFirmaTanim || null, kargo_takip: o.KargoTakipNo || null, kargo_link: o.KargoTakipLink || null, barkod: o.KargoTakipNo || null,
         sevk_tarihi: durum === 6 || durum === 7 ? (degis || d10(tarih)) : null, teslim_tarihi: durum === 7 ? degis : null,
-        paket_no: o.ID ? String(o.ID) : null, son_kargo: iso(tmxT(o.KargoyaSonVerilmeTarihi)), iptal: durum === 8,
-        bekle: [0, 1, 3].includes(durum),
-        ham: { durum, durum_ad: o.SiparisDurumu || null, odeme_tipi: odeme.OdemeTipi ?? null, kargo_tutari: tmxSay(o.KargoTutari) || null },
+        paket_no: o.ID ? String(o.ID) : null, son_kargo: iso(tmxT(o.KargoyaSonVerilmeTarihi)), iptal: durum === 8 || (erken && hatali),
+        bekle: erken && !odendi && !hatali,
+        ham: { durum, durum_ad: o.SiparisDurumu || null, odeme_tipi: odeme.OdemeTipi ?? null, kargo_tutari: tmxSay(o.KargoTutari) || null,
+          odemeler: dizi(o.Odemeler?.WebSiparisOdeme).map((p: any) => ({ tip: p.OdemeTipi, onay: p.Onaylandi, tutar: p.Tutar, taksit: p.TaksitSayisi, tarih: p.Tarih })),
+          toplam: { SiparisToplamTutari: o.SiparisToplamTutari, ToplamTutar: o.ToplamTutar, Tutar: o.Tutar, ToplamKdv: o.ToplamKdv, KargoTutari: o.KargoTutari, IndirimTutari: o.IndirimTutari, OdenenTutar: o.OdenenTutar, Bakiye: o.Bakiye },
+          urunler: urunler.map((u: any) => ({ kod: u.StokKodu, Adet: u.Adet, Tutar: u.Tutar, KdvTutari: u.KdvTutari, KdvOrani: u.KdvOrani, SatisAniSatisFiyat: u.SatisAniSatisFiyat, SatisAniSatisFiyatKdv: u.SatisAniSatisFiyatKdv, SatisAniIndirimliFiyat: u.SatisAniIndirimliFiyat, SatisAniIndirimliFiyatKdv: u.SatisAniIndirimliFiyatKdv, KampanyaIndirimTutari: u.KampanyaIndirimTutari, Durum: u.Durum, DurumAd: u.DurumAd })) },
       } as Sip);
     }
     IADE[etiket] = iadeler;
@@ -152,7 +170,7 @@ Deno.serve(async (req) => {
       if (!Object.keys(a).length) continue;
       try {
         const gunSay = typeof body.gun === "number" ? body.gun : 3;
-        const liste = await PLATFORM[e.platform](a, gunSay, typeof body.bitis_gun === "number" ? body.bitis_gun : 0);
+        const liste = await PLATFORM[e.platform]({ ...a, __bas: baslangic }, gunSay, typeof body.bitis_gun === "number" ? body.bitis_gun : 0);
         let yeni = 0, aktarilan = 0, baglanan = 0, guncellenen = 0, eslesmedi = 0; const hatalar: string[] = [];
         if (liste.length) {
           const mevcut = await rest(`platform_siparisler?select=id,siparis_no,durum,siparis_id&platform=eq.${encodeURIComponent(e.platform)}&siparis_no=in.(${liste.map((s) => `"${s.siparis_no.replace(/"/g, "")}"`).join(",")})`);
