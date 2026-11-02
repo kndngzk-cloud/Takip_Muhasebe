@@ -735,8 +735,7 @@ function fisCanvas(s, kal) {
   c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
   c.fillStyle = '#16213a'; c.fillRect(0, 0, W, 150);
   c.fillStyle = '#fff'; c.font = F(800, 46); c.textBaseline = 'middle';
-  c.fillText(state.ayarlar?.firma_adi || 'Firmam', pad, 62);
-  c.font = F(500, 26); c.fillStyle = '#c9d2e6'; c.fillText('Sipariş Fişi', pad, 112);
+  c.fillText('Sipariş Fişi', pad, 62); // firma adi fiste yazmaz
   c.textAlign = 'right'; c.fillStyle = '#fff'; c.font = F(800, 44); c.fillText(`#${s.fis_no}`, W - pad, 62);
   c.font = F(600, 26); c.fillStyle = '#c9d2e6'; c.fillText(`${fmtD(s.tarih)} · ${s.fatura_tipi}`, W - pad, 112);
   c.textAlign = 'left';
@@ -4637,7 +4636,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.74';
+const APP_V = '1.75';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
