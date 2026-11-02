@@ -418,7 +418,7 @@ function viewLogin() {
 /* ANA SAYFA                                                           */
 /* ------------------------------------------------------------------ */
 async function viewHome() {
-  topbar(state.ayarlar?.firma_adi || 'Ana Sayfa', { actions: `<button class="tb-btn" data-nav="#/siparis/yeni">${icon('plus')}Sipariş</button>` });
+  topbar(state.ayarlar?.firma_adi || 'Ana Sayfa');
   const [oz, bek, urun, alacakli, plan14, cinAktif, nakit14, plSon] = await Promise.all([
     api.rpc('panel_ozet'),
     api.get('v_siparisler', `select=*&durum=${eq('Beklemede')}&order=tarih.asc,fis_no.asc&limit=50`),
@@ -4645,7 +4645,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.78';
+const APP_V = '1.79';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
