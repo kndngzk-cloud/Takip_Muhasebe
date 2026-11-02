@@ -138,7 +138,9 @@ function ticimax(alan: string, etiket: string) {
         paket_no: o.ID ? String(o.ID) : null, son_kargo: iso(tmxT(o.KargoyaSonVerilmeTarihi)), iptal: durum === 8 || (erken && hatali),
         bekle: erken && !odendi && !hatali,
         ham: { durum, durum_ad: o.SiparisDurumu || null, odeme_tipi: odeme.OdemeTipi ?? null, kargo_tutari: tmxSay(o.KargoTutari) || null,
-          odemeler: dizi(o.Odemeler?.WebSiparisOdeme).map((p: any) => ({ tip: p.OdemeTipi, onay: p.Onaylandi, tutar: p.Tutar, taksit: p.TaksitSayisi, tarih: p.Tarih })),
+          odemeler: dizi(o.Odemeler?.WebSiparisOdeme).map((p: any) => ({ tip: p.OdemeTipi, onay: p.Onaylandi, tutar: p.Tutar, taksit: p.TaksitSayisi, tarih: p.Tarih,
+            // odeme referanslari (PayTR eslestirmesi icin); kart bilgisi alinmaz
+            ref: Object.fromEntries(Object.entries(p).filter(([k, v]) => v != null && typeof v !== "object" && String(v) !== "" && !/kart|card|cvv|cvc|bin/i.test(k))) })),
           toplam: { SiparisToplamTutari: o.SiparisToplamTutari, ToplamTutar: o.ToplamTutar, Tutar: o.Tutar, ToplamKdv: o.ToplamKdv, KargoTutari: o.KargoTutari, IndirimTutari: o.IndirimTutari, OdenenTutar: o.OdenenTutar, Bakiye: o.Bakiye },
           urunler: urunler.map((u: any) => ({ kod: u.StokKodu, Adet: u.Adet, Tutar: u.Tutar, KdvTutari: u.KdvTutari, KdvOrani: u.KdvOrani, SatisAniSatisFiyat: u.SatisAniSatisFiyat, SatisAniSatisFiyatKdv: u.SatisAniSatisFiyatKdv, SatisAniIndirimliFiyat: u.SatisAniIndirimliFiyat, SatisAniIndirimliFiyatKdv: u.SatisAniIndirimliFiyatKdv, KampanyaIndirimTutari: u.KampanyaIndirimTutari, Durum: u.Durum, DurumAd: u.DurumAd })) },
       } as Sip);

@@ -583,10 +583,11 @@ async function viewSiparisler() {
 
 async function viewSiparisDetay(id) {
   topbar('Sipariş', { back: true });
-  const [[s], kal, pls] = await Promise.all([
+  const [[s], kal, pls, pts] = await Promise.all([
     api.get('v_siparisler', `select=*&id=eq.${id}`),
     api.get('siparis_kalemleri', `select=*,urunler(ad,kod,birim)&siparis_id=eq.${id}&order=id.asc`),
-    api.get('platform_siparisler', `select=*&siparis_id=eq.${id}`).catch(() => [])
+    api.get('platform_siparisler', `select=*&siparis_id=eq.${id}`).catch(() => []),
+    api.get('paytr_islemler', `select=id,hesap,islem_tarihi,islem_tutari,net_tutar,kesinti_tutari,taksit,kart_marka,makbuz_no&siparis_id=eq.${id}`).catch(() => [])
   ]);
   if (!s) { $('#view').innerHTML = '<div class="card empty">Sipariş bulunamadı</div>'; return; }
   topbar(`Fiş ${s.fis_no}`, { back: true, actions: `<button class="tb-btn" id="prt">${icon('print')}</button>` });
@@ -610,6 +611,9 @@ async function viewSiparisDetay(id) {
       </div>
     </div>
     ${pls.map((p) => platformKart(p)).join('')}
+    ${pts.map((p) => `<div class="card" style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><b>PayTR kart ödemesi</b> <span class="badge b-green">Ödendi</span>
+      <div class="tiny" style="margin-top:4px">${[fmtD(p.islem_tarihi), ptHesap(p.hesap), p.kart_marka, num(p.taksit) > 1 ? p.taksit + ' taksit' : 'tek çekim', p.kesinti_tutari != null ? 'kesinti ' + fmtTL(p.kesinti_tutari) : '', p.net_tutar != null ? 'net ' + fmtTL(p.net_tutar) : '', p.makbuz_no ? 'makbuz #' + p.makbuz_no : ''].filter(Boolean).map(esc).join(' · ')}</div></div>
+      <div class="num" style="font-weight:800">${fmtTL(p.islem_tutari)}</div></div>`).join('')}
     <div class="list"><div class="table-wrap"><table class="tbl">
       <thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim fiyat</th><th class="r">Tutar</th></tr></thead>
       <tbody>${kal.map((k) => `<tr><td><a href="#/urun/${k.urun_id}">${esc(k.urunler?.ad)}</a><div class="tiny">${esc(k.urunler?.kod)}</div></td><td class="r">${fmtN(k.miktar)} ${esc(k.urunler?.birim || '')}</td><td class="r">${fmtTL(k.birim_fiyat)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(k.doviz_fiyat, s.para_birimi)}</div>` : ''}</td><td class="r">${fmtTL(k.tutar)}${k.doviz_fiyat !== null && k.doviz_fiyat !== undefined && s.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(num(k.doviz_fiyat) * num(k.miktar), s.para_birimi)}</div>` : ''}</td></tr>`).join('')}</tbody>
@@ -2670,7 +2674,7 @@ async function viewPaytr() {
   const draw = () => {
     const q = norm(ui.q);
     const f = data.filter((p) => (ui.f === 'Tümü' || (ui.f === 'Eşleşmemiş' ? p.durum === 'Bekliyor' || yeniEs.has(p.id) : p.durum !== 'Bekliyor')) && (!ui.hesap || p.hesap === ui.hesap)
-      && (!q || norm(`${p.siparis_no || ''} ${p.kart_no || ''} ${p.kart_marka || ''} ${p.cari_unvan || ''} ${fmtN(p.islem_tutari)} ${p.islem_tutari} ${p.makbuz_no ? 'makbuz ' + p.makbuz_no : ''} ${p.durum === 'Perakende' ? 'perakende' : ''}`).includes(q)));
+      && (!q || norm(`${p.siparis_no || ''} ${p.kart_no || ''} ${p.kart_marka || ''} ${p.cari_unvan || ''} ${fmtN(p.islem_tutari)} ${p.islem_tutari} ${p.makbuz_no ? 'makbuz ' + p.makbuz_no : ''} ${p.durum === 'Perakende' ? 'perakende' : ''} ${p.fis_no ? 'fiş ' + p.fis_no : ''} ${p.site_siparis_no || ''} ${p.site || ''}`).includes(q)));
     const bek = data.filter((p) => p.durum === 'Bekliyor' && (!ui.hesap || p.hesap === ui.hesap));
     const net = (arr) => arr.reduce((a, p) => a + (p.islem_tipi === 'İade' ? -1 : 1) * num(p.islem_tutari), 0);
     if (data.length) $('#sum').innerHTML = `<b style="color:var(--red)">${bek.length} eşleşmemiş</b> ödeme · ${fmtTL(net(bek))} &nbsp;·&nbsp; listede ${f.length} işlem`;
@@ -2687,7 +2691,9 @@ async function viewPaytr() {
       <div class="main-col">
         <div class="t"><span class="num">${iade ? '−' : ''}${fmtTL(p.islem_tutari)}</span> ${iade ? '<span class="badge b-orange">İade</span>' : ''} ${num(p.taksit) > 1 ? `<span class="badge b-blue">${p.taksit} taksit</span>` : ''}</div>
         <div class="st">${[ptSaat(p), p.kart_marka, p.kart_no, p.siparis_no ? `Sipariş ${esc(p.siparis_no)}` : '', hesaplar.length > 1 ? ptHesap(p.hesap) : ''].filter(Boolean).map(esc).join(' · ')}</div>
-        ${ok ? `<div class="pt-es">✓ ${p.durum === 'Perakende' ? '<b>Perakende</b>' : `${p.cari_id ? `<a href="#/cari/${p.cari_id}"><b>${esc(p.cari_unvan || 'Cari')}</b></a>` : `<b>${esc(p.cari_unvan || 'Cari')}</b>`} · ${p.fatura_tipi}`} · Makbuz #${p.makbuz_no}</div>` : ''}
+        ${!ok && p.site_siparis_no ? `<div class="pt-es" style="color:var(--muted)">${esc(p.site)} siparişi ${esc(p.site_siparis_no)} · programa aktarılınca kendiliğinden bağlanır</div>` : ''}
+        ${ok && p.durum === 'Sipariş' ? `<div class="pt-es">✓ <a href="#/siparis/${p.siparis_id}"><b>Fiş ${p.fis_no ?? ''}</b></a> · ${esc(p.site || 'site')} ${esc(p.site_siparis_no || '')}${p.cari_id ? ` · <a href="#/cari/${p.cari_id}">${esc(p.cari_unvan || '')}</a>` : ''} · Makbuz #${p.makbuz_no}</div>` : ''}
+        ${ok && p.durum !== 'Sipariş' ? `<div class="pt-es">✓ ${p.durum === 'Perakende' ? '<b>Perakende</b>' : `${p.cari_id ? `<a href="#/cari/${p.cari_id}"><b>${esc(p.cari_unvan || 'Cari')}</b></a>` : `<b>${esc(p.cari_unvan || 'Cari')}</b>`} · ${p.fatura_tipi}`} · Makbuz #${p.makbuz_no}</div>` : ''}
       </div>
       <div class="pt-act">${ok
         ? `<button class="btn sm" data-mk="${p.id}">${icon('download')}Makbuz</button>${isAdmin() ? `<button class="btn sm" data-ga="${p.id}">Geri al</button>` : ''}`
@@ -2733,8 +2739,8 @@ async function viewPaytr() {
     $$('[data-mk]', $('#lst')).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); makbuzGoster(bul(+b.dataset.mk)); }));
     $$('[data-ga]', $('#lst')).forEach((b) => (b.onclick = async (e) => {
       e.stopPropagation(); const p = bul(+b.dataset.ga);
-      if (!(await confirmBox('Eşleştirme geri alınsın mı?', p.durum === 'Cari' ? `<b>${esc(p.cari_unvan || '')}</b> carisindeki ${fmtTL(p.islem_tutari)} tahsilat kaydı silinecek ve ödeme tekrar “eşleşmemiş” olacak. Makbuz #${p.makbuz_no} geçersiz olur.` : 'Ödeme tekrar “eşleşmemiş” olacak.', 'Geri al', true))) return;
-      try { await api.rpc('paytr_eslesme_kaldir', { p_id: p.id }); Object.assign(p, { durum: 'Bekliyor', cari_id: null, cari_unvan: null, fatura_tipi: null, makbuz_no: null, cari_hareket_id: null }); cache.dirty('cariler'); toast('Geri alındı', 'ok'); draw(); } catch (err) { fail(err); }
+      if (!(await confirmBox('Eşleştirme geri alınsın mı?', p.durum === 'Sipariş' ? `Fiş ${p.fis_no ?? ''} (${esc(p.site_siparis_no || '')}) bağlantısı kaldırılacak ve ödeme tekrar “eşleşmemiş” olacak; bu ödeme bir daha otomatik bağlanmaz.${p.cari_hareket_id ? ' Caride oluşan tahsilat kaydı silinir.' : ''}` : p.durum === 'Cari' ? `<b>${esc(p.cari_unvan || '')}</b> carisindeki ${fmtTL(p.islem_tutari)} tahsilat kaydı silinecek ve ödeme tekrar “eşleşmemiş” olacak. Makbuz #${p.makbuz_no} geçersiz olur.` : 'Ödeme tekrar “eşleşmemiş” olacak.', 'Geri al', true))) return;
+      try { await api.rpc('paytr_eslesme_kaldir', { p_id: p.id }); Object.assign(p, { durum: 'Bekliyor', cari_id: null, cari_unvan: null, fatura_tipi: null, makbuz_no: null, cari_hareket_id: null, siparis_id: null, fis_no: null, site: null, site_siparis_no: null }); cache.dirty('cariler'); toast('Geri alındı', 'ok'); draw(); } catch (err) { fail(err); }
     }));
     $$('[data-pt]', $('#lst')).forEach((row) => row.addEventListener('click', (e) => { if (!e.target.isConnected || e.target.closest('button,input,a,.picker,.seg')) return; ptDetay(bul(+row.dataset.pt)); }));
   };
@@ -2763,7 +2769,7 @@ function ptDetay(p) {
   modal({
     title: `${p.islem_tipi === 'İade' ? 'İade' : 'Kart ödemesi'} · ${fmtTL(p.islem_tutari)}`,
     body: `<table style="width:100%;border-collapse:collapse;font-size:15px">
-        ${satir('Durum', p.durum === 'Bekliyor' ? '<span style="color:var(--red)">Eşleşmemiş</span>' : `<span style="color:var(--green)">✓ ${p.durum === 'Perakende' ? 'Perakende' : esc(p.cari_unvan || '') + ' · ' + p.fatura_tipi}</span> · Makbuz #${p.makbuz_no}`)}
+        ${satir('Durum', p.durum === 'Bekliyor' ? '<span style="color:var(--red)">Eşleşmemiş</span>' : `<span style="color:var(--green)">✓ ${p.durum === 'Sipariş' ? `<a href="#/siparis/${p.siparis_id}">Fiş ${p.fis_no ?? ''}</a> · ${esc(p.site || '')} ${esc(p.site_siparis_no || '')} · ${esc(p.cari_unvan || '')}` : p.durum === 'Perakende' ? 'Perakende' : esc(p.cari_unvan || '') + ' · ' + p.fatura_tipi}</span> · Makbuz #${p.makbuz_no}`)}
         ${satir('Hesap', ptHesap(p.hesap))}
         ${satir('İşlem tarihi', esc(p.islem_zamani || fmtD(p.islem_tarihi)))}
         ${satir('İşlem tipi', p.islem_tipi)}
@@ -4641,7 +4647,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.76';
+const APP_V = '1.77';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
