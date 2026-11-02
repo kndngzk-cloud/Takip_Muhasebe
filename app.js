@@ -2381,32 +2381,37 @@ const ENT_ALAN = {
   Trendyol: [['seller_id', 'Satıcı ID'], ['api_key', 'API key'], ['api_secret', 'API secret']],
   Hepsiburada: [['merchant_id', 'Mağaza ID'], ['servis_anahtari', 'Servis anahtarı'], ['kullanici_adi', 'Entegratör kullanıcı adı']],
   'Koçtaş': [['api_key', 'API anahtarı']],
-  N11: [['api_key', 'API anahtarı (App Key)'], ['api_secret', 'API şifresi (App Secret)']]
+  N11: [['api_key', 'API anahtarı (App Key)'], ['api_secret', 'API şifresi (App Secret)']],
+  'gradde.com.tr': [['yetki_kodu', 'Web servis yetki kodu']],
+  'eviyeshop.com': [['yetki_kodu', 'Web servis yetki kodu']]
 };
+const SADECE_SIPARIS = ['N11', 'gradde.com.tr', 'eviyeshop.com']; // odeme cekilmez, sadece siparis
 const ENT_NOT = {
   PayTR: 'PayTR Mağaza Paneli → <b>Destek &amp; Kurulum → Entegrasyon Bilgileri</b> (Mağaza No, Mağaza Parola, Mağaza Gizli Anahtar). Gün içinde 2 saatte bir (07:15–19:15) ödeme özeti ve kart işlemleri çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur. Otomatik veri gelince elle girilmiş gelecek PayTR kayıtları silinir.',
   'PayTR 2': 'İkinci PayTR mağazanızın bilgileri (aynı yerden). Ödemeler’de “PayTR … · 2. hesap” olarak görünür.',
   Hepsiburada: 'Hepsiburada satıcı paneli → Hesabım → <b>Entegrasyon → Entegratör Bilgileri</b>: Mağaza ID, entegratör kartındaki <b>Servis Anahtarı</b> ve o entegratörün kullanıcı adı (…_dev). Vadesi gelecek hakedişler (satış − komisyon/kargo vb.) günlük toplanarak eklenir.',
   'Koçtaş': 'Koçtaş satıcı paneli (koctas.mirakl.net) → sağ üstte profil simgesi → <b>Kişisel ayarlar → API anahtarı</b> → “Yeni bir anahtar oluştur” → Panoya kopyala. Ödenecek hakedişler Ödemeler’e eklenir.',
   N11: 'N11 satıcı panelindeki <b>API Hesapları</b> bölümünden API anahtarı ve API şifresi. Siparişler diğer platformlar gibi 2 dakikada bir çekilir; satış tutarı satıcı fatura tutarıdır, kesintiler (komisyon + pazarlama + hizmet bedeli, KDV’li) N11’in verdiği oranlardan hesaplanır.',
+  'gradde.com.tr': 'Ticimax yönetim paneli → <b>Ayarlar → Entegrasyon → Web Servisleri</b> → web servisi etkinleştirip <b>yetki kodunu</b> kopyalayın. Siteye gelen siparişler 2 dakikada bir çekilir, ürünler stok koduyla eşleşir. Ödemeyi bekleyen (havale, onay bekleyen) siparişler ödeme gelince aktarılır.',
+  'eviyeshop.com': 'eviyeshop.com’un Ticimax panelinden, aynı yerden (<b>Ayarlar → Entegrasyon → Web Servisleri</b>) yetki kodu. Siparişler “eviyeshop.com” etiketiyle ayrı görünür.',
   Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.'
 };
 async function entegrasyonKart() {
   const el = $('#ent-kart'); if (!el) return;
   let ent, alan;
-  try { [ent, alan] = await Promise.all([api.get('entegrasyonlar', 'select=platform,aktif,son_calisma,son_durum,son_adet&order=platform'), api.rpc('entegrasyon_alanlar')]); }
+  try { [ent, alan] = await Promise.all([api.get('entegrasyonlar', 'select=platform,aktif,son_calisma,son_durum,son_adet,son_yanit&order=platform'), api.rpc('entegrasyon_alanlar')]); }
   catch (e) { el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2><p class="tiny" style="color:var(--red)">${esc(e.message)}</p>`; return; }
   const dolu = Object.fromEntries((Array.isArray(alan) ? alan : []).map((a) => [a.platform, new Set(a.alanlar || [])]));
-  const sira = ['PayTR', 'PayTR 2', 'Trendyol', 'Hepsiburada', 'Koçtaş', 'N11'];
+  const sira = ['PayTR', 'PayTR 2', 'Trendyol', 'Hepsiburada', 'Koçtaş', 'N11', 'gradde.com.tr', 'eviyeshop.com'];
   const ENT_AD = { PayTR: 'PayTR · 1. hesap', 'PayTR 2': 'PayTR · 2. hesap' };
   el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2>
     <p class="small muted" style="margin-top:0">Bilgiler güvenli saklanır ve buradan geri okunamaz; değiştirmek için yenisini yazmanız yeterli, boş bıraktığınız alan eskisini korur.</p>
     ${sira.map((pl) => { const e = ent.find((x) => x.platform === pl) || {}; const f = ENT_ALAN[pl]; return `<div class="ent" data-pl="${pl}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${f && pl !== 'N11' ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : pl === 'N11' ? '<span class="badge b-green">siparişler otomatik çekiliyor</span>' : '<span class="badge">yakında</span>'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${f && !SADECE_SIPARIS.includes(pl) ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : SADECE_SIPARIS.includes(pl) ? `<span class="badge ${dolu[pl]?.size ? 'b-green' : ''}">${dolu[pl]?.size ? 'siparişler otomatik çekiliyor' : 'yetki kodu bekleniyor'}</span>` : '<span class="badge">yakında</span>'}</div>
       ${f ? `<p class="tiny" style="margin:6px 0 10px">${ENT_NOT[pl]}</p>
         <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${['merchant_id', 'seller_id', 'kullanici_adi'].includes(k) ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
-        <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button>${pl !== 'N11' ? '<button class="btn sm ent-cal">Şimdi çalıştır</button>' : ''}</div>
-        <div class="tiny ent-dur" style="margin-top:8px">${e.son_calisma ? `Son çalışma: ${fmtD(String(e.son_calisma).slice(0, 10))} ${String(new Date(e.son_calisma).toTimeString()).slice(0, 5)} · <span style="color:${String(e.son_durum || '').startsWith('Hata') ? 'var(--red)' : 'var(--green)'}">${esc(e.son_durum || '')}</span>` : 'Henüz çalışmadı'}</div>`
+        <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button>${!SADECE_SIPARIS.includes(pl) ? '<button class="btn sm ent-cal">Şimdi çalıştır</button>' : ''}</div>
+        <div class="tiny ent-dur" style="margin-top:8px">${SADECE_SIPARIS.includes(pl) ? (() => { const sy = e.son_yanit?.siparis; if (!sy) return dolu[pl]?.size ? 'İlk çekim 2 dakika içinde yapılır.' : 'Henüz çalışmadı'; const hata = /hata/i.test(sy.durum || ''); return `Son sipariş çekimi: ${fmtD(String(sy.zaman).slice(0, 10))} ${String(new Date(sy.zaman).toTimeString()).slice(0, 5)} · <span style="color:${hata ? 'var(--red)' : 'var(--green)'}">${esc(sy.durum || '')}</span>`; })() : e.son_calisma ? `Son çalışma: ${fmtD(String(e.son_calisma).slice(0, 10))} ${String(new Date(e.son_calisma).toTimeString()).slice(0, 5)} · <span style="color:${String(e.son_durum || '').startsWith('Hata') ? 'var(--red)' : 'var(--green)'}">${esc(e.son_durum || '')}</span>` : 'Henüz çalışmadı'}</div>`
       : `<p class="tiny" style="margin:6px 0 0">${pl} için ödeme tarihlerini veren servis doğrulanınca eklenecek. O zamana kadar ödemeleri Ödemeler → Platform ile girebilirsiniz.</p>`}
     </div>`; }).join('')}`;
   $$('.ent', el).forEach((box) => {
@@ -2433,7 +2438,7 @@ async function entegrasyonKart() {
 /* ------------------------------------------------------------------ */
 /* PLATFORM SIPARISLERI (Hepsiburada / Trendyol / Koctas)               */
 /* ------------------------------------------------------------------ */
-const PL_RENK = { Hepsiburada: '#ff6000', Trendyol: '#f27a1a', 'Koçtaş': '#c8102e', N11: '#5b2d90' };
+const PL_RENK = { Hepsiburada: '#ff6000', Trendyol: '#f27a1a', 'Koçtaş': '#c8102e', N11: '#5b2d90', 'gradde.com.tr': '#1f6feb', 'eviyeshop.com': '#0f8a6c' };
 const plBadge = (p) => `<span class="badge" style="background:${PL_RENK[p] || 'var(--brand)'};color:#fff">${esc(p)}</span>`;
 const PL_DURUM = { 'Onay bekliyor': 'b-red', 'Aktarıldı': 'b-green', 'Eşleşmedi': 'b-red', 'Hata': 'b-red', 'Bekliyor': 'b-orange', 'Eski': '', 'İptal': '' };
 const plDurumBadge = (p) => `<span class="badge ${PL_DURUM[p.durum] || ''}">${p.durum === 'Eski' ? 'Programda yok' : p.durum === 'Aktarıldı' && p.elle ? 'Elle girilene bağlı' : esc(p.durum)}</span>`;
@@ -2460,7 +2465,7 @@ function barkodSvg(t) {
 
 
 const PL_KART = {};
-const etiketVar = (p) => p.durum !== 'İptal' && !p.teslim_tarihi && (p.platform === 'Hepsiburada' ? !!p.paket_no : p.platform === 'Trendyol' ? !!p.kargo_takip : p.platform !== 'N11');
+const etiketVar = (p) => p.durum !== 'İptal' && !p.teslim_tarihi && (p.platform === 'Hepsiburada' ? !!p.paket_no : p.platform === 'Trendyol' ? !!p.kargo_takip : !SADECE_SIPARIS.includes(p.platform));
 const b64Blob = (b, tip) => { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Blob([u], { type: tip }); };
 async function etiketGoster(p, btn) {
   if (!p) return;
@@ -4636,7 +4641,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.75';
+const APP_V = '1.76';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
