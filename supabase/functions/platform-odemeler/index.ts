@@ -87,40 +87,89 @@ async function paytr(a: Record<string, string>): Promise<{ kalemler: Kalem[]; od
 }
 
 /* ---------------- Trendyol ---------------- */
-async function trendyol(a: Record<string, string>): Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }> {
+// Trendyol haftada iki gun oder: PAZARTESI (vadesi Pzt-Sali-Carsamba olan satislar) ve PERSEMBE (vadesi Persembe-Pazar olanlar).
+// Yani her satis, vadesinden ONCEKI (ya da ayni gunku) en yakin Pazartesi/Persembe gunu yatar.
+// Odeme gunu her paketten kargo faturasi, platform hizmet bedeli ve e-ticaret stopaji (KDV haric tutarin %1'i) dusulur.
+// Komisyon satis gelirinden (sellerRevenue) zaten dusulmus gelir; komisyon faturasi ayrica dusulmez.
+const TY_PLATFORM_BEDELI = 13.19; // paket basina (KDV dahil)
+async function trendyol(a: Record<string, string>): Promise<{ kalemler: Kalem[]; odenen: string[]; yatan?: Kalem[]; ham: unknown }> {
   if (!a.seller_id || !a.api_key || !a.api_secret) throw new Error("Trendyol satıcı ID, API key ve API secret girilmeli");
   const auth = "Basic " + btoa(`${a.api_key}:${a.api_secret}`);
   const ua = `${a.seller_id} - SelfIntegration`;
   const bugun = gun(new Date());
-  const by: Record<string, number> = {};
-  let adet = 0;
-  // siparis teslim kayitlari: son 75 gun, 15 gunluk pencereler
-  for (const tip of ["Sale", "Return"]) {
-    for (let i = 0; i < 5; i++) {
-      const bit = Date.now() - i * 15 * 86400000, bas = bit - 15 * 86400000 + 1000;
+  const ty = async (tur: string, tip: string, gunSay: number) => {
+    const out: Record<string, any>[] = [];
+    for (let i = 0; i < Math.ceil(gunSay / 14); i++) {
+      const bit = Date.now() - i * 14 * 86400000, bas = bit - 14 * 86400000 + 1000;
       let page = 0, totalPages = 1;
       while (page < totalPages && page < 40) {
-        const u = `https://apigw.trendyol.com/integration/finance/che/sellers/${a.seller_id}/settlements?startDate=${bas}&endDate=${bit}&transactionType=${tip}&page=${page}&size=1000`;
+        const u = `https://apigw.trendyol.com/integration/finance/che/sellers/${a.seller_id}/${tur}?transactionType=${tip}&startDate=${bas}&endDate=${bit}&page=${page}&size=1000`;
         const r = await fetch(u, { headers: { Authorization: auth, "User-Agent": ua, storeFrontCode: "TR" } });
         const t = await r.text();
-        if (!r.ok) throw new Error(`Trendyol ${r.status}: ${t.slice(0, 200)}`);
+        if (!r.ok) throw new Error(`Trendyol ${tip} ${r.status}: ${t.slice(0, 200)}`);
         const j = JSON.parse(t);
         totalPages = j.totalPages ?? 1;
-        for (const c of j.content ?? []) {
-          if (!c.paymentDate) continue;
-          const d = gun(new Date(c.paymentDate));
-          if (d < bugun) continue; // gecmis vadeler zaten odendi
-          let v = sayi(c.sellerRevenue);
-          if (isNaN(v)) v = sayi(c.credit) - sayi(c.debt);
-          if (tip === "Return") v = -Math.abs(v);
-          by[d] = (by[d] || 0) + v; adet++;
-        }
+        out.push(...(j.content ?? []));
         page++;
       }
     }
+    return out;
+  };
+  const tgun = (ms: unknown) => gun(new Date(Number(ms)));
+  const gunNo = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay();
+  // vadeden onceki (ya da ayni) en yakin Pzt/Prs
+  const odemeGunu = (d: string) => { const g = gunNo(d); const geri = g === 0 ? 3 : g === 1 ? 0 : g === 2 ? 1 : g === 3 ? 2 : g === 4 ? 0 : g === 5 ? 1 : 2; return ekle(d, -geri); };
+  // bugunden sonraki ilk odeme gunu (bugun dahil)
+  const sonraki = (d: string) => { let x = d; for (let i = 0; i < 7; i++) { const g = gunNo(x); if (g === 1 || g === 4) return x; x = ekle(x, 1); } return d; };
+  const satis: Record<string, any>[] = [...(await ty("settlements", "Sale", 84)), ...(await ty("settlements", "Return", 84)).map((x) => ({ ...x, __iade: true }))];
+  const kesinti = await ty("otherfinancials", "DeductionInvoices", 42).catch(() => [] as Record<string, any>[]);
+  const odemeler = await ty("otherfinancials", "PaymentOrder", 14).catch(() => [] as Record<string, any>[]);
+  // odenmemis satislar (paymentOrderId bos), paket bazinda
+  const gorulen = new Set<string>();
+  const paket: Record<string, { od: string; gelir: number; brut: number; sip: string }> = {};
+  for (const c of satis) {
+    const id = String(c.id ?? ""); if (id && gorulen.has(id)) continue; if (id) gorulen.add(id);
+    if (c.paymentOrderId || !c.paymentDate) continue;
+    let v = sayi(c.sellerRevenue); if (isNaN(v)) v = sayi(c.credit) - sayi(c.debt);
+    let brut = sayi(c.credit) - sayi(c.debt); if (isNaN(brut)) brut = 0;
+    if (c.__iade) { v = -Math.abs(v); brut = -Math.abs(brut); }
+    let od = odemeGunu(tgun(c.paymentDate)); if (od < bugun) od = sonraki(bugun);
+    const k = String(c.shipmentPackageId ?? c.orderNumber ?? id);
+    const p = (paket[k] ||= { od, gelir: 0, brut: 0, sip: String(c.orderNumber ?? "") });
+    p.gelir += v; p.brut += brut; if (od < p.od) p.od = od;
   }
-  const kalemler = Object.entries(by).filter(([, v]) => Math.abs(v) > 0.005).map(([vade, tutar]) => ({ vade, tutar: Math.round(tutar * 100) / 100, aciklama: "Trendyol hakediş (sipariş vadeleri)" }));
-  return { kalemler, odenen: [], ham: { kayit: adet, gunler: by } };
+  // paket basina kargo: programdaki Trendyol siparisinin kargo kesintisi (yoksa tahmini)
+  const sipNo = [...new Set(Object.values(paket).map((p) => p.sip).filter(Boolean))];
+  const kargo: Record<string, number> = {};
+  if (sipNo.length) {
+    const ps = await rest(`platform_siparisler?select=siparis_no,kargo_kesinti,kargo_tahmin&platform=eq.Trendyol&siparis_no=in.(${sipNo.map((x) => `"${x}"`).join(",")})`).catch(() => []);
+    for (const p of ps as Record<string, unknown>[]) kargo[String(p.siparis_no)] = sayi(p.kargo_kesinti ?? p.kargo_tahmin ?? 0) || 0;
+  }
+  const by: Record<string, number> = {};
+  const detay: Record<string, unknown>[] = [];
+  for (const [k, p] of Object.entries(paket)) {
+    const iade = p.gelir < 0;
+    const kg = iade ? 0 : (kargo[p.sip] ?? 0);
+    const stopaj = iade ? 0 : Math.round(Math.max(p.brut, 0) / 1.2 * 0.01 * 100) / 100;
+    const net = p.gelir - (iade ? 0 : kg + TY_PLATFORM_BEDELI + stopaj);
+    by[p.od] = (by[p.od] || 0) + net;
+    detay.push({ paket: k, sip: p.sip, odeme: p.od, gelir: Math.round(p.gelir * 100) / 100, kargo: kg, stopaj, net: Math.round(net * 100) / 100 });
+  }
+  // henuz bir odemeden dusulmemis (paymentOrderId bos) kesinti faturalari: ilk odemeden duser (komisyon faturasi haric)
+  let bekKesinti = 0;
+  for (const c of kesinti) if (!c.paymentOrderId && !/komisyon/i.test(String(c.transactionType ?? ""))) bekKesinti += sayi(c.debt) - sayi(c.credit) || 0;
+  // sirali: eksi kalan gun bir sonrakine devreder
+  const kalemler: Kalem[] = []; let devir = -bekKesinti;
+  for (const d of Object.keys(by).sort()) {
+    const v = by[d] + devir;
+    if (v > 0.005) { kalemler.push({ vade: d, tutar: Math.round(v * 100) / 100, aciklama: devir < -0.005 ? `Trendyol hakediş ödemesi (kesinti ${Math.round(-devir * 100) / 100} ₺ düşüldü)` : "Trendyol hakediş ödemesi" }); devir = 0; }
+    else devir = v;
+  }
+  // yatan odemeler (PaymentOrder): odeme gunu Pzt/Prs'ye denk getirilir (tatil kaymasi icin)
+  const yBy: Record<string, number> = {};
+  for (const c of odemeler) { const d = odemeGunu(tgun(c.paymentDate)); const v = sayi(c.debt) - sayi(c.credit); if (!isNaN(v)) yBy[d] = (yBy[d] || 0) + v; }
+  const yatan: Kalem[] = Object.entries(yBy).filter(([, v]) => v > 0.005).map(([vade, v]) => ({ vade, tutar: Math.round(v * 100) / 100, aciklama: "Trendyol hakediş ödemesi" }));
+  return { kalemler, odenen: [], yatan, ham: { paket: detay, bekleyen_kesinti: bekKesinti, odemeler: yBy } };
 }
 
 /* Hepsiburada User-Agent'in birebir gitmesini istiyor; fetch() buna kendi ekini koydugu icin
