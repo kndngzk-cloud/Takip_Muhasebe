@@ -421,7 +421,7 @@ async function viewHome() {
   topbar(state.ayarlar?.firma_adi || 'Ana Sayfa');
   const [oz, bek, urun, alacakli, plan14, cinAktif, nakit14, plSon] = await Promise.all([
     api.rpc('panel_ozet'),
-    api.get('v_siparisler', `select=*&durum=${eq('Beklemede')}&order=tarih.asc,fis_no.asc&limit=50`),
+    api.get('v_siparisler', `select=*&durum=${eq('Beklemede')}&order=tarih.asc,fis_no.asc&limit=300`),
     cache.urunler(true),
     api.get('v_cariler', 'select=*&bakiye=gt.0.005&aktif=is.true&order=bakiye.desc&limit=10'),
     api.get('v_odeme_takvimi', `select=*&odendi=is.false&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
@@ -447,8 +447,11 @@ async function viewHome() {
     </div>
     ${plSon.length ? `<div class="section-title" style="color:var(--red)">Sizden işlem bekleyen platform siparişleri <a href="#/platform-siparisler">Tümü</a></div>
     <div class="list" id="h-pl">${plSon.map(plRow).join('')}</div>` : ''}
-    <div class="section-title">Sevk bekleyen siparişler <a href="#/siparisler">Tümü</a></div>
-    <div class="list">${bek.length ? bek.map((s) => siparisRow(s, true)).join('') : '<div class="empty">Bekleyen sipariş yok 🎉</div>'}</div>
+    ${(() => { const st = bek.filter((s) => !yoldaMi(s)), yl = bek.filter(yoldaMi); const top = (a) => fmtTL(a.reduce((t, s) => t + num(s.genel_toplam), 0));
+      return `<div class="section-title">Sevk bekleyen siparişler (stoktan) <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${st.length} sipariş · ${top(st)}</span> <a href="#/siparisler" data-sipf="Beklemede">Tümü</a></div>
+    <div class="list">${st.length ? st.slice(0, 50).map((s) => siparisRow(s, true)).join('') : '<div class="empty">Stoktan sevk bekleyen sipariş yok 🎉</div>'}</div>
+    ${yl.length ? `<div class="section-title">İthalat bekleyen siparişler (yolda) <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${yl.length} sipariş · ${top(yl)}</span> <a href="#/siparisler" data-sipf="Yolda">Tümü</a></div>
+    <div class="list">${yl.slice(0, 50).map((s) => siparisRow(s, true)).join('')}</div>` : ''}`; })()}
     <div class="section-title">En çok alacaklı olduğumuz cariler <a href="#" id="tum-alacak">Tümü</a></div>
     <div class="list">${alacak10.length ? alacak10.map(cariRow).join('') : '<div class="empty">Açık alacak yok</div>'}</div>
     <div class="section-title">Yaklaşan ödemeler ve tahsilatlar (14 gün) <a href="#/odemeler">Ödemeler</a></div>
@@ -459,6 +462,7 @@ async function viewHome() {
   $('#h-pl') && $$('[data-pl]', $('#h-pl')).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; plDetay(plSon.find((x) => x.id === +el.dataset.pl)); }));
   bindPlanRows($('#h-plan'), plan14, null);
   bindNakitRows($('#h-plan'), nakit14);
+  $$('[data-sipf]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); (state.ui.sip ||= { durum: 'Tümü', tip: 'Tümü', q: '' }).durum = a.dataset.sipf; go('#/siparisler'); }));
   $('#tum-alacak').onclick = (e) => { e.preventDefault(); state.ui.cari = { f: 'Bakiyesi olan', q: '', sirala: 'bakiye' }; go('#/cariler'); };
 }
 
@@ -478,6 +482,8 @@ function sonKargoBadge(t, kisa = false) {
   const yazi = gecti ? `Son kargo ${gun} ${saat} · geçti` : bugun ? `Bugün ${saat}'e kadar kargola` : `Son kargo ${gun}${saat !== '00:00' && saat !== '23:59' ? ' ' + saat : ''}`;
   return ` <span class="badge son-kargo ${sinif}" title="Kargoya son veriliş tarihi">${kisa ? '' : '⏱ '}${yazi}</span>`;
 }
+// ithalat siparisine bagli ve mal henuz depoya gelmemis (yolda) bekleyen siparis
+const yoldaMi = (s) => s.durum === 'Beklemede' && !!s.cin_siparis_id && s.cin_durum !== 'Teslim Alındı';
 function siparisRow(s, sevkBtn = false) {
   return `<div class="row" data-go="#/siparis/${s.id}">
     <div class="main-col"><div class="t">${esc(s.cari_unvan)}${s.cari_tip === 'Perakende' && (s.urun_ozet || s.platform) ? ` <span class="sp-ozet">${s.platform ? `<b style="color:${PL_RENK[s.platform] || 'inherit'}">${esc(s.platform)}</b>${s.urun_ozet ? ' · ' : ''}` : ''}${esc(s.urun_ozet || '')}</span>` : ''}</div>
@@ -502,7 +508,7 @@ async function viewSiparisler() {
   const DONEM = ['Tümü', 'Bugün', 'Bu hafta', 'Bu ay', 'Geçen ay', 'Son 3 ay', 'Bu yıl', 'Özel'];
   $('#view').innerHTML = `${siparisTabs('sip', plSorun)}
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Cari, fiş no, şehir ara…" value="${esc(ui.q)}"></div></div>
-    <div class="chips" id="c1">${['Tümü', 'Beklemede', 'Sevk Edildi', 'İptal'].map((d) => `<button class="chip ${ui.durum === d ? 'on' : ''}" data-d="${d}">${d}</button>`).join('')}
+    <div class="chips" id="c1">${[['Tümü', 'Tümü'], ['Beklemede', 'Sevk bekleyen'], ['Yolda', 'Yolda (ithalat)'], ['Sevk Edildi', 'Sevk Edildi'], ['İptal', 'İptal']].map(([d, t]) => `<button class="chip ${ui.durum === d ? 'on' : ''}" data-d="${d}">${t}</button>`).join('')}
       <span style="width:8px"></span>${['Tümü', 'R', 'GR'].map((t) => `<button class="chip ${ui.tip === t ? 'on' : ''}" data-t="${t}">${t === 'Tümü' ? 'R + GR' : t}</button>`).join('')}</div>
     <details class="gum" id="flt" style="margin:0 0 10px">
       <summary>Filtrele <span id="flt-n" class="badge b-blue" style="margin-left:6px"></span></summary>
@@ -547,7 +553,7 @@ async function viewSiparisler() {
     $$('.f-ozel').forEach((x) => (x.style.display = ui.donem === 'Özel' ? '' : 'none'));
     const q = norm(ui.q), uq = norm(ui.urun), ar = aralik();
     const mn = ui.min ? parseNum(ui.min) : null, mx = ui.max ? parseNum(ui.max) : null;
-    let f = data.filter((s) => (ui.durum === 'Tümü' || s.durum === ui.durum) && (ui.tip === 'Tümü' || s.fatura_tipi === ui.tip)
+    let f = data.filter((s) => (ui.durum === 'Tümü' || (ui.durum === 'Yolda' ? yoldaMi(s) : ui.durum === 'Beklemede' ? s.durum === 'Beklemede' && !yoldaMi(s) : s.durum === ui.durum)) && (ui.tip === 'Tümü' || s.fatura_tipi === ui.tip)
       && (!q || norm(`${s.cari_unvan} ${s.cari_kod || ''} ${s.fis_no} ${s.sevk_sehri || ''} ${s.gonderim_sekli || ''} ${s.aciklama || ''} ${s.urun_ozet || ''} ${s.platform || ''}`).includes(q))
       && (!ar || (s.tarih >= ar[0] && s.tarih <= ar[1]))
       && (!ui.gon || s.gonderim_sekli === ui.gon) && (!ui.sehir || s.sevk_sehri === ui.sehir) && (!ui.pb || s.para_birimi === ui.pb)
@@ -1587,8 +1593,10 @@ async function viewCariDetay(id) {
     ${acikTk.length ? (() => { const tl = (p) => num(p.tutar_tl) || (p.para_birimi === 'TRY' ? num(p.tutar_hesap) : tlTahmin(p)); const ta = acikTk.filter((p) => p.yon === 'Tahsilat').reduce((a, p) => a + tl(p), 0), od = acikTk.filter((p) => p.yon === 'Ödeme').reduce((a, p) => a + tl(p), 0);
       return `<div class="section-title">Açık taksit / ödemeler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${acikTk.length} kalem${ta ? ` · tahsil edilecek ${fmtTL(ta)}` : ''}${od ? ` · ödenecek ${fmtTL(od)}` : ''}</span></div>
     <div class="list" id="cd-tk">${acikTk.map((p) => planRow(p, { baslik: true })).join('')}</div>`; })() : ''}
-    ${bekSip.length ? `<div class="section-title">Bekleyen siparişler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${bekSip.length} sipariş · ${fmtTL(bekSip.reduce((a, x) => a + num(x.genel_toplam), 0))}</span></div>
-    <div class="list" id="cd-sip">${bekSip.map((x) => siparisRow(x, true)).join('')}</div>` : ''}
+    ${bekSip.length ? (() => { const st = bekSip.filter((x) => !yoldaMi(x)), yl = bekSip.filter(yoldaMi); const top = (a) => fmtTL(a.reduce((t, x) => t + num(x.genel_toplam), 0));
+      return `<div id="cd-sip">${st.length ? `<div class="section-title">Sevk bekleyen siparişler (stoktan) <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${st.length} sipariş · ${top(st)}</span></div>
+    <div class="list">${st.map((x) => siparisRow(x, true)).join('')}</div>` : ''}${yl.length ? `<div class="section-title">İthalat bekleyen siparişler (yolda) <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${yl.length} sipariş · ${top(yl)}</span></div>
+    <div class="list">${yl.map((x) => siparisRow(x, true)).join('')}</div>` : ''}</div>`; })() : ''}
     ${cekler.length ? `<div class="section-title">Çek / senetler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· bekleyen ${fmtTL(cekler.filter((n) => n.durum === 'Bekliyor').reduce((a, n) => a + num(n.tutar_tl ?? n.tutar), 0))}</span></div>
     <div class="list" id="cd-cek">${cekler.map(nakitRow).join('')}</div>` : ''}
     <div class="section-title">Cari ekstre</div>
@@ -4745,7 +4753,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.85';
+const APP_V = '1.86';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
