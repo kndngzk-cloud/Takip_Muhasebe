@@ -3866,7 +3866,7 @@ function asamaTarihleri(c, a) {
 
 /* ---------- Odeme takvimi ---------- */
 async function viewOdemeTakvimi() {
-  topbar('Ödemeler', { back: !wideScr() });
+  topbar('Ödemeler', { back: !wideScr(), actions: `<button class="tb-btn" id="od-dokum">${icon('download')}Döküm</button>` });
   const ui = state.ui.odeme ||= { f: 'Tümü', odenen: false, q: '' };
   const [plan, nakit, kasa] = await Promise.all([
     api.get('v_odeme_takvimi', ui.odenen ? 'select=*&odendi=is.true&order=odeme_tarihi.desc&limit=500' : 'select=*&odendi=is.false&order=vade.asc.nullslast,id.asc&limit=5000'),
@@ -3923,6 +3923,16 @@ async function viewOdemeTakvimi() {
     const d = tr.dataset.gd; const el = $(`#lst .section-title[data-sd="${d}"]`) || (d === today() ? $('#lst .section-title') : null);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+  const dokumAc = async () => {
+    try {
+      if (!ui.odenen) return nakitDokum(acik, kasa);
+      // kapananlar gorunumundeyken de acik kalemlerle dokum alinir
+      const [p2, n2] = await Promise.all([api.get('v_odeme_takvimi', 'select=*&odendi=is.false&order=vade.asc.nullslast,id.asc&limit=5000'), api.get('v_nakit_girisleri', 'select=*&durum=eq.Bekliyor&order=vade.asc&limit=5000').catch(() => [])]);
+      nakitDokum([...p2, ...n2.map(nakitKalem)], kasa);
+    } catch (err) { fail(err); }
+  };
+  $('#od-dokum').onclick = dokumAc;
+  $('#gn-ds')?.addEventListener('click', dokumAc);
   $('#yo').onclick = () => planForm(null, { yon: 'Ödeme', masraf: true, genel: true, pb: 'TRY', tetikler: ['Tarih'] });
   $('#n-cek').onclick = () => nakitForm(null, 'Çek');
   $('#n-pl').onclick = () => nakitForm(null, 'Platform');
@@ -4548,6 +4558,144 @@ function kasaForm(k) {
   });
 }
 
+
+/* ---------- Odemeler dokumu: donem sonu bakiyesine nasil ulasildigi (ekran, Excel, PDF) ---------- */
+function nakitDokumHesap(items, kasa) {
+  const bugun = today();
+  const kasaTop = kasa.reduce((a, k) => a + kasaTL(k), 0);
+  const kim = (p) => p.cari_unvan || p.fabrika_ad || p.kesideci || (p._n && p.tur === 'Platform' ? p.kaynak : '') || '';
+  const belge = (p) => (p.fis_no ? `Fiş ${p.fis_no}` : p.cin_no ? cinNo(p.cin_no, p.cin_kod) : p.belge_no || '');
+  const grup = (p) => (p._n ? (p.tur === 'Platform' ? `Platform · ${p.kaynak || ''}`.trim() : `${p.tur || 'Çek'} (portföy)`) : p.kategori === 'Müşteri' ? 'Müşteri taksitleri' : p.kategori || 'Diğer');
+  const tarihli = items.filter((p) => p.vade).map((p) => ({ p, d: p.vade < bugun ? bugun : p.vade }))
+    .sort((a, b) => a.d.localeCompare(b.d) || (a.p.yon === b.p.yon ? 0 : a.p.yon === 'Tahsilat' ? -1 : 1));
+  let bak = kasaTop;
+  const satir = tarihli.map(({ p, d }) => {
+    const tl = tlTahmin(p), gir = p.yon === 'Tahsilat';
+    bak += gir ? tl : -tl;
+    return { tarih: d, vade: p.vade, gec: p.vade < bugun, yon: gir ? 'Girecek' : 'Çıkacak', grup: grup(p), kim: kim(p), aciklama: p.aciklama || '', belge: belge(p),
+      pb: p.para_birimi || 'TRY', tutar: num(p.tutar_hesap), kur: (p.para_birimi || 'TRY') !== 'TRY' && num(p.tutar_hesap) ? Math.round(tl / num(p.tutar_hesap) * 10000) / 10000 : null,
+      gir: gir ? tl : 0, cik: gir ? 0 : tl, kalan: bak };
+  });
+  const top = (yon) => { const o = {}; satir.filter((r) => r.yon === yon).forEach((r) => { const g = o[r.grup] ||= { n: 0, t: 0 }; g.n++; g.t += yon === 'Girecek' ? r.gir : r.cik; }); return Object.entries(o).sort((a, b) => b[1].t - a[1].t); };
+  const tarihsiz = items.filter((p) => !p.vade).map((p) => ({ yon: p.yon === 'Tahsilat' ? 'Girecek' : 'Çıkacak', grup: grup(p), kim: kim(p), aciklama: p.aciklama || '', belge: belge(p), tl: tlTahmin(p) }));
+  return { bugun, kasa, kasaTop, satir, girecek: top('Girecek'), cikacak: top('Çıkacak'), son: bak, sonTarih: satir.length ? satir[satir.length - 1].tarih : bugun, tarihsiz };
+}
+function nakitDokum(items, kasa) {
+  const D = nakitDokumHesap(items, kasa);
+  const tg = D.girecek.reduce((a, [, g]) => a + g.t, 0), tc = D.cikacak.reduce((a, [, g]) => a + g.t, 0);
+  const sat = (l, v, cls = '', alt = '') => `<tr><td class="w">${l}${alt ? ` <span class="tiny">${alt}</span>` : ''}</td><td class="r ${cls}"><b>${v}</b></td></tr>`;
+  modal({
+    title: `Dönem sonu bakiyesi · ${fmtD(D.sonTarih)}`,
+    body: `<p class="small muted" style="margin-top:0">Kasadaki paradan başlanır, vadesi gelecek tüm tahsilatlar eklenir, ödemeler düşülür. Vadesi geçmiş kalemler bugüne sayılır; döviz kalemler yaklaşık kurla.</p>
+      <div class="table-wrap"><table class="tbl"><tbody>
+        ${sat('Kasadaki para (başlangıç)', fmtTL(D.kasaTop), '', `${D.kasa.length} kalem`)}
+        ${D.kasa.map((k) => `<tr><td class="w" style="padding-left:22px"><span class="tiny">${esc(k.ad)}</span></td><td class="r tiny">${fmtPB(k.tutar, k.para_birimi)}${k.para_birimi !== 'TRY' ? ` ≈ ${fmtTL(kasaTL(k))}` : ''}</td></tr>`).join('')}
+        ${sat('+ Girecekler', '+' + fmtTL(tg), 'zero')}
+        ${D.girecek.map(([g, o]) => `<tr><td class="w" style="padding-left:22px">${esc(g)} <span class="tiny">${o.n} kalem</span></td><td class="r zero">+${fmtTL(o.t)}</td></tr>`).join('')}
+        ${sat('− Çıkacaklar', '−' + fmtTL(tc), 'pos')}
+        ${D.cikacak.map(([g, o]) => `<tr><td class="w" style="padding-left:22px">${esc(g)} <span class="tiny">${o.n} kalem</span></td><td class="r pos">−${fmtTL(o.t)}</td></tr>`).join('')}
+        <tr><td class="w" style="border-top:2px solid var(--text)"><b>= Dönem sonu (${fmtD(D.sonTarih)})</b></td><td class="r" style="border-top:2px solid var(--text)"><b style="font-size:18px;color:${D.son < 0 ? 'var(--red)' : 'var(--green)'}">${fmtTL(D.son)}</b></td></tr>
+      </tbody></table></div>
+      ${D.tarihsiz.length ? `<p class="tiny" style="margin:8px 0 0">Tarihi belli olmayan <b>${D.tarihsiz.length}</b> kalem hesaba katılmadı (girecek ${fmtTL(D.tarihsiz.filter((r) => r.yon === 'Girecek').reduce((a, r) => a + r.tl, 0))}, çıkacak ${fmtTL(D.tarihsiz.filter((r) => r.yon === 'Çıkacak').reduce((a, r) => a + r.tl, 0))}); dökümde ayrı listelenir.</p>` : ''}
+      <p class="tiny" style="margin:8px 0 0">Her giriş ve çıkışın tek tek yazdığı, satır satır kalan bakiyeli döküm için Excel ya da PDF indirin.</p>`,
+    foot: `<button class="btn" id="nd-xl">${icon('download')}Excel</button><button class="btn primary" id="nd-pdf">${icon('print')}PDF</button>`,
+    onMount: (m) => {
+      const ad = `Nakit-dokumu-${D.bugun}`;
+      const indir = async (blob, dosya, tip) => {
+        const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        try { const f = new File([blob], dosya, { type: tip }); if (ios && navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: dosya }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = dosya; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+      };
+      $('#nd-xl', m.el).onclick = (e) => busy(e.currentTarget, async () => {
+        const r2 = (n) => Math.round(n * 100) / 100;
+        const ozet = [{ Kalem: 'Kasadaki para (başlangıç)', Tutar: r2(D.kasaTop) }, ...D.kasa.map((k) => ({ Kalem: `   ${k.ad} (${k.para_birimi})`, Tutar: r2(kasaTL(k)) })),
+          { Kalem: '+ Girecekler', Tutar: r2(tg) }, ...D.girecek.map(([g, o]) => ({ Kalem: `   ${g} (${o.n} kalem)`, Tutar: r2(o.t) })),
+          { Kalem: '− Çıkacaklar', Tutar: r2(-tc) }, ...D.cikacak.map(([g, o]) => ({ Kalem: `   ${g} (${o.n} kalem)`, Tutar: r2(-o.t) })),
+          { Kalem: `= Dönem sonu (${fmtD(D.sonTarih)})`, Tutar: r2(D.son) }];
+        const detay = [{ Tarih: fmtD(D.bugun), 'Asıl vade': '', Yön: 'Başlangıç', Kategori: 'Kasa', 'Kimden / kime': '', Açıklama: 'Kasadaki para', Belge: '', 'Para birimi': 'TRY', 'Tutar (döviz)': '', Kur: '', 'Girecek (TL)': r2(D.kasaTop), 'Çıkacak (TL)': '', 'Kalan bakiye (TL)': r2(D.kasaTop) },
+          ...D.satir.map((r) => ({ Tarih: fmtD(r.tarih), 'Asıl vade': r.gec ? `${fmtD(r.vade)} (gecikmiş)` : fmtD(r.vade), Yön: r.yon, Kategori: r.grup, 'Kimden / kime': r.kim, Açıklama: r.aciklama, Belge: r.belge, 'Para birimi': r.pb,
+            'Tutar (döviz)': r.pb !== 'TRY' ? r2(r.tutar) : '', Kur: r.kur ?? '', 'Girecek (TL)': r.gir ? r2(r.gir) : '', 'Çıkacak (TL)': r.cik ? r2(r.cik) : '', 'Kalan bakiye (TL)': r2(r.kalan) }))];
+        const gun = []; D.satir.forEach((r) => { const g = gun[gun.length - 1]; if (g && g._d === r.tarih) { g['Girecek (TL)'] = r2(g['Girecek (TL)'] + r.gir); g['Çıkacak (TL)'] = r2(g['Çıkacak (TL)'] + r.cik); g['Kalan bakiye (TL)'] = r2(r.kalan); } else gun.push({ _d: r.tarih, Tarih: fmtD(r.tarih), 'Girecek (TL)': r2(r.gir), 'Çıkacak (TL)': r2(r.cik), 'Kalan bakiye (TL)': r2(r.kalan) }); });
+        gun.forEach((g) => delete g._d);
+        const sheets = [{ name: 'Özet', rows: ozet }, { name: 'Detay', rows: detay }, { name: 'Günlük', rows: gun }];
+        if (D.tarihsiz.length) sheets.push({ name: 'Tarihi belli değil', rows: D.tarihsiz.map((r) => ({ Yön: r.yon, Kategori: r.grup, 'Kimden / kime': r.kim, Açıklama: r.aciklama, Belge: r.belge, 'Tutar (TL)': r2(r.tl) })) });
+        await indir(xlsxBlob(sheets), `${ad}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      }).catch(fail);
+      $('#nd-pdf', m.el).onclick = (e) => busy(e.currentTarget, async () => { await indir(canvasPdfSayfalar(nakitDokumSayfalar(D, tg, tc)), `${ad}.pdf`, 'application/pdf'); }).catch(fail);
+    }
+  });
+}
+function nakitDokumSayfalar(D, tg, tc) {
+  const W = 1240, H = 1754, pad = 56, rowH = 44;
+  const F = (w, sz) => `${w} ${sz}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const sayfalar = []; let cv, x, y;
+  const kes = (t, w) => { t = String(t || ''); while (x.measureText(t).width > w && t.length > 3) t = t.slice(0, -2); return t; };
+  const C = { tarih: pad, ac: pad + 150, gir: 790, cik: 975, kal: W - pad };
+  const yeni = () => {
+    cv = document.createElement('canvas'); cv.width = W; cv.height = H; x = cv.getContext('2d'); sayfalar.push(cv);
+    x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.textBaseline = 'middle';
+    x.fillStyle = '#16213a'; x.fillRect(0, 0, W, 110); x.fillStyle = '#fff'; x.font = F(800, 38); x.fillText('Nakit Akışı Dökümü', pad, 55);
+    x.textAlign = 'right'; x.font = F(600, 22); x.fillStyle = '#c9d2e6'; x.fillText(`${fmtD(D.bugun)} – ${fmtD(D.sonTarih)} · sayfa ${sayfalar.length}`, W - pad, 55); x.textAlign = 'left';
+    y = 150;
+  };
+  const baslik = () => {
+    x.fillStyle = '#f1f4f9'; x.fillRect(pad - 10, y - 24, W - 2 * pad + 20, 48); x.fillStyle = '#5b6578'; x.font = F(700, 19);
+    x.fillText('TARİH', C.tarih, y); x.fillText('KALEM', C.ac, y); x.textAlign = 'right'; x.fillText('GİRECEK', C.gir, y); x.fillText('ÇIKACAK', C.cik, y); x.fillText('KALAN', C.kal, y); x.textAlign = 'left'; y += 46;
+  };
+  yeni();
+  // ozet
+  const oz = (l, v, kalin, girinti) => { x.fillStyle = kalin ? '#16213a' : '#3b4558'; x.font = F(kalin ? 800 : 500, kalin ? 26 : 22); x.fillText(kes(l, 700), pad + (girinti ? 30 : 0), y); x.textAlign = 'right'; x.fillText(v, W - pad, y); x.textAlign = 'left'; y += kalin ? 40 : 32; };
+  oz('Kasadaki para (başlangıç)', fmtTL(D.kasaTop), true);
+  oz('+ Girecekler', '+' + fmtTL(tg), true); D.girecek.forEach(([g, o]) => oz(`${g} · ${o.n} kalem`, '+' + fmtTL(o.t), false, true));
+  oz('− Çıkacaklar', '−' + fmtTL(tc), true); D.cikacak.forEach(([g, o]) => oz(`${g} · ${o.n} kalem`, '−' + fmtTL(o.t), false, true));
+  x.strokeStyle = '#16213a'; x.lineWidth = 3; x.beginPath(); x.moveTo(pad, y - 14); x.lineTo(W - pad, y - 14); x.stroke(); y += 8;
+  oz(`= Dönem sonu (${fmtD(D.sonTarih)})`, fmtTL(D.son), true);
+  y += 24; baslik();
+  const satirCiz = (r) => {
+    if (y > H - 70) { yeni(); baslik(); }
+    x.fillStyle = '#16213a'; x.font = F(500, 20); x.fillText(fmtD(r.tarih), C.tarih, y - 8);
+    if (r.gec) { x.fillStyle = '#c0392b'; x.font = F(600, 15); x.fillText(`vade ${fmtD(r.vade)}`, C.tarih, y + 13); }
+    x.fillStyle = '#16213a'; x.font = F(600, 20); x.fillText(kes([r.grup, r.kim].filter(Boolean).join(' · '), C.gir - C.ac - 175), C.ac, y - 8);
+    const alt = [r.belge, r.aciklama, r.pb !== 'TRY' ? `${fmtPB(r.tutar, r.pb)} × ${fmtN(r.kur)}` : ''].filter(Boolean).join(' · ');
+    if (alt) { x.fillStyle = '#7a8496'; x.font = F(500, 15); x.fillText(kes(alt, C.gir - C.ac - 175), C.ac, y + 13); }
+    x.textAlign = 'right'; x.font = F(600, 20);
+    if (r.gir) { x.fillStyle = '#1e8a4c'; x.fillText(fmtTL(r.gir), C.gir, y - 8); }
+    if (r.cik) { x.fillStyle = '#c0392b'; x.fillText(fmtTL(r.cik), C.cik, y - 8); }
+    x.fillStyle = r.kalan < 0 ? '#c0392b' : '#16213a'; x.font = F(700, 20); x.fillText(fmtTL(r.kalan), C.kal, y - 8); x.textAlign = 'left';
+    x.strokeStyle = '#e3e7ef'; x.lineWidth = 1.5; x.beginPath(); x.moveTo(pad - 10, y + 24); x.lineTo(W - pad + 10, y + 24); x.stroke();
+    y += rowH;
+  };
+  satirCiz({ tarih: D.bugun, vade: D.bugun, gec: false, grup: 'Başlangıç', kim: 'Kasadaki para', belge: '', aciklama: '', pb: 'TRY', gir: D.kasaTop, cik: 0, kalan: D.kasaTop });
+  D.satir.forEach(satirCiz);
+  if (D.tarihsiz.length) {
+    if (y > H - 160) yeni(); y += 20; x.fillStyle = '#16213a'; x.font = F(800, 24); x.fillText('Tarihi belli olmayan kalemler (bakiyeye katılmadı)', pad, y); y += 40;
+    D.tarihsiz.forEach((r) => { if (y > H - 60) yeni(); x.fillStyle = '#3b4558'; x.font = F(500, 19); x.fillText(kes(`${r.yon} · ${r.grup} · ${[r.kim, r.belge, r.aciklama].filter(Boolean).join(' · ')}`, 900), pad, y); x.textAlign = 'right'; x.fillText(fmtTL(r.tl), W - pad, y); x.textAlign = 'left'; y += 34; });
+  }
+  return sayfalar;
+}
+// birden cok sayfali PDF (her sayfa bir canvas, A4)
+function canvasPdfSayfalar(cvs) {
+  const pw = 595.28, ph = 841.89;
+  const obj = ['<< /Type /Catalog /Pages 2 0 R >>', ''];
+  const kids = [];
+  cvs.forEach((cv) => {
+    const jpg = atob(cv.toDataURL('image/jpeg', 0.85).split(',')[1]);
+    const n = obj.length + 1; // sayfa nesnesi no
+    const icerik = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
+    obj.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 ${n + 2} 0 R >> >> /Contents ${n + 1} 0 R >>`);
+    obj.push(`<< /Length ${icerik.length} >>\nstream\n${icerik}\nendstream`);
+    obj.push(`<< /Type /XObject /Subtype /Image /Width ${cv.width} /Height ${cv.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n${jpg}\nendstream`);
+    kids.push(`${n} 0 R`);
+  });
+  obj[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${cvs.length} >>`;
+  let s = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'; const off = [];
+  obj.forEach((o, i) => { off.push(s.length); s += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xr = s.length;
+  s += `xref\n0 ${obj.length + 1}\n0000000000 65535 f \n${off.map((o) => String(o).padStart(10, '0') + ' 00000 n \n').join('')}trailer\n<< /Size ${obj.length + 1} /Root 1 0 R >>\nstartxref\n${xr}\n%%EOF`;
+  const b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 255;
+  return new Blob([b], { type: 'application/pdf' });
+}
+
 /* Gunluk nakit tablosu: kasa + gelecekler | odenecekler | kalan bakiye */
 function gunlukNakit(items, kasaTop) {
   const bugun = today();
@@ -4571,7 +4719,7 @@ function gunlukNakit(items, kasaTop) {
       <div class="kpi"><div class="l">Bugün kasada</div><div class="v num">${fmtTL(kasaTop)}</div></div>
       <div class="kpi ${enDusuk.v < 0 ? 'red' : 'green'}"><div class="l">En düşük bakiye</div><div class="v num">${fmtTL(enDusuk.v)}</div><div class="s">${fmtD(enDusuk.d)}</div></div>
       <div class="kpi ${ilkEksi ? 'orange' : 'green'}"><div class="l">${ilkEksi ? 'İlk eksiye düşüş' : 'Eksiye düşüş'}</div><div class="v num">${ilkEksi ? fmtD(ilkEksi.d) : 'Yok'}</div><div class="s">${ilkEksi ? fmtTL(ilkEksi.v) : 'tüm dönem artıda'}</div></div>
-      <div class="kpi purple"><div class="l">Dönem sonu</div><div class="v num">${fmtTL(bak)}</div><div class="s">${fmtD(gunler[gunler.length - 1])}</div></div>
+      <div class="kpi purple" id="gn-ds" style="cursor:pointer" title="Nasıl hesaplandı?"><div class="l">Dönem sonu ›</div><div class="v num">${fmtTL(bak)}</div><div class="s">${fmtD(gunler[gunler.length - 1])} · nasıl hesaplandı?</div></div>
     </div>
     <div class="table-wrap" style="max-height:520px;overflow:auto"><table class="tbl stack" id="gn-tab"><thead><tr><th>Tarih</th><th class="r">Girecek (kasa + çek + platform + taksit)</th><th class="r">Çıkacak (ödemeler)</th><th class="r">Kalan bakiye</th></tr></thead>
       <tbody><tr><td class="w"><b>Başlangıç</b> <span class="tiny">kasadaki para</span></td><td class="r zero" data-l="Kasa">${fmtTL(kasaTop)}</td><td class="r" data-l="">–</td><td class="r" data-l="Kalan"><b>${fmtTL(kasaTop)}</b></td></tr>${satir}</tbody></table></div>
@@ -4753,7 +4901,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.86';
+const APP_V = '1.87';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
