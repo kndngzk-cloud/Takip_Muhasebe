@@ -2140,7 +2140,7 @@ async function raporSatis(el, ui) {
 async function raporAlacak(el) {
   const cariler = await api.get('v_cariler', 'select=id,kod,unvan,tip,sehir,telefon,bakiye,bakiye_r,bakiye_gr&bakiye=gt.0.005&order=bakiye.desc&limit=2000');
   const ids = cariler.map((c) => c.id);
-  const har = ids.length ? await api.get('cari_hareketler', `select=cari_id,tarih,borc,alacak&cari_id=in.(${ids.join(',')})&order=tarih.asc,id.asc&limit=50000`) : [];
+  const har = ids.length ? (await api.get('v_cari_ekstre', `select=cari_id,tarih,borc,alacak,sevk_bekliyor&cari_id=in.(${ids.join(',')})&order=tarih.asc,id.asc&limit=50000`)).filter((x) => !x.sevk_bekliyor) : []; // sevk edilmemis siparisler bakiyeye girmez
   const bugun = new Date(today() + 'T12:00:00Z');
   const D = ['0-30 gün', '31-60 gün', '61-90 gün', '90+ gün'];
   const satir = cariler.map((c) => {
@@ -2481,6 +2481,7 @@ const ENT_ALAN = {
   'gradde.com.tr': [['yetki_kodu', 'Web servis yetki kodu']],
   'eviyeshop.com': [['yetki_kodu', 'Web servis yetki kodu']]
 };
+const SITE = ['gradde.com.tr', 'eviyeshop.com'];
 const SADECE_SIPARIS = ['N11', 'gradde.com.tr', 'eviyeshop.com']; // odeme cekilmez, sadece siparis
 const ENT_NOT = {
   PayTR: 'PayTR Mağaza Paneli → <b>Destek &amp; Kurulum → Entegrasyon Bilgileri</b> (Mağaza No, Mağaza Parola, Mağaza Gizli Anahtar). Gün içinde 2 saatte bir (07:15–19:15) ödeme özeti ve kart işlemleri çekilir; yatacak paralar tarihleriyle Ödemeler’e eklenir, yatanlar “tahsil edildi” olur. Otomatik veri gelince elle girilmiş gelecek PayTR kayıtları silinir.',
@@ -2613,14 +2614,14 @@ function platformKart(p, siparisSayfasi = true) {
     </div>
     ${p.barkod ? `<div class="pl-barkod">${barkodSvg(p.barkod)}<div class="num tiny" style="text-align:center;letter-spacing:2px">${esc(p.barkod)}</div></div>` : ''}
     ${(PL_KART[p.id] = p, '')}${p.kargo_link || etiketVar(p) ? `<div class="btn-row" style="margin-top:10px">${etiketVar(p) ? `<button class="btn sm primary pl-etiket" data-id="${p.id}">${icon('print')}Kargo etiketi</button>` : ''}${p.kargo_link ? `<a class="btn sm" href="${esc(p.kargo_link)}" target="_blank" rel="noopener">${icon('truck')}Kargoyu takip et</a>` : ''}</div>` : ''}
-    <div class="pl-dokum">
+    ${SITE.includes(p.platform) ? `<div class="pl-dokum"><div class="tot"><span>Sipariş tutarı (KDV dahil)</span><b class="num">${fmtTL(p.brut)}</b></div></div>` : `<div class="pl-dokum">
       <div><span>Satış (KDV dahil)</span><b class="num">${fmtTL(p.brut)}</b></div>
       <div><span>Komisyon</span><b class="num">${p.komisyon != null ? '−' + fmtTL(p.komisyon) : '–'}</b></div>
       <div><span>Kargo kesintisi${p.kargo_kesinti == null && p.kargo_tahmin != null ? ' (tahmini, geçmiş siparişlere göre)' : p.kargo_kesinti == null ? ' (henüz belli değil)' : ''}</span><b class="num">${p.kargo_kesinti != null || p.kargo_tahmin != null ? '−' + fmtTL(kargo) : '–'}</b></div>
       <div class="tot"><span>Size kalan</span><b class="num">${fmtTL(net)}</b></div>
-    </div>
+    </div>`}
     ${p.elle && siparisSayfasi ? `<div class="tiny" style="margin-top:8px">Bu sipariş elle girilmişti; platform siparişine bağlandı. Tutarına dokunulmaz, kargo ve iptal bilgisi buradan izlenir.${isAdmin() ? ` <a href="#" class="pl-ayir" data-id="${p.id}">Bağlantıyı kaldır</a>` : ''}</div>` : ''}
-    ${p.kargo_kesinti == null && !p.elle && siparisSayfasi && p.durum === 'Aktarıldı' ? '<div class="tiny" style="margin-top:8px">Kargo kesintisi platformda kesinleşince sipariş tutarı otomatik güncellenir.</div>' : ''}
+    ${p.kargo_kesinti == null && !p.elle && siparisSayfasi && p.durum === 'Aktarıldı' && !SITE.includes(p.platform) ? '<div class="tiny" style="margin-top:8px">Kargo kesintisi platformda kesinleşince sipariş tutarı otomatik güncellenir.</div>' : ''}
   </div>`;
 }
 function platformKartBagla(root, yenile) {
@@ -4744,7 +4745,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.84';
+const APP_V = '1.85';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
