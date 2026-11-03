@@ -1478,6 +1478,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
     title: u ? 'Ürünü düzenle' : 'Yeni ürün',
     body: `
       <div class="field"><label>Ürün adı</label><input class="input" id="u-ad" value="${esc(d.ad)}"></div>
+      <div class="field"><label>Stok kodu</label><input class="input" id="u-kod" value="${esc(u?.kod || preset?.kod || '')}" placeholder="Örn. SMS3, GR100SN" autocapitalize="characters" autocomplete="off">${u ? '<div class="hint">Geçmiş kayıtlar etkilenmez. Pazaryeri ve site siparişleri stok koduyla eşleştiği için platformdaki kodla aynı tutun.</div>' : ''}</div>
       <div class="grid2"><div class="field"><label>Kategori</label><input class="input" id="u-kat" value="${esc(d.kategori || '')}"></div>
         <div class="field"><label>Birim</label><input class="input" id="u-bir" value="${esc(d.birim)}" list="birimler"><datalist id="birimler"><option>Adet</option><option>Kg</option><option>Mt</option><option>Koli</option><option>Paket</option><option>Takım</option></datalist></div></div>
       <div class="grid2"><div class="field"><label>Liste satış fiyatı (₺)</label><input class="input" id="u-fy" inputmode="decimal" value="${fmtN(d.satis_fiyati)}"><div class="hint">Müşteri fiyatı yoksa bu kullanılır</div></div>
@@ -1493,6 +1494,9 @@ function urunForm(u = null, preset = null, onSaved = null) {
           satis_fiyati: parseNum($('#u-fy', m.el).value) || 0, min_stok: parseNum($('#u-min', m.el).value) || 0, notlar: $('#u-not', m.el).value.trim() || null };
         if (u) row.aktif = $('#u-akt', m.el).checked;
         if (!row.ad) return toast('Ürün adı girin', 'err');
+        row.kod = $('#u-kod', m.el).value.trim().toUpperCase().replace(/\s+/g, '');
+        if (!row.kod) return toast('Stok kodu girin', 'err');
+        if ((state.urunler || []).some((x) => x.kod === row.kod && x.id !== u?.id)) return toast(`${row.kod} kodu başka bir üründe kullanılıyor`, 'err');
         row.gumruk = gumrukOku(m.el);
         try {
           const [saved] = await busy(e.currentTarget, () => (u ? api.update('urunler', `id=eq.${u.id}`, row) : api.insert('urunler', [row])));
@@ -4740,7 +4744,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.83';
+const APP_V = '1.84';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
