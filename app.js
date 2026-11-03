@@ -429,7 +429,7 @@ async function viewHome() {
     api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
     api.get('v_platform_siparisler', `select=*&or=(durum.in.(${encodeURIComponent('Bekliyor,Onay bekliyor,Eşleşmedi,Hata')}),iade_durum.in.(${encodeURIComponent('"İade talebi","Talep bekliyor"')}),and(hata.not.is.null,iade_islendi.is.true,iade_durum.eq.${encodeURIComponent('Kabul edildi')}))&order=tarih.asc&limit=30`).catch(() => [])
   ]);
-  const eksi = urun.filter((u) => u.aktif && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
+  const eksi = urun.filter((u) => u.aktif && u.stok_takibi !== false && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
   $('#view').innerHTML = `
     <div class="quick">
@@ -978,7 +978,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
   const drawLines = () => {
     $('#lines').innerHTML = f.lines.map((l, i) => {
       const u = l.urun;
-      const stokUyari = u && num(l.miktar) > avail(u);
+      const stokUyari = u && u.stok_takibi !== false && num(l.miktar) > avail(u);
       return `<div class="line" data-i="${i}">
         <div class="picker" style="display:flex;gap:6px"><input class="input l-urun" placeholder="Ürün ara…" value="${esc(u?.ad || '')}" autocomplete="off"><button class="icon-btn l-del" title="Kaldır">${icon('trash')}</button></div>
         <div class="lr">
@@ -986,7 +986,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
           <div class="field"><label>Birim fiyat ${PB[f.pb]}</label><input class="input l-fiy" inputmode="decimal" value="${l.fiyat === '' ? '' : fmtN(l.fiyat)}"></div>
           <div class="field"><label>Tutar</label><input class="input l-tut" readonly value="${fmt2(num(l.miktar) * num(l.fiyat))}" style="background:var(--surface-2)"></div>
         </div>
-        ${u ? `<div class="info"><span>Real: <b>${fmtN(u.real_stok)}</b></span><span>${f.orig[u.id] ? 'Kullanılabilir' : cin ? 'Yolda dahil' : 'Sevk sonrası'}: <b class="${stokUyari ? 'pos' : ''}">${fmtN(avail(u))}</b> ${esc(u.birim)}</span>
+        ${u ? `<div class="info">${u.stok_takibi === false ? '<span class="tiny">Stok takibi yok</span>' : `<span>Real: <b>${fmtN(u.real_stok)}</b></span><span>${f.orig[u.id] ? 'Kullanılabilir' : cin ? 'Yolda dahil' : 'Sevk sonrası'}: <b class="${stokUyari ? 'pos' : ''}">${fmtN(avail(u))}</b> ${esc(u.birim)}</span>`}
           ${f.mf[u.id] ? `<span class="badge b-green">Müşteri fiyatı ${mfTxt(u)}</span>` : `<span class="tiny">Liste fiyatı ${fmtTL(u.satis_fiyati)}</span>`}
           <span class="badge b-orange l-warn ${stokUyari ? '' : 'hidden'}">Stok yetersiz</span></div>` : ''}
       </div>`;
@@ -1118,12 +1118,12 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
 /* ------------------------------------------------------------------ */
 /* STOK                                                                */
 /* ------------------------------------------------------------------ */
-const stokBadge = (d) => `<span class="badge ${d === 'Yeterli' ? 'b-green' : d === 'KRİTİK' ? 'b-orange' : 'b-red'}">${esc(d)}</span>`;
+const stokBadge = (d) => (d === 'Takipsiz' ? '<span class="badge">Stok takibi yok</span>' : `<span class="badge ${d === 'Yeterli' ? 'b-green' : d === 'KRİTİK' ? 'b-orange' : 'b-red'}">${esc(d)}</span>`);
 function urunRow(u) {
   return `<div class="row" data-go="#/urun/${u.id}">
     <div class="main-col"><div class="t">${esc(u.ad)}</div>
       <div class="st"><span class="tiny">${esc(u.kod)}</span>${stokBadge(u.durum)}${num(u.bekleyen_siparis) ? `<span class="badge b-purple">${fmtN(u.bekleyen_siparis)} bekleyen</span>` : ''}${num(u.yolda) ? `<span class="badge b-blue">${fmtN(u.yolda)} yolda</span>` : ''}</div></div>
-    <div class="end"><div class="amt">${fmtN(u.sevk_sonrasi_stok)} <span class="tiny">${esc(u.birim)}</span></div><div class="tiny">real ${fmtN(u.real_stok)}</div></div>
+    <div class="end">${u.stok_takibi === false ? `<div class="tiny">${fmtN(u.toplam_cikis)} ${esc(u.birim)} satıldı</div>` : `<div class="amt">${fmtN(u.sevk_sonrasi_stok)} <span class="tiny">${esc(u.birim)}</span></div><div class="tiny">real ${fmtN(u.real_stok)}</div>`}</div>
   </div>`;
 }
 
@@ -1146,7 +1146,7 @@ async function viewStok() {
       if (ui.f === 'Pasif') { if (u.aktif) return false; } else if (!u.aktif) return false;
       if (ui.f === 'Hareketli' && !(num(u.toplam_giris) || num(u.toplam_cikis) || num(u.bekleyen_siparis) || num(u.yolda))) return false;
       if (ui.f === 'Yolda' && !num(u.yolda)) return false;
-      if (ui.f === 'Kritik' && u.durum === 'Yeterli') return false;
+      if (ui.f === 'Kritik' && (u.durum === 'Yeterli' || u.durum === 'Takipsiz')) return false;
       return !q || norm(`${u.ad} ${u.kod} ${u.kategori || ''}`).includes(q);
     });
     if (!f.length) { $('#lst').innerHTML = '<div class="list"><div class="empty">Ürün bulunamadı</div></div>'; return; }
@@ -1181,8 +1181,9 @@ async function viewUrunDetay(id) {
       <div class="stats">
         <div class="stat"><div class="l">Real stok</div><div class="v">${fmtN(u.real_stok)}</div></div>
         <div class="stat">${bekSip.length ? `<a href="#" data-kay="u-bek" style="color:inherit;text-decoration:none">` : ''}<div class="l">Bekleyen${bekSip.length ? ' ›' : ''}</div><div class="v">${fmtN(u.bekleyen_siparis)}</div>${bekSip.length ? '</a>' : ''}</div>
-        <div class="stat"><div class="l">Sevk sonrası</div><div class="v ${num(u.sevk_sonrasi_stok) < 0 ? 'pos' : ''}">${fmtN(u.sevk_sonrasi_stok)}</div></div>
+        <div class="stat"><div class="l">Sevk sonrası</div><div class="v ${num(u.sevk_sonrasi_stok) < 0 && u.stok_takibi !== false ? 'pos' : ''}">${fmtN(u.sevk_sonrasi_stok)}</div></div>
       </div>
+      ${u.stok_takibi === false ? '<p class="tiny" style="margin:8px 0 0">Bu ürünün stoku tutulmuyor (yedek parça vb.). Satıldıkça eksi görünmesi normaldir; eksi stok uyarısı ve kritik listesinde çıkmaz. Ürünü düzenleyip “Stok takibi yap” işaretlenirse tekrar takip edilir.</p>' : ''}
       <div class="kv" style="margin-top:12px">
         <span class="k">Liste satış fiyatı</span><span>${fmtTL(u.satis_fiyati)}</span>
         <span class="k">Son alış fiyatı</span><span>${u.son_alis_fiyati !== null ? fmtTL(u.son_alis_fiyati) : '–'}</span>
@@ -1490,6 +1491,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
       <div class="grid2"><div class="field"><label>Liste satış fiyatı (₺)</label><input class="input" id="u-fy" inputmode="decimal" value="${fmtN(d.satis_fiyati)}"><div class="hint">Müşteri fiyatı yoksa bu kullanılır</div></div>
         <div class="field"><label>Minimum stok</label><input class="input" id="u-min" inputmode="decimal" value="${fmtN(d.min_stok)}"><div class="hint">Altına düşünce KRİTİK görünür</div></div></div>
       <div class="field"><label>Not</label><input class="input" id="u-not" value="${esc(d.notlar || '')}"></div>
+      <label class="check"><input type="checkbox" id="u-stk" ${(u ? u.stok_takibi !== false : preset?.stok_takibi !== false) ? 'checked' : ''}> Stok takibi yap <span class="tiny">(yedek parça gibi stoku tutulmayan ürünlerde kaldırın; satış eksi stok uyarısı vermez)</span></label>
       ${u ? `<label class="check"><input type="checkbox" id="u-akt" ${d.aktif ? 'checked' : ''}> Aktif (pasif ürünler listelerde görünmez)</label>` : ''}
       ${gumrukHtml(d.gumruk)}`,
     foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="u-ok">Kaydet</button>`,
@@ -1499,6 +1501,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
         const row = { ad: $('#u-ad', m.el).value.trim(), kategori: $('#u-kat', m.el).value.trim() || null, birim: $('#u-bir', m.el).value.trim() || 'Adet',
           satis_fiyati: parseNum($('#u-fy', m.el).value) || 0, min_stok: parseNum($('#u-min', m.el).value) || 0, notlar: $('#u-not', m.el).value.trim() || null };
         if (u) row.aktif = $('#u-akt', m.el).checked;
+        row.stok_takibi = $('#u-stk', m.el).checked;
         if (!row.ad) return toast('Ürün adı girin', 'err');
         row.kod = $('#u-kod', m.el).value.trim().toUpperCase().replace(/\s+/g, '');
         if (!row.kod) return toast('Stok kodu girin', 'err');
@@ -2196,7 +2199,7 @@ async function raporStok(el, ui) {
       </div></div>
     <div id="r-out"></div>`;
   const run = () => {
-    const L = urunler.filter((u) => u.aktif !== false).map((u) => {
+    const L = urunler.filter((u) => u.aktif !== false && u.stok_takibi !== false).map((u) => {
       const g90 = (s90[u.id] || 0) / 90, g30 = (s30[u.id] || 0) / 30;
       const hiz = Math.max(g90, g30 * 0.5 + g90 * 0.5);
       const eldeki = num(u.sevk_sonrasi_stok), yolda = num(u.yolda), toplam = eldeki + yolda;
@@ -4915,7 +4918,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.88';
+const APP_V = '1.89';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
