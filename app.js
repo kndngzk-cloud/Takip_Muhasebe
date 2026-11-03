@@ -890,7 +890,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
     Object.assign(f, { pb: es.para_birimi || 'TRY', kur: num(es.kur) || 1, yon: es.maliyet_yontemi || f.yon, tip: es.fatura_tipi, tarih: es.tarih, kdv: es.fatura_tipi === 'R' ? num(es.kdv_orani) * 100 : f.kdv, aciklama: es.aciklama || '' });
     ekal.forEach((k) => { f.orig[k.urun_id] = (f.orig[k.urun_id] || 0) + num(k.miktar); });
   }
-  const avail = (u) => num(u.sevk_sonrasi_stok) + (f.orig[u.id] || 0) + (cin ? num(u.yolda) : 0);
+  const avail = (u) => num(u.sevk_sonrasi_stok) + (f.orig[u.id] || 0) + (cin ? num(u.yolda) - num(u.bekleyen_yolda) : 0); // ithalata bagli bekleyenler yoldaki maldan duser
   const aktifUrun = () => { const a = urunler.filter((u) => u.aktif); return cin ? [...a.filter((u) => cinMik[u.id]), ...a.filter((u) => !cinMik[u.id])] : a; };
   $('#view').innerHTML = `
     ${cin ? `<div class="card" style="border-left:4px solid var(--accent)"><b>${cinNo(cin.no, cin.kod)} · ${esc(cin.fabrika_ad)}</b> ${cinBadge(cin.durum)}
@@ -1181,8 +1181,9 @@ async function viewUrunDetay(id) {
       <div class="stats">
         <div class="stat"><div class="l">Real stok</div><div class="v">${fmtN(u.real_stok)}</div></div>
         <div class="stat">${bekSip.length ? `<a href="#" data-kay="u-bek" style="color:inherit;text-decoration:none">` : ''}<div class="l">Bekleyen${bekSip.length ? ' ›' : ''}</div><div class="v">${fmtN(u.bekleyen_siparis)}</div>${bekSip.length ? '</a>' : ''}</div>
-        <div class="stat"><div class="l">Sevk sonrası</div><div class="v ${num(u.sevk_sonrasi_stok) < 0 && u.stok_takibi !== false ? 'pos' : ''}">${fmtN(u.sevk_sonrasi_stok)}</div></div>
+        <div class="stat"><div class="l">Sevk sonrası${num(u.bekleyen_yolda) ? ' (eldeki)' : ''}</div><div class="v ${num(u.sevk_sonrasi_stok) < 0 && u.stok_takibi !== false ? 'pos' : ''}">${fmtN(u.sevk_sonrasi_stok)}</div></div>
       </div>
+      ${num(u.bekleyen_yolda) ? `<p class="tiny" style="margin:8px 0 0">Bekleyen ${fmtN(u.bekleyen_siparis)} adedin <b>${fmtN(u.bekleyen_yolda)}</b> adedi ithalata bağlı siparişlerde; yoldaki maldan karşılanacağı için eldeki stoktan düşülmez. Yolda gelen dahil kalan: <b>${fmtN(u.yolda_dahil_stok)}</b>.</p>` : ''}
       ${u.stok_takibi === false ? '<p class="tiny" style="margin:8px 0 0">Bu ürünün stoku tutulmuyor (yedek parça vb.). Satıldıkça eksi görünmesi normaldir; eksi stok uyarısı ve kritik listesinde çıkmaz. Ürünü düzenleyip “Stok takibi yap” işaretlenirse tekrar takip edilir.</p>' : ''}
       <div class="kv" style="margin-top:12px">
         <span class="k">Liste satış fiyatı</span><span>${fmtTL(u.satis_fiyati)}</span>
@@ -4918,7 +4919,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.89';
+const APP_V = '1.90';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
