@@ -90,6 +90,7 @@ const ICON = {
   cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   factory: '<path d="M3 21V10l6 4V10l6 4V6l6-3v18z"/><path d="M7 17h2M12 17h2M17 17h1"/>'
 };
+ICON.yenile = '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>';
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ''}</svg>`;
 
 /* ------------------------------------------------------------------ */
@@ -418,7 +419,7 @@ function viewLogin() {
 /* ANA SAYFA                                                           */
 /* ------------------------------------------------------------------ */
 async function viewHome() {
-  topbar(state.ayarlar?.firma_adi || 'Ana Sayfa');
+  topbar(state.ayarlar?.firma_adi || 'Ana Sayfa', { actions: `<button class="tb-btn" id="yenile" aria-label="Yenile" title="Yenile">${icon('yenile')}Yenile</button>` });
   const [oz, bek, urun, alacakli, plan14, cinAktif, nakit14, plSon] = await Promise.all([
     api.rpc('panel_ozet'),
     api.get('v_siparisler', `select=*&durum=${eq('Beklemede')}&order=tarih.asc,fis_no.asc&limit=300`),
@@ -463,6 +464,7 @@ async function viewHome() {
   bindPlanRows($('#h-plan'), plan14, null);
   bindNakitRows($('#h-plan'), nakit14);
   $$('[data-sipf]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); (state.ui.sip ||= { durum: 'Tümü', tip: 'Tümü', q: '' }).durum = a.dataset.sipf; go('#/siparisler'); }));
+  $('#yenile')?.addEventListener('click', (e) => yenile(e.currentTarget));
   $('#tum-alacak').onclick = (e) => { e.preventDefault(); state.ui.cari = { f: 'Bakiyesi olan', q: '', sirala: 'bakiye' }; go('#/cariler'); };
 }
 
@@ -4919,7 +4921,20 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.91';
+const APP_V = '1.92';
+// elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
+async function yenile(btn) {
+  btn?.classList.add('donuyor');
+  try {
+    try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch {}
+    const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).catch(() => null);
+    const v = r && r.ok ? (await r.text()).trim() : '';
+    if (v && v !== APP_V) { try { sessionStorage.setItem('ssc_yenilendi', v); } catch {} location.reload(); return; }
+    Object.assign(state, { urunler: null, cariler: null, ayarlar: null });
+    await render();
+    toast('Güncellendi', 'ok');
+  } catch (e) { fail(e); } finally { btn?.classList.remove('donuyor'); }
+}
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });

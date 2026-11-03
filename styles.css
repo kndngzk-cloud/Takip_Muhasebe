@@ -431,3 +431,5 @@ details.gum[open] summary { margin-bottom: 10px; }
 }
 @media (max-width: 340px) { .stat .v { font-size: 14px; letter-spacing: -.2px; } }
 @media (max-width: 480px) { .row .t { white-space: normal; overflow-wrap: anywhere; } }
+.tb-btn.donuyor svg { animation: donme .8s linear infinite; }
+@keyframes donme { to { transform: rotate(360deg); } }
