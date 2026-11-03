@@ -210,7 +210,7 @@ function modal({ title, body, foot = '', onMount, wide = false }) {
   ov.innerHTML = `<div class="sheet" style="${wide ? 'max-width:900px' : ''}">
       <div class="sh-head"><h3>${esc(title)}</h3><button class="icon-btn" data-close>${icon('x')}</button></div>
       <div class="sh-body">${body}</div>${foot ? `<div class="sh-foot">${foot}</div>` : ''}</div>`;
-  const close = () => { ov.remove(); document.body.style.overflow = ''; };
+  const close = () => { ov.remove(); if (!$('#modal-root .overlay')) document.body.style.overflow = ''; };
   ov.addEventListener('click', (e) => { if (e.target === ov || e.target.closest('[data-close]')) close(); });
   $('#modal-root').appendChild(ov);
   document.body.style.overflow = 'hidden';
@@ -4591,9 +4591,9 @@ function nakitDokum(items, kasa) {
         ${sat('Kasadaki para (başlangıç)', fmtTL(D.kasaTop), '', `${D.kasa.length} kalem`)}
         ${D.kasa.map((k) => `<tr><td class="w" style="padding-left:22px"><span class="tiny">${esc(k.ad)}</span></td><td class="r tiny">${fmtPB(k.tutar, k.para_birimi)}${k.para_birimi !== 'TRY' ? ` ≈ ${fmtTL(kasaTL(k))}` : ''}</td></tr>`).join('')}
         ${sat('+ Girecekler', '+' + fmtTL(tg), 'zero')}
-        ${D.girecek.map(([g, o]) => `<tr><td class="w" style="padding-left:22px">${esc(g)} <span class="tiny">${o.n} kalem</span></td><td class="r zero">+${fmtTL(o.t)}</td></tr>`).join('')}
+        ${D.girecek.map(([g, o]) => `<tr class="click" data-grp="Girecek|${esc(g)}"><td class="w" style="padding-left:22px">${esc(g)} <span class="tiny">${o.n} kalem ›</span></td><td class="r zero">+${fmtTL(o.t)}</td></tr>`).join('')}
         ${sat('− Çıkacaklar', '−' + fmtTL(tc), 'pos')}
-        ${D.cikacak.map(([g, o]) => `<tr><td class="w" style="padding-left:22px">${esc(g)} <span class="tiny">${o.n} kalem</span></td><td class="r pos">−${fmtTL(o.t)}</td></tr>`).join('')}
+        ${D.cikacak.map(([g, o]) => `<tr class="click" data-grp="Çıkacak|${esc(g)}"><td class="w" style="padding-left:22px">${esc(g)} <span class="tiny">${o.n} kalem ›</span></td><td class="r pos">−${fmtTL(o.t)}</td></tr>`).join('')}
         <tr><td class="w" style="border-top:2px solid var(--text)"><b>= Dönem sonu (${fmtD(D.sonTarih)})</b></td><td class="r" style="border-top:2px solid var(--text)"><b style="font-size:18px;color:${D.son < 0 ? 'var(--red)' : 'var(--green)'}">${fmtTL(D.son)}</b></td></tr>
       </tbody></table></div>
       ${D.tarihsiz.length ? `<p class="tiny" style="margin:8px 0 0">Tarihi belli olmayan <b>${D.tarihsiz.length}</b> kalem hesaba katılmadı (girecek ${fmtTL(D.tarihsiz.filter((r) => r.yon === 'Girecek').reduce((a, r) => a + r.tl, 0))}, çıkacak ${fmtTL(D.tarihsiz.filter((r) => r.yon === 'Çıkacak').reduce((a, r) => a + r.tl, 0))}); dökümde ayrı listelenir.</p>` : ''}
@@ -4601,6 +4601,20 @@ function nakitDokum(items, kasa) {
     foot: `<button class="btn" id="nd-xl">${icon('download')}Excel</button><button class="btn primary" id="nd-pdf">${icon('print')}PDF</button>`,
     onMount: (m) => {
       const ad = `Nakit-dokumu-${D.bugun}`;
+      $$('[data-grp]', m.el).forEach((tr) => (tr.onclick = () => {
+        const [yon, g] = tr.dataset.grp.split('|');
+        const rs = D.satir.filter((r) => r.yon === yon && r.grup === g);
+        const gir = yon === 'Girecek', top = rs.reduce((a, r) => a + (gir ? r.gir : r.cik), 0);
+        modal({
+          title: `${g} · ${rs.length} kalem`,
+          body: `<div class="list" style="box-shadow:none;border:1px solid var(--line);margin:0">${rs.map((r) => `<div class="row" style="cursor:default">
+              <div class="main-col"><div class="t" style="font-size:15px">${fmtD(r.vade)}${r.gec ? ' <span class="badge b-red">gecikmiş · bugüne sayıldı</span>' : ''}</div>
+                <div class="st">${[r.kim, r.belge, r.aciklama].filter(Boolean).map(esc).join(' · ') || '–'}</div>
+                ${r.pb !== 'TRY' ? `<div class="tiny">${fmtPB(r.tutar, r.pb)} × ${fmtN(r.kur)}</div>` : ''}</div>
+              <div class="end"><div class="amt ${gir ? 'zero' : 'pos'}">${gir ? '+' : '−'}${fmtTL(gir ? r.gir : r.cik)}</div><div class="tiny">sonra ${fmtTL(r.kalan)}</div></div></div>`).join('')}</div>
+            <div class="totals" style="margin-top:10px"><div class="tr big"><span>Toplam</span><span>${gir ? '+' : '−'}${fmtTL(top)}</span></div></div>`,
+        });
+      }));
       const indir = async (blob, dosya, tip) => {
         const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
         try { const f = new File([blob], dosya, { type: tip }); if (ios && navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: dosya }); return; } } catch (e) { if (e.name === 'AbortError') return; }
@@ -4901,7 +4915,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.87';
+const APP_V = '1.88';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
