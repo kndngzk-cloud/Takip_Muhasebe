@@ -146,7 +146,7 @@ async function hamGet(u: string, headers: Record<string, string>): Promise<{ sta
 /* ---------------- Hepsiburada ---------------- */
 // Muhasebe entegrasyonu: GET mpfinance-external.hepsiburada.com/transactions/merchantid/{id}
 // Basic auth (Magaza ID : Servis anahtari), User-Agent = entegrator kullanici adi. Tarih araligi en fazla 1 ay.
-async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }> {
+async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem[]; odenen: string[]; yatan?: Kalem[]; ham: unknown }> {
   if (!a.merchant_id || !a.servis_anahtari || !a.kullanici_adi) throw new Error("Hepsiburada mağaza ID, servis anahtarı ve entegratör kullanıcı adı girilmeli");
   const auth = "Basic " + btoa(`${a.merchant_id}:${a.servis_anahtari}`);
   const bugun = gun(new Date());
@@ -166,10 +166,14 @@ async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem
     return out;
   };
   const deger = (x: unknown) => sayi((x as Record<string, unknown>)?.value ?? x);
-  // odenecekler: vadesi bugunden itibaren 2 ay (1'er aylik pencere)
+  // Hepsiburada her hafta SALI odeme yapar: vadesi Carsamba..Sali arasinda olan hareketler o Sali toplu yatar.
+  // Gecen haftadan kalip henuz yatmamis (WillBePaid) kalemler de en yakin Saliya yazilir.
+  const sali = (d: string) => { const t = new Date(`${d}T00:00:00Z`); return ekle(d, (2 - t.getUTCDay() + 7) % 7); };
+  const ilkSali = sali(bugun);
   const bekleyen = [
-    ...(await getir({ Status: "WillBePaid", DueDateStart: bugun, DueDateEnd: ekle(bugun, 30) })),
-    ...(await getir({ Status: "WillBePaid", DueDateStart: ekle(bugun, 31), DueDateEnd: ekle(bugun, 61) })),
+    ...(await getir({ Status: "WillBePaid", DueDateStart: ekle(bugun, -14), DueDateEnd: ekle(bugun, 16) })),
+    ...(await getir({ Status: "WillBePaid", DueDateStart: ekle(bugun, 17), DueDateEnd: ekle(bugun, 47) })),
+    ...(await getir({ Status: "WillBePaid", DueDateStart: ekle(bugun, 48), DueDateEnd: ekle(bugun, 75) })),
   ];
   const by: Record<string, number> = {};
   const tipler: Record<string, number> = {};
@@ -179,22 +183,34 @@ async function hepsiburada(a: Record<string, string>): Promise<{ kalemler: Kalem
     const tip = String(x.transactionType ?? "");
     if (tip === "TotalPayment") continue; // toplu odeme ozeti (cift sayilmasin); "Payment" = satis tutari, sayilir
     const d = String(x.dueDate ?? "").slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < bugun) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
     const v = Math.abs(deger(x.amount)); if (isNaN(v)) continue;
     const isaretli = x.isIncome === false ? -v : v;
-    by[d] = (by[d] || 0) + isaretli;
+    const od = sali(d) < ilkSali ? ilkSali : sali(d);
+    by[od] = (by[od] || 0) + isaretli;
     tipler[tip] = Math.round(((tipler[tip] || 0) + isaretli) * 100) / 100;
   }
-  // son 10 gunde yatanlar
-  const odenen = [...new Set((await getir({ Status: "Paid", PaymentDateStart: ekle(bugun, -10), PaymentDateEnd: bugun }).catch(() => [] as Record<string, unknown>[])).map((x) => String(x.paymentDate ?? "").slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))];
-  // sadece kesinti olan (eksi) gunler bir sonraki odeme gunune devredilir (Hepsiburada sonraki odemeden duser)
+  // bu hafta yatan: Sali bazinda gercek yatan tutar
+  const yatanBy: Record<string, number> = {};
+  const gorP = new Set<string>();
+  for (const x of await getir({ Status: "Paid", PaymentDateStart: ekle(bugun, -6), PaymentDateEnd: bugun }).catch(() => [] as Record<string, unknown>[])) {
+    const id = String(x.id ?? ""); if (id && gorP.has(id)) continue; if (id) gorP.add(id);
+    if (String(x.transactionType ?? "") === "TotalPayment") continue;
+    const d = String(x.paymentDate ?? "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    const v = Math.abs(deger(x.amount)); if (isNaN(v)) continue;
+    yatanBy[d] = (yatanBy[d] || 0) + (x.isIncome === false ? -v : v);
+  }
+  const odenen = Object.keys(yatanBy);
+  const yatan: Kalem[] = Object.entries(yatanBy).filter(([, v]) => v > 0.005).map(([vade, v]) => ({ vade, tutar: Math.round(v * 100) / 100, aciklama: "Hepsiburada haftalık ödeme" }));
+  // eksi kalan hafta (kesinti > satis) bir sonraki Saliya devredilir
   const kalemler: Kalem[] = []; let devir = 0;
   for (const d of Object.keys(by).sort()) {
+    if (yatanBy[d] !== undefined && by[d] + devir <= 0.005) continue;
     const v = by[d] + devir;
-    if (v > 0.005) { kalemler.push({ vade: d, tutar: Math.round(v * 100) / 100, aciklama: devir < -0.005 ? `Hepsiburada hakediş (önceki kesinti ${Math.round(-devir * 100) / 100} ₺ düşüldü)` : "Hepsiburada hakediş" }); devir = 0; }
+    if (v > 0.005) { kalemler.push({ vade: d, tutar: Math.round(v * 100) / 100, aciklama: devir < -0.005 ? `Hepsiburada haftalık ödeme (önceki kesinti ${Math.round(-devir * 100) / 100} ₺ düşüldü)` : "Hepsiburada haftalık ödeme" }); devir = 0; }
     else devir = v;
   }
-  return { kalemler, odenen, ham: { kayit: bekleyen.length, gunler: by, tipler, ornek: bekleyen.slice(0, 3).map(({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate }) => ({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate })) } };
+  return { kalemler, odenen, yatan, ham: { kayit: bekleyen.length, haftalar: by, yatan: yatanBy, tipler, ornek: bekleyen.slice(0, 3).map(({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate }) => ({ transactionType, status, amount, netAmount, isIncome, dueDate, paymentDate })) } };
 }
 
 /* ---------------- PayTR islem dokumu (tek tek kart odemeleri) ---------------- */
@@ -324,7 +340,7 @@ async function koctas(a: Record<string, string>): Promise<{ kalemler: Kalem[]; o
   return { kalemler, odenen: [], ham: { satir: satirlar.length, tarihi_bilinmeyen: Math.round(bilinmeyen * 100) / 100, tahmini, durumlar, tipler, ornek_satir: satirlar.slice(0, 3), ornek_donem: donemler.slice(0, 3) } };
 }
 
-const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol, Hepsiburada: hepsiburada, "Koçtaş": koctas };
+const PLATFORM: Record<string, (a: Record<string, string>) => Promise<{ kalemler: Kalem[]; odenen: string[]; yatan?: Kalem[]; ham: unknown }>> = { PayTR: paytr, "PayTR 2": paytr, Trendyol: trendyol, Hepsiburada: hepsiburada, "Koçtaş": koctas };
 // "PayTR 2" -> kaynak "PayTR" (Odemeler'de ayni platform), dis_ref "paytr2:..." (hesaplar karismasin)
 const REF = (p: string) => p.toLowerCase().replace(/[^a-z0-9]/g, "");
 const KAYNAK = (p: string) => p.replace(/\s+\d+$/, "");
@@ -343,9 +359,17 @@ Deno.serve(async (req) => {
       const f = PLATFORM[e.platform];
       if (!f) { sonuc[e.platform] = "Bu platform için otomatik bağlantı henüz yok"; continue; }
       try {
-        const { kalemler, odenen, ham } = await f(e.ayar || {});
+        const { kalemler: tum, odenen, yatan = [], ham } = await f(e.ayar || {});
         const ref = REF(e.platform), kaynak = KAYNAK(e.platform);
         const dref = (k: Kalem) => `${ref}:${k.vade}${k.para_birimi && k.para_birimi !== "TRY" ? ":" + k.para_birimi : ""}`;
+        // yatmis gunler bekleyen olarak yeniden yazilmasin
+        const yatanG = new Set(yatan.map((k) => k.vade));
+        const kalemler = tum.filter((k) => !yatanG.has(k.vade));
+        // gercekte yatan tutarlar (Hepsiburada): tahsil edildi olarak yaz / duzelt
+        if (yatan.length) await rest("nakit_girisleri?on_conflict=dis_ref", {
+          method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify(yatan.map((k) => ({ tur: "Platform", kaynak, vade: k.vade, tutar: k.tutar, para_birimi: "TRY", aciklama: k.aciklama + HESAP(e.platform), dis_ref: dref(k), otomatik: true, durum: "Tahsil edildi", tahsil_tarihi: k.vade }))),
+        });
         // otomatik veri geldiyse ayni platformun elle girilmis gelecek kayitlari silinir (yerine otomatikler yazilir)
         if (kalemler.length) await rest(`nakit_girisleri?otomatik=is.false&tur=eq.Platform&kaynak=ilike.${encodeURIComponent(kaynak)}&durum=eq.Bekliyor&vade=gte.${bugun}`, { method: "DELETE" });
         // gelecek odemeler: dis_ref ile ekle / guncelle
