@@ -138,6 +138,7 @@ function ticimax(alan: string, etiket: string) {
         paket_no: o.ID ? String(o.ID) : null, son_kargo: iso(tmxT(o.KargoyaSonVerilmeTarihi)), iptal: durum === 8 || (erken && hatali),
         bekle: erken && !odendi && !hatali,
         ham: { durum, durum_ad: o.SiparisDurumu || null, odeme_tipi: odeme.OdemeTipi ?? null, kargo_tutari: tmxSay(o.KargoTutari) || null,
+          fatura: { ad: fa.AliciAdi || null, firma: fa.FirmaAdi || null, vergi_dairesi: fa.VergiDairesi || null, vergi_no: fa.VergiNo || null, telefon: fa.AliciTelefon || null, adres: [fa.Adres, fa.Ilce, fa.Il].filter(Boolean).join(" ") || null },
           odemeler: dizi(o.Odemeler?.WebSiparisOdeme).map((p: any) => ({ tip: p.OdemeTipi, onay: p.Onaylandi, tutar: p.Tutar, taksit: p.TaksitSayisi, tarih: p.Tarih,
             // odeme referanslari (PayTR eslestirmesi icin); kart bilgisi alinmaz
             ref: Object.fromEntries(Object.entries(p).filter(([k, v]) => v != null && typeof v !== "object" && String(v) !== "" && !/kart|card|cvv|cvc|bin/i.test(k))) })),

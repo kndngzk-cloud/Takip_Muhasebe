@@ -2513,7 +2513,12 @@ function platformKart(p, siparisSayfasi = true) {
       ${p.sevk_tarihi ? `<span class="k">Kargoya verildi</span><span>${fmtD(p.sevk_tarihi)}</span>` : ''}
       ${p.teslim_tarihi ? `<span class="k">Teslim edildi</span><span>${fmtD(p.teslim_tarihi)}</span>` : ''}
       ${p.iade_durum ? `<span class="k">İade</span><span>${plIadeBadge(p)} ${p.iade_tarihi ? fmtD(p.iade_tarihi) : ''}${p.iade_adet ? ` · ${fmtN(p.iade_adet)} adet` : ''}${p.iade_neden ? ` · ${esc(p.iade_neden)}` : ''}${p.iade_durum === 'İade talebi' ? '<div class="tiny">Platform panelinde iadeyi onaylayın ya da reddedin; onaylanınca sipariş otomatik iptal edilir, stok geri girer.</div>' : p.iade_durum === 'Talep bekliyor' ? `<div class="tiny">Müşteri talebi ${esc(p.platform)} panelinde sizden yanıt bekliyor; yanıtlayınca bu uyarı kalkar.</div>` : ''}</span>` : ''}
-      ${p.sehir ? `<span class="k">Teslimat</span><span>${esc([p.musteri, p.sehir].filter(Boolean).join(' · '))}</span>` : ''}
+      ${p.alici || p.musteri ? `<span class="k">Alıcı</span><span><b>${esc(p.alici || p.musteri)}</b>${p.musteri && p.alici && p.musteri !== p.alici ? ` <span class="tiny">(sipariş veren: ${esc(p.musteri)})</span>` : ''}</span>` : ''}
+      ${p.telefon ? `<span class="k">Telefon</span><span><a href="tel:+${esc(String(p.telefon).replace(/\D/g, ''))}">${esc(p.telefon)}</a> <a href="https://wa.me/${esc(String(p.telefon).replace(/\D/g, ''))}" target="_blank" rel="noopener" class="tiny" style="margin-left:6px">WhatsApp</a></span>` : ''}
+      ${p.eposta ? `<span class="k">E-posta</span><span><a href="mailto:${esc(p.eposta)}">${esc(p.eposta)}</a></span>` : ''}
+      ${p.adres ? `<span class="k">Teslimat adresi</span><span>${esc(p.adres)} <a href="#" class="tiny pl-kopya" data-v="${esc([p.alici || p.musteri, p.adres, p.telefon].filter(Boolean).join('\n'))}" style="margin-left:6px">kopyala</a></span>` : p.sehir ? `<span class="k">Teslimat</span><span>${esc([p.musteri, p.sehir].filter(Boolean).join(' · '))}</span>` : ''}
+      ${p.ham?.fatura?.adres || p.ham?.fatura?.firma ? `<span class="k">Fatura</span><span>${esc([p.ham.fatura.firma || p.ham.fatura.ad, p.ham.fatura.vergi_dairesi ? p.ham.fatura.vergi_dairesi + ' VD' : '', p.ham.fatura.adres].filter(Boolean).join(' · '))}</span>` : ''}
+      ${p.vergi_no ? `<span class="k">${String(p.vergi_no).length === 11 ? 'TC kimlik no' : 'Vergi no'}</span><span class="num">${esc(p.vergi_no)}</span>` : ''}
     </div>
     ${p.barkod ? `<div class="pl-barkod">${barkodSvg(p.barkod)}<div class="num tiny" style="text-align:center;letter-spacing:2px">${esc(p.barkod)}</div></div>` : ''}
     ${(PL_KART[p.id] = p, '')}${p.kargo_link || etiketVar(p) ? `<div class="btn-row" style="margin-top:10px">${etiketVar(p) ? `<button class="btn sm primary pl-etiket" data-id="${p.id}">${icon('print')}Kargo etiketi</button>` : ''}${p.kargo_link ? `<a class="btn sm" href="${esc(p.kargo_link)}" target="_blank" rel="noopener">${icon('truck')}Kargoyu takip et</a>` : ''}</div>` : ''}
@@ -2529,7 +2534,7 @@ function platformKart(p, siparisSayfasi = true) {
 }
 function platformKartBagla(root, yenile) {
   $$('.pl-etiket', root).forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); etiketGoster(PL_KART[+b.dataset.id], b); }));
-  $$('.pl-kopya', root).forEach((a) => a.addEventListener('click', async (e) => { e.preventDefault(); try { await navigator.clipboard.writeText(a.dataset.v); toast('Takip no kopyalandı', 'ok'); } catch { toast(a.dataset.v); } }));
+  $$('.pl-kopya', root).forEach((a) => a.addEventListener('click', async (e) => { e.preventDefault(); try { await navigator.clipboard.writeText(a.dataset.v); toast('Kopyalandı', 'ok'); } catch { toast(a.dataset.v); } }));
   $$('.pl-ayir', root).forEach((a) => a.addEventListener('click', async (e) => {
     e.preventDefault();
     if (!await confirmBox('Bağlantı kaldırılsın mı?', 'Elle girilmiş sipariş platform siparişinden ayrılır. Sipariş ve cari kaydı değişmez.', 'Kaldır')) return;
@@ -4648,7 +4653,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.81';
+const APP_V = '1.82';
 async function surumKontrol() {
   try {
     const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
