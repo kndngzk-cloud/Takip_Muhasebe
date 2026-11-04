@@ -428,7 +428,7 @@ async function viewHome() {
     api.get('v_odeme_takvimi', `select=*&odendi=is.false&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
     api.get('v_cin_siparisler', `select=*&durum=not.in.(${encodeURIComponent('"Teslim Alındı","İptal"')})&order=tahmini_varis.asc.nullslast&limit=30`).catch(() => []),
     api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&vade=lte.${addDays(today(), 14)}&order=vade.asc&limit=40`).catch(() => []),
-    api.get('v_platform_siparisler', `select=*&or=(durum.in.(${encodeURIComponent('Bekliyor,Onay bekliyor,Eşleşmedi,Hata')}),iade_durum.in.(${encodeURIComponent('"İade talebi","Talep bekliyor"')}),and(hata.not.is.null,iade_islendi.is.true,iade_durum.eq.${encodeURIComponent('Kabul edildi')}))&order=tarih.asc&limit=30`).catch(() => [])
+    api.get('v_platform_siparisler', `select=*&or=(durum.in.(${encodeURIComponent('Bekliyor,Onay bekliyor,Eşleşmedi,Hata')}),iade_durum.eq.${encodeURIComponent('Talep bekliyor')},and(iade_durum.eq.${encodeURIComponent('İade talebi')},iade_teslim.is.null),and(hata.not.is.null,iade_islendi.is.true,iade_durum.eq.${encodeURIComponent('Kabul edildi')}))&order=tarih.asc&limit=30`).catch(() => [])
   ]);
   const eksi = urun.filter((u) => u.aktif && u.stok_takibi !== false && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
@@ -2554,7 +2554,7 @@ const plBadge = (p) => `<span class="badge" style="background:${PL_RENK[p] || 'v
 const PL_DURUM = { 'Onay bekliyor': 'b-red', 'Aktarıldı': 'b-green', 'Eşleşmedi': 'b-red', 'Hata': 'b-red', 'Bekliyor': 'b-orange', 'Eski': '', 'İptal': '' };
 const plDurumBadge = (p) => `<span class="badge ${PL_DURUM[p.durum] || ''}">${p.durum === 'Eski' ? 'Programda yok' : p.durum === 'Aktarıldı' && p.elle ? 'Elle girilene bağlı' : esc(p.durum)}</span>`;
 const IADE_RENK = { 'İade talebi': 'b-orange', 'Talep bekliyor': 'b-orange', 'Kabul edildi': 'b-red', 'Teslim edilemedi': 'b-red', 'Reddedildi': '' };
-const plIadeBadge = (p) => (p.iade_durum ? ` <span class="badge ${IADE_RENK[p.iade_durum] || ''}">${p.iade_durum === 'Kabul edildi' ? 'İade edildi' : p.iade_durum === 'Reddedildi' ? 'İade reddedildi' : p.iade_durum === 'Talep bekliyor' ? 'Talep: işlem bekliyor' : esc(p.iade_durum)}</span>` : '');
+const plIadeBadge = (p) => (p.iade_teslim && p.iade_durum !== 'Kabul edildi' ? ' <span class="badge b-green">İade teslim alındı</span>' : p.iade_durum ? ` <span class="badge ${IADE_RENK[p.iade_durum] || ''}">${p.iade_durum === 'Kabul edildi' ? 'İade edildi' : p.iade_durum === 'Reddedildi' ? 'İade reddedildi' : p.iade_durum === 'Talep bekliyor' ? 'Talep: işlem bekliyor' : esc(p.iade_durum)}</span>` : '');
 const plKargoDurum = (p) => p.teslim_tarihi ? `Teslim edildi ${fmtD(p.teslim_tarihi)}` : p.sevk_tarihi ? `Kargoda · ${fmtD(p.sevk_tarihi)}` : p.durum === 'İptal' ? 'İptal' : 'Kargoya verilmedi';
 
 /* Code 128 barkod (SVG) */
@@ -2618,7 +2618,7 @@ function platformKart(p, siparisSayfasi = true) {
       <span class="k">Takip no</span><span>${p.kargo_takip ? `<b class="num">${esc(p.kargo_takip)}</b> <a href="#" class="tiny pl-kopya" data-v="${esc(p.kargo_takip)}" style="margin-left:6px">kopyala</a>` : '<span class="muted">Henüz kargoya verilmedi</span>'}</span>
       ${p.sevk_tarihi ? `<span class="k">Kargoya verildi</span><span>${fmtD(p.sevk_tarihi)}</span>` : ''}
       ${p.teslim_tarihi ? `<span class="k">Teslim edildi</span><span>${fmtD(p.teslim_tarihi)}</span>` : ''}
-      ${p.iade_durum ? `<span class="k">İade</span><span>${plIadeBadge(p)} ${p.iade_tarihi ? fmtD(p.iade_tarihi) : ''}${p.iade_adet ? ` · ${fmtN(p.iade_adet)} adet` : ''}${p.iade_neden ? ` · ${esc(p.iade_neden)}` : ''}${p.iade_durum === 'İade talebi' ? '<div class="tiny">Platform panelinde iadeyi onaylayın ya da reddedin; onaylanınca sipariş otomatik iptal edilir, stok geri girer.</div>' : p.iade_durum === 'Talep bekliyor' ? `<div class="tiny">Müşteri talebi ${esc(p.platform)} panelinde sizden yanıt bekliyor; yanıtlayınca bu uyarı kalkar.</div>` : ''}</span>` : ''}
+      ${p.iade_durum ? `<span class="k">İade</span><span>${plIadeBadge(p)} ${p.iade_tarihi ? fmtD(p.iade_tarihi) : ''}${p.iade_adet ? ` · ${fmtN(p.iade_adet)} adet` : ''}${p.iade_neden ? ` · ${esc(p.iade_neden)}` : ''}${p.iade_teslim ? `<div class="tiny">İade ürünü ${fmtD(p.iade_teslim)} tarihinde teslim alındı: sipariş iptal edildi, stok geri girdi. Para iadesi için platform panelinde iadeyi onaylamayı unutmayın.</div>` : p.iade_durum === 'İade talebi' ? `<div class="tiny">Ürün size geri ulaştığında aşağıdaki düğmeyle işleyin; ayrıca platform panelinde iadeyi onaylayın. Platform onaylarsa program da kendiliğinden işler.</div>${isAdmin() && !p.iade_islendi && p.siparis_id ? `<button class="btn sm green pl-iade-al" data-id="${p.id}" style="margin-top:6px">${icon('inbox')}İade ürünü teslim alındı</button>` : ''}` : p.iade_durum === 'Talep bekliyor' ? `<div class="tiny">Müşteri talebi ${esc(p.platform)} panelinde sizden yanıt bekliyor; yanıtlayınca bu uyarı kalkar.</div>` : ''}</span>` : ''}
       ${p.alici || p.musteri ? `<span class="k">Alıcı</span><span><b>${esc(p.alici || p.musteri)}</b>${p.musteri && p.alici && p.musteri !== p.alici ? ` <span class="tiny">(sipariş veren: ${esc(p.musteri)})</span>` : ''}</span>` : ''}
       ${p.telefon ? `<span class="k">Telefon</span><span><a href="tel:+${esc(String(p.telefon).replace(/\D/g, ''))}">${esc(p.telefon)}</a> <a href="https://wa.me/${esc(String(p.telefon).replace(/\D/g, ''))}" target="_blank" rel="noopener" class="tiny" style="margin-left:6px">WhatsApp</a></span>` : ''}
       ${p.eposta ? `<span class="k">E-posta</span><span><a href="mailto:${esc(p.eposta)}">${esc(p.eposta)}</a></span>` : ''}
@@ -2639,6 +2639,18 @@ function platformKart(p, siparisSayfasi = true) {
   </div>`;
 }
 function platformKartBagla(root, yenile) {
+  $$('.pl-iade-al', root).forEach((b) => b.addEventListener('click', async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const p = PL_KART[+b.dataset.id]; if (!p) return;
+    const urun = (p.satirlar || []).map((x) => `${x.miktar > 1 ? x.miktar + ' × ' : ''}${esc(x.kod || x.ad)}`).join(', ');
+    if (!await confirmBox('İade ürünü teslim alındı mı?', `<b>${esc(p.platform)} ${esc(p.siparis_no)}</b>${p.fis_no ? ` (Fiş ${p.fis_no})` : ''} · ${urun}<br><br>Sipariş iptal edilecek: ürün stoka geri girer, satış ve kâr raporlarından düşer, carideki satış kaydı kapanır. Kısmi iadeyse (birden fazla üründen bazıları) iptal yerine siparişi elle düzenleyin.`, 'Teslim aldım, işle')) return;
+    try {
+      const r = await busy(b, () => api.rpc('platform_iade_teslim', { p_id: p.id }));
+      cache.dirty('urunler', 'cariler');
+      toast(r?.kismi ? 'Kısmi iade: siparişi elle düzenleyin' : 'İade işlendi: stok geri girdi, sipariş iptal edildi', r?.kismi ? 'err' : 'ok');
+      yenile ? yenile() : render();
+    } catch (err) { fail(err); }
+  }));
   $$('.pl-etiket', root).forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); etiketGoster(PL_KART[+b.dataset.id], b); }));
   $$('.pl-kopya', root).forEach((a) => a.addEventListener('click', async (e) => { e.preventDefault(); try { await navigator.clipboard.writeText(a.dataset.v); toast('Kopyalandı', 'ok'); } catch { toast(a.dataset.v); } }));
   $$('.pl-ayir', root).forEach((a) => a.addEventListener('click', async (e) => {
@@ -2672,7 +2684,7 @@ async function viewPlatformSiparisler() {
     <div id="sum" class="tiny" style="margin:0 4px 8px"></div>
     <div class="list" id="lst"></div>
     <div class="tiny" style="margin:10px 4px">Siparişler 2 dakikada bir otomatik kontrol edilir${son ? ` · son kontrol ${new Date(son).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}. Yeni siparişler perakende cari açılarak R faturalı, KDV dahil (komisyon ve kargo düşülmüş) olarak programa girer ve tahsilatı işlenir; kargoya verilince stoktan düşer.</div>`;
-  const grup = (p) => p.iade_durum === 'Talep bekliyor' ? 'İşlem bekleyen' : p.iade_durum && p.iade_durum !== 'Reddedildi' ? 'İade' : p.durum === 'Aktarıldı' ? 'Aktarıldı' : p.durum === 'İptal' ? 'İptal' : p.durum === 'Eski' ? 'Programda yok' : 'İşlem bekleyen';
+  const grup = (p) => p.iade_durum === 'Talep bekliyor' || (p.iade_durum === 'İade talebi' && !p.iade_teslim) ? 'İşlem bekleyen' : p.iade_durum && p.iade_durum !== 'Reddedildi' ? 'İade' : p.durum === 'Aktarıldı' ? 'Aktarıldı' : p.durum === 'İptal' ? 'İptal' : p.durum === 'Eski' ? 'Programda yok' : 'İşlem bekleyen';
   const draw = () => {
     const q = norm(ui.q);
     const f = data.filter((p) => (ui.f === 'Tümü' || grup(p) === ui.f) && (!ui.pl || p.platform === ui.pl)
@@ -2724,7 +2736,7 @@ async function plDetay(p, data) {
       ${p.durum === 'Eski' ? '<div class="tiny" style="margin-top:8px">Bu sipariş otomatik aktarım başlamadan önce verilmiş. Elle girdiyseniz “Elle girilmiş siparişe bağla” ile eşleyin; girmediyseniz “Programa aktar” ile oluşturun.</div>' : ''}`,
     foot: `<button class="btn" data-close>Kapat</button>${acik ? `<button class="btn" id="pl-bag">Elle girilmiş siparişe bağla</button><button class="btn primary" id="pl-ak">Programa aktar</button>` : ''}`,
     onMount: (m) => {
-      platformKartBagla(m.el, () => {});
+      platformKartBagla(m.el, () => { m.close(); render(); });
       $$('.pl-u', m.el).forEach((inp) => {
         const s = satirlar[+inp.dataset.i];
         const mevcut = s.bul ? urunler.find((u) => u.id === s.bul) : null;
@@ -4921,7 +4933,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.92';
+const APP_V = '1.93';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
