@@ -91,6 +91,76 @@ const ICON = {
   factory: '<path d="M3 21V10l6 4V10l6 4V6l6-3v18z"/><path d="M7 17h2M12 17h2M17 17h1"/>'
 };
 ICON.yenile = '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>';
+/* ------------------------------------------------------------------ */
+/* Ozel notlar: her kayda kendiniz icin not (ekstre / fis / ciktilarda yok) */
+/* ------------------------------------------------------------------ */
+ICON.not = '<path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9z"/><path d="M15 3v6h6"/><path d="M7 13h8M7 17h5"/>';
+const notAl = (t, id) => (state.notlar && state.notlar[`${t}:${id}`]) || '';
+const notKisa = (m, n = 70) => (m.length > n ? m.slice(0, n - 1) + '…' : m);
+// satirlarda tiklanabilir kucuk not dugmesi (bos ise silik ikon)
+function notIk(t, id) {
+  if (!id) return '';
+  const m = notAl(t, id);
+  return `<button type="button" class="not-ik ${m ? 'var' : ''}" data-notk="${t}:${id}" data-notv="ik" data-notd="${t}:${id}" title="${m ? esc(m) : 'Not ekle (yalnız siz görürsünüz)'}">${icon('not')}${m ? `<span>${esc(notKisa(m))}</span>` : ''}</button>`;
+}
+// listelerde salt okunur not satiri (varsa)
+function notSatir(t, id) {
+  const m = notAl(t, id);
+  return `<span data-notk="${t}:${id}" data-notv="satir">${m ? `<div class="not-satir">${icon('not')}<span>${esc(notKisa(m, 120))}</span></div>` : ''}</span>`;
+}
+// detay sayfalarinda not kutusu
+function notKart(t, id) {
+  const m = notAl(t, id);
+  return `<div data-notk="${t}:${id}" data-notv="kart">${m
+    ? `<div class="card not-kart"><div class="nk-h">${icon('not')}<b>Notum</b><span class="tiny">yalnız siz görürsünüz · çıktılarda yok</span><a href="#" data-notd="${t}:${id}">Düzenle</a></div><div class="nk-m">${esc(m)}</div></div>`
+    : `<div class="not-ekle"><a href="#" data-notd="${t}:${id}">${icon('not')}Not ekle</a> <span class="tiny">yalnız siz görürsünüz; ekstre, fiş ve çıktılarda yer almaz</span></div>`}</div>`;
+}
+// formlarda not alani
+function notAlan(elId, t, id) {
+  return `<div class="field"><label>Notum <span class="tiny" style="font-weight:500">yalnız siz görürsünüz; ekstre, fiş ve çıktılarda yer almaz</span></label><textarea class="input" id="${elId}" rows="2" placeholder="Kendiniz için not">${esc(id ? notAl(t, id) : '')}</textarea></div>`;
+}
+function notDomYenile(t, id) {
+  $$(`[data-notk="${t}:${id}"]`).forEach((el) => {
+    const v = el.dataset.notv;
+    const html = v === 'kart' ? notKart(t, id) : v === 'satir' ? notSatir(t, id) : notIk(t, id);
+    el.outerHTML = html;
+  });
+}
+async function notKaydet(t, id, metin) {
+  if (!id) return;
+  metin = String(metin || '').trim();
+  const k = `${t}:${id}`, eski = notAl(t, id);
+  if (metin === eski) return;
+  state.notlar ||= {};
+  if (!metin) {
+    await api.del('notlar', `tablo=eq.${encodeURIComponent(t)}&kayit_id=eq.${id}`);
+    delete state.notlar[k];
+  } else {
+    await api.insert('notlar', [{ tablo: t, kayit_id: +id, metin, olusturan: api.session?.user?.id, guncelleme: new Date().toISOString() }], { upsert: true, onConflict: 'olusturan,tablo,kayit_id' });
+    state.notlar[k] = metin;
+  }
+  notDomYenile(t, id);
+}
+function notDuzenle(t, id) {
+  const m0 = notAl(t, id);
+  modal({
+    title: m0 ? 'Notu düzenle' : 'Not ekle',
+    body: `<p class="tiny" style="margin-top:0">Bu not yalnız sizin hesabınızda görünür. Müşteriye giden ekstre, fiş, makbuz ve çıktılarda yer almaz.</p>
+      <textarea class="input" id="nt-m" rows="5" placeholder="Notunuz…">${esc(m0)}</textarea>`,
+    foot: `${m0 ? `<button class="btn red" id="nt-sil">${icon('trash')}Sil</button>` : ''}<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="nt-ok">Kaydet</button>`,
+    onMount: (m) => {
+      setTimeout(() => $('#nt-m', m.el).focus(), 60);
+      $('#nt-ok', m.el).onclick = async (e) => { try { await busy(e.currentTarget, () => notKaydet(t, id, $('#nt-m', m.el).value)); m.close(); toast('Not kaydedildi', 'ok'); } catch (err) { fail(err); } };
+      $('#nt-sil', m.el)?.addEventListener('click', async (e) => { try { await busy(e.currentTarget, () => notKaydet(t, id, '')); m.close(); toast('Not silindi', 'ok'); } catch (err) { fail(err); } });
+    }
+  });
+}
+// not dugmeleri satirin kendi tiklamasini tetiklemesin: yakalama asamasinda karsila
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-notd]'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const [t, id] = b.dataset.notd.split(':'); notDuzenle(t, +id);
+}, true);
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ''}</svg>`;
 
 /* ------------------------------------------------------------------ */
@@ -185,11 +255,12 @@ function trDbErr(j) {
 /* ------------------------------------------------------------------ */
 /* Uygulama durumu ve onbellek                                          */
 /* ------------------------------------------------------------------ */
-const state = { profil: null, ayarlar: null, urunler: null, cariler: null, ui: {} };
+const state = { profil: null, ayarlar: null, urunler: null, cariler: null, notlar: null, ui: {} };
 const cache = {
   async ayarlar(force) { if (force || !state.ayarlar) state.ayarlar = (await api.get('ayarlar', 'select=*&id=eq.1'))[0]; return state.ayarlar; },
   async urunler(force) { if (force || !state.urunler) state.urunler = await api.get('v_stok', 'select=*&order=ad.asc&limit=10000'); return state.urunler; },
   async cariler(force) { if (force || !state.cariler) state.cariler = await api.get('v_cariler', 'select=*&order=unvan.asc&limit=10000'); return state.cariler; },
+  async notlar(force) { if (force || !state.notlar) { try { const r = await api.get('notlar', 'select=tablo,kayit_id,metin&limit=50000'); state.notlar = Object.fromEntries(r.map((n) => [`${n.tablo}:${n.kayit_id}`, n.metin])); } catch { state.notlar = {}; } } return state.notlar; },
   dirty(...k) { k.forEach((x) => { state[x] = null; }); }
 };
 const isAdmin = () => state.profil?.rol === 'admin';
@@ -354,6 +425,7 @@ async function render() {
       await cache.ayarlar();
     }
   } catch (e) { if (!api.session) return viewLogin(); fail(e); }
+  if (!state.notlar) await cache.notlar();
   const h = location.hash || '#/';
   const r = ROUTES.find(([re]) => re.test(h)) || ROUTES[0];
   const m = h.match(r[0]) || [];
@@ -489,7 +561,7 @@ const yoldaMi = (s) => s.durum === 'Beklemede' && !!s.cin_siparis_id && s.cin_du
 function siparisRow(s, sevkBtn = false) {
   return `<div class="row" data-go="#/siparis/${s.id}">
     <div class="main-col"><div class="t">${esc(s.cari_unvan)}${s.cari_tip === 'Perakende' && (s.urun_ozet || s.platform) ? ` <span class="sp-ozet">${s.platform ? `<b style="color:${PL_RENK[s.platform] || 'inherit'}">${esc(s.platform)}</b>${s.urun_ozet ? ' · ' : ''}` : ''}${esc(s.urun_ozet || '')}</span>` : ''}</div>
-      <div class="st"><span class="num">Fiş ${s.fis_no}</span>· ${fmtD(s.tarih)} ${tipBadge(s.fatura_tipi)} ${durumBadge(s.durum)}${s.durum === 'Beklemede' ? sonKargoBadge(s.son_kargo) : ''}${s.cin_no ? ` <span class="badge b-blue">${cinNo(s.cin_no, s.cin_kod)}${s.cin_durum !== 'Teslim Alındı' ? ' · yolda' : ''}</span>` : ''} ${s.gonderim_sekli ? `<span class="tiny">${esc(s.gonderim_sekli)}</span>` : ''}</div></div>
+      <div class="st"><span class="num">Fiş ${s.fis_no}</span>· ${fmtD(s.tarih)} ${tipBadge(s.fatura_tipi)} ${durumBadge(s.durum)}${s.durum === 'Beklemede' ? sonKargoBadge(s.son_kargo) : ''}${s.cin_no ? ` <span class="badge b-blue">${cinNo(s.cin_no, s.cin_kod)}${s.cin_durum !== 'Teslim Alındı' ? ' · yolda' : ''}</span>` : ''} ${s.gonderim_sekli ? `<span class="tiny">${esc(s.gonderim_sekli)}</span>` : ''}</div>${notSatir('siparisler', s.id)}</div>
     <div class="end"><div class="amt">${fmtTL(s.genel_toplam)}</div>
       ${sevkBtn && s.durum === 'Beklemede' ? `<button class="btn sm green" style="margin-top:6px" data-sevk="${s.id}" data-fis="${s.fis_no}">${icon('truck')}Sevk et</button>` : ''}</div>
   </div>`;
@@ -597,7 +669,7 @@ async function viewSiparisDetay(id) {
   ]);
   if (!s) { $('#view').innerHTML = '<div class="card empty">Sipariş bulunamadı</div>'; return; }
   topbar(`Fiş ${s.fis_no}`, { back: true, actions: `<button class="tb-btn" id="prt" title="Yazdır / PDF">${icon('print')}Çıktı</button>` });
-  $('#view').innerHTML = `
+  $('#view').innerHTML = `${notKart('siparisler', s.id)}
     <div class="card">
       <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
         <div><div style="font-size:19px;font-weight:800"><a href="#/cari/${s.cari_id}">${esc(s.cari_unvan)}</a></div>
@@ -1113,7 +1185,8 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
     <button class="btn block" id="add-line" style="margin-bottom:14px">${icon('plus')}Ürün ekle</button>
     <div class="card">
       <div class="totals" id="totals"></div>
-      <div class="field" style="margin-top:12px"><label>Açıklama</label><textarea class="input" id="f-acik" placeholder="İsteğe bağlı not"></textarea></div>
+      <div class="field" style="margin-top:12px"><label>Açıklama <span class="tiny" style="font-weight:500">fişte görünür</span></label><textarea class="input" id="f-acik" placeholder="İsteğe bağlı"></textarea></div>
+      ${notAlan('f-not', 'siparisler', editId)}
       ${editId ? `<p class="tiny" style="margin:4px 0">Durum: <b>${esc(es.durum)}</b>${es.durum === 'Sevk Edildi' ? ' · stok çıkışları yeni miktarlara göre düzeltilir' : ''}. Cari değiştirmek için siparişi iptal edip yenisini açın.</p>` : '<label class="check"><input type="checkbox" id="f-sevk"> Sevk edildi olarak kaydet (stoktan hemen düşer)</label>'}
       <label class="check"><input type="checkbox" id="f-mf" checked> Değişen fiyatları bu müşterinin fiyatı olarak kaydet</label>
       ${editId ? '' : `<div class="field" style="margin:10px 0 0"><label>Tahsilat planı</label><select class="input" id="f-plan"><option value="">Plan yok</option><option value="elle">Tarih ve oranları kendim gireceğim</option>${Object.keys(sablonlar).map((k) => `<option value="${k}" ${cin && k === '30-30-40' ? 'selected' : ''}>${esc(SABLON_AD[k])}</option>`).join('')}</select>
@@ -1300,6 +1373,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
           const uniq = Object.values(Object.fromEntries(ups.map((x) => [x.urun_id, x])));
           if (uniq.length) await api.insert('musteri_fiyatlari', uniq, { upsert: true, onConflict: 'cari_id,urun_id' });
         }
+        await notKaydet('siparisler', res.id, $('#f-not').value).catch(() => toast('Not kaydedilemedi', 'err'));
         return res;
       });
       cache.dirty('urunler', 'cariler');
@@ -1369,7 +1443,7 @@ async function viewUrunDetay(id) {
     .reduce((m, k) => { const x = (m[k.cin_siparis_id] ||= { ...k.cin_siparisler, adet: 0 }); x.adet += num(k.miktar) - num(k.devreden); return m; }, {}));
   if (!u) { $('#view').innerHTML = '<div class="card empty">Ürün bulunamadı</div>'; return; }
   topbar(u.ad, { back: true, actions: `<button class="tb-btn" id="ed">${icon('edit')}Düzenle</button>` });
-  $('#view').innerHTML = `
+  $('#view').innerHTML = `${notKart('urunler', u.id)}
     <div class="card">
       <div class="st small muted" style="margin-bottom:10px">${esc(u.kod)} · ${esc(u.kategori || 'Kategorisiz')} · ${esc(u.birim)} ${stokBadge(u.durum)} ${u.aktif ? '' : '<span class="badge b-red">Pasif</span>'}</div>
       <div class="stats">
@@ -1384,7 +1458,6 @@ async function viewUrunDetay(id) {
         <span class="k">Son alış fiyatı</span><span>${u.son_alis_fiyati !== null ? fmtTL(u.son_alis_fiyati) : '–'}</span>
         <span class="k">Minimum stok</span><span>${fmtN(u.min_stok)}</span>
         ${num(u.yolda) ? `<span class="k">Yolda (ithalat)</span><span>${yolC.length ? `<a href="#" data-kay="u-yol"><b>${fmtN(u.yolda)}</b> ›</a>` : `<b>${fmtN(u.yolda)}</b>`} · geldikten sonra ${fmtN(u.yolda_dahil_stok)}</span>` : ''}
-        ${u.notlar ? `<span class="k">Not</span><span>${esc(u.notlar)}</span>` : ''}
       </div>
     </div>
     <div class="btn-row" style="margin-bottom:6px">
@@ -1426,7 +1499,7 @@ function hareketTable(har, showUrun) {
       <td class="r" ${h.tur === 'Giriş' ? 'data-l="Maliyet"' : ''}>${h.tur === 'Giriş'
         ? (isAdmin() ? `<input class="input mal-in" data-id="${h.id}" inputmode="decimal" style="width:110px;padding:6px 8px;text-align:right;font-size:14px" placeholder="girin" value="${h.birim_maliyet !== null ? fmtN(h.birim_maliyet) : ''}">` : (h.birim_maliyet !== null ? fmtTL(h.birim_maliyet) : '–'))
         : ''}${h.para_birimi && h.para_birimi !== 'TRY' && h.doviz_maliyet !== null ? `<div class="tiny">${fmtPB(h.doviz_maliyet, h.para_birimi)} × ${fmtN(h.kur)}</div>` : ''}</td>
-      <td class="small w">${h.siparisler && h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">Fiş ${h.siparisler.fis_no}</a> · ${h.siparisler.cari_id ? `<a href="#/cari/${h.siparisler.cari_id}">${esc(h.siparisler.cariler?.unvan || '')}</a>` : esc(h.siparisler.cariler?.unvan || '')}` : h.cin_kalemler?.cin_siparis_id ? `<a href="#/cin/${h.cin_kalemler.cin_siparis_id}">İthalat ${esc(cinNo(h.cin_kalemler.cin_siparisler?.no, h.cin_kalemler.cin_siparisler?.kod))}</a>${h.aciklama ? ' · ' + esc(h.aciklama) : ''}` : h.cari_id && h.tedarikci ? `<a href="#/cari/${h.cari_id}">${esc(h.tedarikci)}</a>${[h.belge_no, h.aciklama].filter(Boolean).map((x) => ' · ' + esc(x)).join('')}` : esc([h.tedarikci, h.belge_no, h.aciklama].filter(Boolean).join(' · ') || '')}${h.islem === 'Alış' && !h.siparis_id && !h.cin_kalem_id ? `<div><a href="#" class="h-prt tiny" data-id="${h.id}">${icon('print')} Alış fişi</a></div>` : ''}</td>
+      <td class="small w">${h.siparisler && h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">Fiş ${h.siparisler.fis_no}</a> · ${h.siparisler.cari_id ? `<a href="#/cari/${h.siparisler.cari_id}">${esc(h.siparisler.cariler?.unvan || '')}</a>` : esc(h.siparisler.cariler?.unvan || '')}` : h.cin_kalemler?.cin_siparis_id ? `<a href="#/cin/${h.cin_kalemler.cin_siparis_id}">İthalat ${esc(cinNo(h.cin_kalemler.cin_siparisler?.no, h.cin_kalemler.cin_siparisler?.kod))}</a>${h.aciklama ? ' · ' + esc(h.aciklama) : ''}` : h.cari_id && h.tedarikci ? `<a href="#/cari/${h.cari_id}">${esc(h.tedarikci)}</a>${[h.belge_no, h.aciklama].filter(Boolean).map((x) => ' · ' + esc(x)).join('')}` : esc([h.tedarikci, h.belge_no, h.aciklama].filter(Boolean).join(' · ') || '')}${h.islem === 'Alış' && !h.siparis_id && !h.cin_kalem_id ? `<div><a href="#" class="h-prt tiny" data-id="${h.id}">${icon('print')} Alış fişi</a></div>` : ''}<div>${notIk('stok_hareketleri', h.id)}</div></td>
       ${isAdmin() ? `<td class="push">${!h.siparis_id && !h.cin_kalem_id ? `<button class="icon-btn h-del" data-id="${h.id}" ${h.cari_id ? `data-cari="${h.cari_id}" data-ted="${esc(h.tedarikci || '')}"` : ''} title="Sil">${icon('trash')}</button>` : ''}</td>` : ''}
     </tr>`).join('')}</tbody></table></div>`;
 }
@@ -1504,7 +1577,8 @@ async function viewMalAlisi(urunId) {
         ${kasaSecHtml('a-ks', 'Hangi kasadan / hesaptan ödendi?')}
         <p class="tiny" style="margin-top:-6px">Alış tutarı (KDV dahil) tedarikçinin carisine borç olarak yazılır. Vadeli seçilirse ödeme takvimine girer; ödendi işaretlenince cari ve kasa kendiliğinden kapanır.</p>
       </div>
-      <div class="field" style="margin-bottom:0"><label>Açıklama</label><input class="input" id="a-ac" placeholder="İsteğe bağlı"></div>
+      <div class="field"><label>Açıklama <span class="tiny" style="font-weight:500">alış fişinde görünür</span></label><input class="input" id="a-ac" placeholder="İsteğe bağlı"></div>
+      ${notAlan('a-not', 'stok_hareketleri', null)}
     </div>
     <div class="section-title">Ürünler <span class="tiny" style="text-transform:none;letter-spacing:0">Ürün seçince altına yeni satır açılır · fiyatlar KDV hariç</span></div>
     <div class="lines" id="a-lines"></div>
@@ -1608,7 +1682,8 @@ async function viewMalAlisi(urunId) {
     const topPB = Math.round(dolu.reduce((a, l) => a + num(l.miktar) * num(l.maliyet), 0) * (1 + kdvO) * 100) / 100, topTL = Math.round(topPB * d.kur * 100) / 100;
     try {
       await busy(e.currentTarget, async () => {
-        await api.insert('stok_hareketleri', dolu.map((l) => ({ ...ortak, urun_id: l.urun.id, miktar: num(l.miktar), birim_maliyet: l.maliyet === '' ? null : Math.round(num(l.maliyet) * d.kur * 10000) / 10000, doviz_maliyet: l.maliyet === '' || d.pb === 'TRY' ? null : num(l.maliyet) })));
+        const insH = await api.insert('stok_hareketleri', dolu.map((l) => ({ ...ortak, urun_id: l.urun.id, miktar: num(l.miktar), birim_maliyet: l.maliyet === '' ? null : Math.round(num(l.maliyet) * d.kur * 10000) / 10000, doviz_maliyet: l.maliyet === '' || d.pb === 'TRY' ? null : num(l.maliyet) })));
+        await notKaydet('stok_hareketleri', insH?.[0]?.id, $('#a-not').value).catch(() => toast('Not kaydedilemedi', 'err'));
         if (!borcYaz || !(topTL > 0)) return;
         const belge = ortak.belge_no || `Alış ${fmtD(ortak.tarih)}`;
         await api.insert('cari_hareketler', [{ tarih: ortak.tarih, cari_id: tedCari.id, islem: 'Alış', fatura_tipi: tip, belge_no: belge, matrah: Math.round(topTL / (1 + kdvO) * 100) / 100, kdv_tutari: Math.round((topTL - topTL / (1 + kdvO)) * 100) / 100, alacak: topTL, para_birimi: d.pb, kur: d.kur, doviz_tutar: d.pb === 'TRY' ? null : topPB, aciklama: ortak.aciklama || `${dolu.length} kalem mal alışı` }]);
@@ -1686,7 +1761,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
         <div class="field"><label>Birim</label><input class="input" id="u-bir" value="${esc(d.birim)}" list="birimler"><datalist id="birimler"><option>Adet</option><option>Kg</option><option>Mt</option><option>Koli</option><option>Paket</option><option>Takım</option></datalist></div></div>
       <div class="grid2"><div class="field"><label>Liste satış fiyatı (₺)</label><input class="input" id="u-fy" inputmode="decimal" value="${fmtN(d.satis_fiyati)}"><div class="hint">Müşteri fiyatı yoksa bu kullanılır</div></div>
         <div class="field"><label>Minimum stok</label><input class="input" id="u-min" inputmode="decimal" value="${fmtN(d.min_stok)}"><div class="hint">Altına düşünce KRİTİK görünür</div></div></div>
-      <div class="field"><label>Not</label><input class="input" id="u-not" value="${esc(d.notlar || '')}"></div>
+      ${notAlan('u-not', 'urunler', u?.id)}
       <label class="check"><input type="checkbox" id="u-stk" ${(u ? u.stok_takibi !== false : preset?.stok_takibi !== false) ? 'checked' : ''}> Stok takibi yap <span class="tiny">(yedek parça gibi stoku tutulmayan ürünlerde kaldırın; satış eksi stok uyarısı vermez)</span></label>
       ${u ? `<label class="check"><input type="checkbox" id="u-akt" ${d.aktif ? 'checked' : ''}> Aktif (pasif ürünler listelerde görünmez)</label>` : ''}
       ${gumrukHtml(d.gumruk)}`,
@@ -1695,7 +1770,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
       gumrukBind(m.el);
       $('#u-ok', m.el).onclick = async (e) => {
         const row = { ad: $('#u-ad', m.el).value.trim(), kategori: $('#u-kat', m.el).value.trim() || null, birim: $('#u-bir', m.el).value.trim() || 'Adet',
-          satis_fiyati: parseNum($('#u-fy', m.el).value) || 0, min_stok: parseNum($('#u-min', m.el).value) || 0, notlar: $('#u-not', m.el).value.trim() || null };
+          satis_fiyati: parseNum($('#u-fy', m.el).value) || 0, min_stok: parseNum($('#u-min', m.el).value) || 0 };
         if (u) row.aktif = $('#u-akt', m.el).checked;
         row.stok_takibi = $('#u-stk', m.el).checked;
         if (!row.ad) return toast('Ürün adı girin', 'err');
@@ -1704,7 +1779,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
         if ((state.urunler || []).some((x) => x.kod === row.kod && x.id !== u?.id)) return toast(`${row.kod} kodu başka bir üründe kullanılıyor`, 'err');
         row.gumruk = gumrukOku(m.el);
         try {
-          const [saved] = await busy(e.currentTarget, () => (u ? api.update('urunler', `id=eq.${u.id}`, row) : api.insert('urunler', [row])));
+          const [saved] = await busy(e.currentTarget, async () => { const r = await (u ? api.update('urunler', `id=eq.${u.id}`, row) : api.insert('urunler', [row])); await notKaydet('urunler', r[0]?.id, $('#u-not', m.el).value).catch(() => toast('Not kaydedilemedi', 'err')); return r; });
           m.close(); cache.dirty('urunler'); toast(u ? 'Ürün güncellendi' : `Ürün eklendi: ${saved.kod}`, 'ok');
           onSaved ? onSaved(saved) : render();
         } catch (err) { fail(err); }
@@ -1719,7 +1794,7 @@ function urunForm(u = null, preset = null, onSaved = null) {
 function cariRow(c) {
   return `<div class="row" data-go="#/cari/${c.id}">
     <div class="main-col"><div class="t">${esc(c.unvan)}</div>
-      <div class="st"><span class="tiny">${esc(c.kod)}</span>${c.sehir ? `<span class="tiny">· ${esc(c.sehir)}</span>` : ''}${c.tip === 'Perakende' ? '<span class="badge">Perakende</span>' : ''}</div></div>
+      <div class="st"><span class="tiny">${esc(c.kod)}</span>${c.sehir ? `<span class="tiny">· ${esc(c.sehir)}</span>` : ''}${c.tip === 'Perakende' ? '<span class="badge">Perakende</span>' : ''}</div>${notSatir('cariler', c.id)}</div>
     <div class="end"><div class="amt ${balCls(c.bakiye)}">${fmtTL(c.bakiye)}</div>
       ${num(c.bakiye_r) || num(c.bakiye_gr) ? `<div class="tiny">R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}</div>` : ''}
       ${Math.abs(num(c.sevk_bekleyen)) > 0.005 ? `<div class="tiny" style="color:var(--orange)">+ sevk bekleyen ${fmtTL(c.sevk_bekleyen)}</div>` : ''}</div>
@@ -1783,6 +1858,7 @@ async function viewCariDetay(id) {
       </div>
       <p class="tiny" style="margin:8px 0 0">Pozitif bakiye: müşteri size borçlu. Negatif: siz müşteriye borçlusunuz. Sevk edilmemiş siparişler sevk edilince bakiyeye girer; önceden alınan ödemeler bakiyede görünür.</p>
     </div>
+    ${notKart('cariler', c.id)}
     <div class="btn-row" style="margin-bottom:6px">
       <button class="btn orange" id="b-tah">${icon('cash')}Tahsilat</button>
       <button class="btn primary" id="b-sip">${icon('order')}Yeni sipariş</button>
@@ -1818,7 +1894,7 @@ async function viewCariDetay(id) {
     $('#eks').innerHTML = rows.length ? `<div class="table-wrap"><table class="tbl stack"><thead><tr><th>Tarih</th><th>İşlem</th><th>Belge</th><th class="r">Matrah</th><th class="r">KDV</th><th class="r">Borç</th><th class="r">Alacak</th><th class="r">Bakiye</th>${isAdmin() ? '<th></th>' : ''}</tr></thead>
       <tbody>${rows.slice().reverse().map((h) => `<tr class="click" data-hid="${h.id}"${h.sevk_bekliyor ? ' style="opacity:.6"' : ''}>
         <td class="num">${fmtD(h.tarih)}</td>
-        <td>${esc(h.islem)} ${tipBadge(h.fatura_tipi)}${h.sevk_bekliyor ? ' <span class="badge b-orange">Sevk bekliyor · bakiyede yok</span>' : ''}${h.odeme_sekli ? `<div class="tiny">${esc(h.odeme_sekli)}</div>` : ''}${h.aciklama ? `<div class="tiny">${esc(h.aciklama)}</div>` : ''}</td>
+        <td>${esc(h.islem)} ${tipBadge(h.fatura_tipi)}${h.sevk_bekliyor ? ' <span class="badge b-orange">Sevk bekliyor · bakiyede yok</span>' : ''}${h.odeme_sekli ? `<div class="tiny">${esc(h.odeme_sekli)}</div>` : ''}${h.aciklama ? `<div class="tiny">${esc(h.aciklama)}</div>` : ''}<div>${notIk('cari_hareketler', h.id)}</div></td>
         <td class="small">${h.siparis_id ? `<a href="#/siparis/${h.siparis_id}">${esc(h.belge_no || '')}</a>` : esc(h.belge_no || '')}</td>
         <td class="r small" ${num(h.matrah) ? 'data-l="Matrah"' : ''}>${num(h.matrah) ? fmtTL(h.matrah) : ''}</td><td class="r small" ${num(h.kdv_tutari) ? 'data-l="KDV"' : ''}>${num(h.kdv_tutari) ? fmtTL(h.kdv_tutari) : ''}</td>
         <td class="r" ${num(h.borc) ? 'data-l="Borç"' : ''}>${num(h.borc) ? fmtTL(h.borc) + dvzNot(h) : ''}</td><td class="r" ${num(h.alacak) ? 'data-l="Alacak"' : ''}>${num(h.alacak) ? fmtTL(h.alacak) + dvzNot(h) : ''}</td>
@@ -1945,7 +2021,8 @@ function cariForm(c = null, preset = null, onSaved = null) {
         <div class="field"><label>E-posta</label><input class="input" id="c-ep" type="email" value="${esc(d.eposta || '')}"></div></div>
       <div class="field"><label>Adres</label><input class="input" id="c-adr" value="${esc(d.adres || '')}"></div>
       <div class="grid2"><div class="field"><label>Vergi no / TCKN</label><input class="input" id="c-vn" value="${esc(d.vergi_no || '')}"></div>
-        <div class="field"><label>Not</label><input class="input" id="c-not" value="${esc(d.notlar || '')}"></div></div>
+        <div></div></div>
+      ${notAlan('c-not', 'cariler', c?.id)}
       ${c ? `<label class="check"><input type="checkbox" id="c-akt" ${d.aktif ? 'checked' : ''}> Aktif</label>` : ''}`,
     foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="c-ok">Kaydet</button>`,
     onMount: (m) => {
@@ -1954,11 +2031,11 @@ function cariForm(c = null, preset = null, onSaved = null) {
       st(); $('#c-tip', m.el).onclick = (e) => { const b = e.target.closest('button'); if (b) { tip = b.dataset.v; st(); } };
       $('#c-ok', m.el).onclick = async (e) => {
         const v = (s) => $(s, m.el).value.trim() || null;
-        const row = { unvan: $('#c-un', m.el).value.trim(), tip, yetkili: v('#c-yet'), telefon: v('#c-tel'), sehir: v('#c-seh'), eposta: v('#c-ep'), adres: v('#c-adr'), vergi_no: v('#c-vn'), notlar: v('#c-not') };
+        const row = { unvan: $('#c-un', m.el).value.trim(), tip, yetkili: v('#c-yet'), telefon: v('#c-tel'), sehir: v('#c-seh'), eposta: v('#c-ep'), adres: v('#c-adr'), vergi_no: v('#c-vn') };
         if (c) row.aktif = $('#c-akt', m.el).checked;
         if (!row.unvan) return toast('Ünvan girin', 'err');
         try {
-          const [saved] = await busy(e.currentTarget, () => (c ? api.update('cariler', `id=eq.${c.id}`, row) : api.insert('cariler', [row])));
+          const [saved] = await busy(e.currentTarget, async () => { const r = await (c ? api.update('cariler', `id=eq.${c.id}`, row) : api.insert('cariler', [row])); await notKaydet('cariler', r[0]?.id, $('#c-not', m.el).value).catch(() => toast('Not kaydedilemedi', 'err')); return r; });
           m.close(); cache.dirty('cariler'); toast(c ? 'Cari güncellendi' : `Cari eklendi: ${saved.kod}`, 'ok');
           onSaved ? onSaved(saved) : render();
         } catch (err) { fail(err); }
@@ -3008,6 +3085,7 @@ async function viewPaytr() {
       <div class="main-col">
         <div class="t"><span class="num">${iade ? '−' : ''}${fmtTL(p.islem_tutari)}</span> ${iade ? '<span class="badge b-orange">İade</span>' : ''} ${num(p.taksit) > 1 ? `<span class="badge b-blue">${p.taksit} taksit</span>` : ''}</div>
         <div class="st">${[ptSaat(p), p.kart_marka, p.kart_no, p.siparis_no ? `Sipariş ${esc(p.siparis_no)}` : '', hesaplar.length > 1 ? ptHesap(p.hesap) : ''].filter(Boolean).map(esc).join(' · ')}</div>
+        <div>${notIk('paytr_islemler', p.id)}</div>
         ${!ok && p.site_siparis_no ? `<div class="pt-es" style="color:var(--muted)">${esc(p.site)} siparişi ${esc(p.site_siparis_no)} · programa aktarılınca kendiliğinden bağlanır</div>` : ''}
         ${ok && p.durum === 'Sipariş' ? `<div class="pt-es">✓ <a href="#/siparis/${p.siparis_id}"><b>Fiş ${p.fis_no ?? ''}</b></a> · ${esc(p.site || 'site')} ${esc(p.site_siparis_no || '')}${p.cari_id ? ` · <a href="#/cari/${p.cari_id}">${esc(p.cari_unvan || '')}</a>` : ''} · Makbuz #${p.makbuz_no}</div>` : ''}
         ${ok && p.durum !== 'Sipariş' ? `<div class="pt-es">✓ ${p.durum === 'Perakende' ? '<b>Perakende</b>' : `${p.cari_id ? `<a href="#/cari/${p.cari_id}"><b>${esc(p.cari_unvan || 'Cari')}</b></a>` : `<b>${esc(p.cari_unvan || 'Cari')}</b>`} · ${p.fatura_tipi}`} · Makbuz #${p.makbuz_no}</div>` : ''}
@@ -3388,7 +3466,7 @@ function planRow(p, { baslik = false } = {}) {
   const tlNot = p.para_birimi !== 'TRY' && tlTahmin(p) > 0 ? `<div class="tiny">≈ ${fmtTL(tlTahmin(p))}</div>` : '';
   return `<div class="row" data-pid="${p.id}">
     <div class="main-col"><div class="t">${baslik ? `<span class="badge ${p.yon === 'Tahsilat' ? 'b-green' : 'b-orange'}" style="margin-right:6px">${p.yon === 'Tahsilat' ? 'Tahsilat' : 'Ödeme'}</span>${kim}` : esc(p.aciklama || p.kategori)}</div>
-      <div class="st">${baslik && p.aciklama ? `<span>${esc(p.aciklama)}</span>` : ''}${p.yuzde && !String(p.aciklama || '').includes('%') ? `<span>%${fmtN(p.yuzde)}</span>` : ''}${zaman ? `<span>${zaman}</span>` : ''}${masrafMi && p.cin_siparis_id ? (p.kaynak === 'vergi' ? '<span class="badge b-purple">hesaplandı · ürünlere işlendi</span>' : p.maliyete_dahil ? `<span class="badge b-blue">maliyete dahil · ${p.dagitim === 'Adet' ? 'adede' : 'değere'} göre</span>` : '<span class="badge">maliyete dahil değil</span>') : ''}</div></div>
+      <div class="st">${baslik && p.aciklama ? `<span>${esc(p.aciklama)}</span>` : ''}${p.yuzde && !String(p.aciklama || '').includes('%') ? `<span>%${fmtN(p.yuzde)}</span>` : ''}${zaman ? `<span>${zaman}</span>` : ''}${masrafMi && p.cin_siparis_id ? (p.kaynak === 'vergi' ? '<span class="badge b-purple">hesaplandı · ürünlere işlendi</span>' : p.maliyete_dahil ? `<span class="badge b-blue">maliyete dahil · ${p.dagitim === 'Adet' ? 'adede' : 'değere'} göre</span>` : '<span class="badge">maliyete dahil değil</span>') : ''}</div><div>${notIk('odeme_plani', p.id)}</div></div>
     <div class="end"><div class="amt">${fmtPB(p.tutar_hesap, p.para_birimi)}</div>${tlNot}
       <div class="tiny ${gec ? 'pos' : ''}">${p.odendi ? `✓ ${p.yon === 'Tahsilat' ? 'tahsil edildi' : 'ödendi'} ${fmtD(p.odeme_tarihi)}${p.odenen_kur ? ` · kur ${fmtN(p.odenen_kur)}` : ''}` : `${gec ? 'GECİKTİ · ' : ''}${vadeTxt}`}</div>
       ${!p.odendi ? `<button class="btn sm ${p.yon === 'Tahsilat' ? 'orange' : 'green'}" data-ode="${p.id}" style="margin-top:6px">${p.yon === 'Tahsilat' ? 'Tahsil et' : 'Ödendi'}</button>` : ''}</div>
@@ -3690,7 +3768,8 @@ async function viewCinForm(id) {
         <div class="field"><label>Takip / B/L no</label><input class="input" id="c-tak" value="${esc(d('takip_no'))}"></div>
       </div>
       <div class="field"><label>Depo girişinde fatura tipi</label><div class="seg" id="c-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
-      <div class="field" style="margin-bottom:0"><label>Açıklama</label><input class="input" id="c-ac" value="${esc(d('aciklama'))}" placeholder="İsteğe bağlı"></div>
+      <div class="field"><label>Açıklama <span class="tiny" style="font-weight:500">çıktıda görünür</span></label><input class="input" id="c-ac" value="${esc(d('aciklama'))}" placeholder="İsteğe bağlı"></div>
+      ${notAlan('cn-not', 'cin_siparisler', id)}
     </div>
     <div class="section-title">Ürünler <span class="tiny" style="text-transform:none;letter-spacing:0">Fabrika fiyatı (FOB) · ürün seçince yeni satır açılır</span></div>
     <div class="lines" id="c-lines"></div>
@@ -3825,6 +3904,7 @@ async function viewCinForm(id) {
         if (id) { try { await vergiOtomatik(cid); } catch (e) { console.warn('vergi otomatik', e); } }
         const plan = !id && $('#c-plan').value;
         if (plan) await api.insert('odeme_plani', PLAN_SABLON[plan].map(([y, t, a, g], i) => ({ yon: 'Ödeme', kategori: 'Fabrika', cin_siparis_id: cid, aciklama: a, tetik: t, gun_sonra: g || 0, yuzde: y, para_birimi: f.pb, sira: i })));
+        await notKaydet('cin_siparisler', cid, $('#cn-not').value).catch(() => toast('Not kaydedilemedi', 'err'));
         return cid;
       });
       cache.dirty('urunler'); toast(id ? 'Güncellendi' : 'İthalat siparişi kaydedildi', 'ok'); go(`#/cin/${cid}`, true);
@@ -3909,7 +3989,7 @@ async function viewCinDetay(id) {
   // ayni urun birden fazla satirdaysa musteriye ayrilan miktar ilk satira yazilir
   const ayrKalan = { ...ayr };
   const satirAyr = (k) => { const a = Math.min(eqOf(k), ayrKalan[k.urun_id] || 0); ayrKalan[k.urun_id] = (ayrKalan[k.urun_id] || 0) - a; return a; };
-  $('#view').innerHTML = `
+  $('#view').innerHTML = `${notKart('cin_siparisler', c.id)}
     <div class="card">
       <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
         <div><div style="font-size:19px;font-weight:800">${c.fabrika_id ? `<a href="#" id="cd-fab" style="color:inherit">${esc(c.fabrika_ad)} ›</a>` : esc(c.fabrika_ad)}</div>
@@ -4740,7 +4820,7 @@ function nakitRow(n) {
   const alt = n.tur === 'Platform' ? [n.aciklama] : [n.belge_no ? `No ${n.belge_no}` : '', n.kaynak, n.aciklama];
   return `<div class="row" data-nid="${n.id}">
     <div class="main-col"><div class="t"><span class="badge ${n.tur === 'Platform' ? 'b-purple' : 'b-blue'}" style="margin-right:6px">${esc(n.tur)}</span>${baslik}</div>
-      <div class="st">${alt.filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${n.durum !== 'Bekliyor' ? nakitBadge(n.durum) : ''}${n.cari_hareket_id ? '<span class="badge">cariye işlendi</span>' : ''}${n.otomatik ? '<span class="badge b-green">otomatik</span>' : ''}</div></div>
+      <div class="st">${alt.filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${n.durum !== 'Bekliyor' ? nakitBadge(n.durum) : ''}${n.cari_hareket_id ? '<span class="badge">cariye işlendi</span>' : ''}${n.otomatik ? '<span class="badge b-green">otomatik</span>' : ''}</div><div>${notIk('nakit_girisleri', n.id)}</div></div>
     <div class="end"><div class="amt">${fmtPB(n.tutar, n.para_birimi)}</div>
       <div class="tiny ${gec ? 'pos' : ''}">${n.durum === 'Tahsil edildi' ? `✓ ${fmtD(n.tahsil_tarihi)}` : n.durum === 'Ciro edildi' ? `ciro: ${esc(n.ciro_edilen || '')}` : `${gec ? 'GECİKTİ · ' : ''}vade ${fmtD(n.vade)}`}</div>
       ${n.durum === 'Bekliyor' ? `<button class="btn sm orange" data-nok="${n.id}" style="margin-top:6px">${n.tur === 'Platform' ? 'Yattı' : 'Tahsil edildi'}</button>` : ''}</div>
@@ -4794,7 +4874,7 @@ function kasaForm(k) {
           ng.forEach((n) => { kay[n.kasa_hareket_id] ||= n.cari_id ? { h: `#/cari/${n.cari_id}`, t: `${n.tur} · ${n.cari_unvan || n.kesideci || ''}` } : { h: '#/odemeler', t: `${n.tur} · ${n.kesideci || n.belge_no || ''}` }; });
         }
         if (!$('#ks-har', m.el)) return;
-        $('#ks-har', m.el).innerHTML = hs.length ? `<div class="list" style="box-shadow:none;border:1px solid var(--line);margin:0">${hs.map((h) => `<div class="row" ${kay[h.id] ? `data-kh="${kay[h.id].h}"` : 'style="cursor:default"'}><div class="main-col"><div class="t" style="font-size:14px">${esc(h.aciklama || h.kaynak || '')}</div><div class="st">${fmtD(h.tarih)}${kay[h.id] ? `<span style="color:var(--accent)">${esc(kay[h.id].t)} ›</span>` : ''}</div></div><div class="end"><div class="amt" style="color:${num(h.tutar) < 0 ? 'var(--red)' : 'var(--green)'}">${num(h.tutar) > 0 ? '+' : ''}${fmtPB(h.tutar, k.para_birimi)}</div></div></div>`).join('')}</div>` : '<div class="tiny">Henüz otomatik hareket yok.</div>';
+        $('#ks-har', m.el).innerHTML = hs.length ? `<div class="list" style="box-shadow:none;border:1px solid var(--line);margin:0">${hs.map((h) => `<div class="row" ${kay[h.id] ? `data-kh="${kay[h.id].h}"` : 'style="cursor:default"'}><div class="main-col"><div class="t" style="font-size:14px">${esc(h.aciklama || h.kaynak || '')}</div><div class="st">${fmtD(h.tarih)}${kay[h.id] ? `<span style="color:var(--accent)">${esc(kay[h.id].t)} ›</span>` : ''}</div><div>${notIk('kasa_hareketleri', h.id)}</div></div><div class="end"><div class="amt" style="color:${num(h.tutar) < 0 ? 'var(--red)' : 'var(--green)'}">${num(h.tutar) > 0 ? '+' : ''}${fmtPB(h.tutar, k.para_birimi)}</div></div></div>`).join('')}</div>` : '<div class="tiny">Henüz otomatik hareket yok.</div>';
         $$('[data-kh]', $('#ks-har', m.el)).forEach((el) => { el.onclick = () => { m.close(); go(el.dataset.kh); }; });
       }).catch(() => { $('#ks-har', m.el).innerHTML = ''; });
       $('#ks-ok', m.el).onclick = async (e) => {
@@ -5171,7 +5251,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.96';
+const APP_V = '1.97';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
