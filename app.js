@@ -2927,39 +2927,74 @@ function yaziyla(n) {
   return `${yaz(tl)} Türk Lirası${kr ? ' ' + yaz(kr) + ' Kuruş' : ''}`;
 }
 
-function makbuzCanvas(p) {
-  const W = 1240, pad = 80, H = 1000;
+function makbuzCanvas(p, opt = {}) {
+  const W = 1240, pad = 80, H = 2000;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
   const F = (w, sz) => `${w} ${sz}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const kes = (t, w) => { t = String(t ?? ''); while (c.measureText(t).width > w && t.length > 3) t = t.slice(0, -2); return t; };
+  const iade = p.islem_tipi === 'İade';
+  const pb = p.para_birimi && p.para_birimi !== 'TRY' ? p.para_birimi : 'TRY';
+  const para = (v) => (pb === 'TRY' ? fmtTL(v) : fmtPB(v, pb));
   c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
   c.fillStyle = '#16213a'; c.fillRect(0, 0, W, 150);
   c.textBaseline = 'middle';
-  c.fillStyle = '#fff'; c.font = F(800, 46); c.fillText(state.ayarlar?.firma_adi || 'Firmam', pad, 62);
-  c.font = F(500, 26); c.fillStyle = '#c9d2e6'; c.fillText(p.islem_tipi === 'İade' ? 'İade Makbuzu' : 'Tahsilat Makbuzu', pad, 112);
-  c.textAlign = 'right'; c.fillStyle = '#fff'; c.font = F(800, 44); c.fillText(`No ${p.makbuz_no}`, W - pad, 62);
-  c.font = F(600, 26); c.fillStyle = '#c9d2e6'; c.fillText(fmtD(p.islem_tarihi) + (ptSaat(p) ? ' · ' + ptSaat(p) : ''), W - pad, 112);
+  c.fillStyle = '#fff'; c.font = F(800, 46); c.fillText(kes(state.ayarlar?.firma_adi || 'Firmam', 640), pad, 62);
+  c.font = F(500, 26); c.fillStyle = '#c9d2e6'; c.fillText(iade ? 'Kredi Kartı İade Makbuzu' : 'Kredi Kartı Tahsilat Makbuzu', pad, 112);
+  c.textAlign = 'right'; c.fillStyle = '#fff'; c.font = F(800, 44); c.fillText(p.makbuz_no ? `No ${p.makbuz_no}` : "", W - pad, 62);
+  c.font = F(600, 26); c.fillStyle = '#c9d2e6'; c.fillText(String(p.islem_zamani || fmtD(p.islem_tarihi)), W - pad, 112);
   c.textAlign = 'left';
-  let y = 220;
-  c.fillStyle = '#5b6578'; c.font = F(600, 24); c.fillText(p.islem_tipi === 'İade' ? 'İADE YAPILAN' : 'ÖDEMEYİ YAPAN', pad, y);
+  let y = 215;
+  c.fillStyle = '#5b6578'; c.font = F(600, 24); c.fillText(iade ? 'İADE YAPILAN' : 'ÖDEMEYİ YAPAN', pad, y);
   c.fillStyle = '#16213a'; c.font = F(800, 38);
-  let ad = p.durum === 'Perakende' ? 'Perakende müşteri' : p.cari_unvan || ''; while (c.measureText(ad).width > W - 2 * pad && ad.length > 3) ad = ad.slice(0, -2);
-  c.fillText(ad, pad, y + 48);
-  y = 360;
+  c.fillText(kes(p.durum === 'Perakende' ? 'Perakende müşteri' : p.cari_unvan || '', W - 2 * pad), pad, y + 46);
+  const cr = opt.cari;
+  const alt = [p.cari_kod, cr?.vergi_no ? `VKN/TC ${cr.vergi_no}` : '', cr?.telefon, [cr?.adres, cr?.sehir].filter(Boolean).join(' ')].filter(Boolean).join('  ·  ');
+  if (alt) { c.fillStyle = '#5b6578'; c.font = F(500, 24); c.fillText(kes(alt, W - 2 * pad), pad, y + 90); }
+  y = 380;
   c.fillStyle = '#f1f4f9'; c.fillRect(pad - 10, y - 50, W - 2 * pad + 20, 150);
-  c.fillStyle = '#5b6578'; c.font = F(600, 24); c.fillText('TUTAR', pad + 10, y - 14);
-  c.fillStyle = '#16213a'; c.font = F(800, 64); c.fillText(fmtTL(p.islem_tutari), pad + 10, y + 42);
-  y = 540;
+  c.fillStyle = '#5b6578'; c.font = F(600, 24); c.fillText(iade ? 'İADE TUTARI' : 'TAHSİL EDİLEN TUTAR', pad + 10, y - 14);
+  c.fillStyle = '#16213a'; c.font = F(800, 64); c.fillText(para(p.islem_tutari), pad + 10, y + 42);
+  y = 560;
   c.fillStyle = '#5b6578'; c.font = F(500, 26);
-  let yz = 'Yalnız: ' + yaziyla(num(p.islem_tutari)); while (c.measureText(yz).width > W - 2 * pad && yz.length > 10) yz = yz.slice(0, -2);
-  c.fillText(yz, pad, y);
-  y = 620;
-  const kv = [['Ödeme şekli', `Kredi kartı (PayTR)${num(p.taksit) > 1 ? ` · ${p.taksit} taksit` : ''}`], ['Kart', [p.kart_marka, p.kart_no].filter(Boolean).join(' · ')], ['Sipariş no', p.siparis_no || ''], ['Hesap', p.durum === 'Cari' ? `${p.fatura_tipi} hesabına ${p.islem_tipi === 'İade' ? 'borç' : 'alacak'} kaydedildi` : '']].filter(([, v]) => v);
-  kv.forEach(([k, v]) => { c.fillStyle = '#5b6578'; c.font = F(600, 26); c.fillText(k, pad, y); c.fillStyle = '#16213a'; c.font = F(600, 28); c.fillText(v, pad + 260, y); y += 52; });
-  y = Math.max(y + 60, 900);
+  c.fillText(kes('Yalnız: ' + yaziyla(num(p.islem_tutari)), W - 2 * pad), pad, y);
+  y = 630;
+  c.fillStyle = '#16213a'; c.font = F(800, 26); c.fillText('İŞLEM BİLGİLERİ (PayTR)', pad, y); y += 20;
+  c.strokeStyle = '#16213a'; c.lineWidth = 2; c.beginPath(); c.moveTo(pad, y); c.lineTo(W - pad, y); c.stroke(); y += 40;
+  const h = p.ham && typeof p.ham === 'object' ? p.ham : {};
+  const kv = [
+    ['İşlem tipi', iade ? 'İade' : 'Satış (kart ile ödeme)'],
+    ['İşlem tarihi', String(p.islem_zamani || h.islem_tarihi || fmtD(p.islem_tarihi))],
+    ['Ödeme yöntemi', [p.odeme_tipi || h.odeme_tipi, 'Kredi / banka kartı'].filter(Boolean).join(' · ')],
+    ['Kart', [p.kart_marka, p.kart_no].filter(Boolean).join(' · ')],
+    ['Taksit', num(p.taksit) > 1 ? `${p.taksit} taksit` : 'Tek çekim'],
+    ['İşlem tutarı', para(p.islem_tutari)],
+    ['Karttan çekilen tutar', p.odeme_tutari != null ? para(p.odeme_tutari) + (num(p.odeme_tutari) - num(p.islem_tutari) > 0.009 ? `  (vade farkı ${para(num(p.odeme_tutari) - num(p.islem_tutari))})` : '') : ''],
+    ['Para birimi', pb === 'TRY' ? 'TL' : pb],
+    ['PayTR sipariş no', p.siparis_no || h.siparis_no || ''],
+    ['İade referansı', h.iade_referans || ''],
+    ['PayTR hesabı', ptHesap(p.hesap)],
+    ['Bağlı sipariş', p.fis_no ? `Fiş ${p.fis_no}${p.site_siparis_no ? ` · ${p.site} ${p.site_siparis_no}` : ''}` : ''],
+    ['Cari hesap', p.durum === 'Cari' ? `${p.fatura_tipi} hesabına ${iade ? 'borç' : 'alacak'} kaydedildi` : p.durum === 'Perakende' ? 'Perakende satış' : p.durum === 'Sipariş' ? 'Siparişe bağlı' : ''],
+  ];
+  if (opt.kesinti) kv.push(
+    ['PayTR kesinti oranı', p.kesinti_orani != null ? `%${fmtN(p.kesinti_orani)}` : ''],
+    ['PayTR kesinti tutarı', p.kesinti_tutari != null ? para(p.kesinti_tutari) : ''],
+    ['Net (hesaba geçen)', p.net_tutar != null ? para(p.net_tutar) : '']);
+  kv.filter(([, v]) => v !== '' && v != null).forEach(([k, v], i) => {
+    if (i % 2 === 0) { c.fillStyle = '#f7f9fc'; c.fillRect(pad - 10, y - 24, W - 2 * pad + 20, 48); }
+    c.fillStyle = '#5b6578'; c.font = F(600, 24); c.fillText(k, pad, y);
+    c.fillStyle = '#16213a'; c.font = F(600, 26); c.fillText(kes(v, W - 2 * pad - 340), pad + 340, y);
+    y += 48;
+  });
+  if (p.aciklama_ek) { y += 10; c.fillStyle = '#5b6578'; c.font = F(500, 22); c.fillText(kes(p.aciklama_ek, W - 2 * pad), pad, y); y += 36; }
+  y += 20; c.fillStyle = '#7a8496'; c.font = F(500, 20);
+  c.fillText(kes('Bu ödeme PayTR ödeme kuruluşu aracılığıyla kart ile alınmıştır.', W - 2 * pad), pad, y);
+  y = Math.max(y + 90, 1150);
   c.strokeStyle = '#16213a'; c.lineWidth = 2;
   c.beginPath(); c.moveTo(W - pad - 380, y); c.lineTo(W - pad, y); c.stroke();
   c.fillStyle = '#5b6578'; c.font = F(600, 24); c.textAlign = 'center'; c.fillText('Tahsil eden · kaşe / imza', W - pad - 190, y + 30); c.textAlign = 'left';
+  c.fillStyle = '#7a8496'; c.font = F(500, 20); c.fillText(`Düzenlenme: ${fmtD(today())}`, pad, y + 30);
   const out = document.createElement('canvas'); out.width = W; out.height = Math.min(H, y + 70);
   out.getContext('2d').drawImage(cv, 0, 0);
   return out;
@@ -2987,16 +3022,21 @@ function canvasPdf(cv, pw = 595.28) {
 
 async function makbuzGoster(p) {
   await cache.ayarlar();
-  const cv = makbuzCanvas(p);
+  const cari = p.cari_id ? (await api.get('cariler', `select=kod,unvan,vergi_no,telefon,adres,sehir&id=eq.${p.cari_id}`).catch(() => []))[0] : null;
   const ad = `Makbuz-${p.makbuz_no}.pdf`;
-  const pdf = canvasPdf(cv);
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  let cv, pdf;
+  const ciz = (m) => { cv = makbuzCanvas(p, { cari, kesinti: $('#mk-kes', m.el)?.checked }); pdf = canvasPdf(cv); $('#mk-img', m.el).src = cv.toDataURL('image/png'); };
   modal({
     title: `Makbuz #${p.makbuz_no}`,
-    body: `${ios ? '<p class="small muted" style="margin-top:0">Yazdırmak için “Paylaş / Yazdır”a basın, açılan menüden <b>Yazdır</b>’ı seçin.</p>' : ''}<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff"><img style="width:100%;display:block" src="${cv.toDataURL('image/png')}" alt="Makbuz"></div>`,
-    foot: `${!(ios && standalone) ? `<button class="btn" id="mk-print">${icon('print')}Yazdır</button>` : ''}<button class="btn primary" id="mk-dl">${icon('download')}PDF indir</button>${navigator.canShare ? `<button class="btn" id="mk-share">Paylaş${ios ? ' / Yazdır' : ''}</button>` : ''}`,
+    body: `${ios ? '<p class="small muted" style="margin-top:0">Müşteriye göndermek ya da yazdırmak için “Paylaş”a basın; WhatsApp, e-posta veya <b>Yazdır</b>’ı seçin.</p>' : ''}
+      <label class="check" style="margin:0 0 8px"><input type="checkbox" id="mk-kes"> PayTR kesinti ve net tutarı da ekle <span class="tiny">(kendi kaydınız için; müşteriye giden makbuzda genelde olmaz)</span></label>
+      <div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff"><img id="mk-img" style="width:100%;display:block" alt="Makbuz"></div>`,
+    foot: `${!(ios && standalone) ? `<button class="btn" id="mk-print">${icon('print')}Yazdır</button>` : ''}<button class="btn" id="mk-dl">${icon('download')}PDF indir</button>${navigator.canShare ? `<button class="btn primary" id="mk-share">Paylaş${ios ? ' / Yazdır' : ''}</button>` : ''}`,
     onMount: (m) => {
+      ciz(m);
+      $('#mk-kes', m.el).onchange = () => ciz(m);
       $('#mk-dl', m.el).onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(pdf); a.download = ad; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); };
       $('#mk-print', m.el)?.addEventListener('click', () => { $('#print-root').innerHTML = `<img src="${cv.toDataURL('image/png')}" style="width:100%">`; setTimeout(() => window.print(), 50); });
       $('#mk-share', m.el)?.addEventListener('click', async () => {
@@ -4933,7 +4973,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.93';
+const APP_V = '1.94';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
