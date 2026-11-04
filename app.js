@@ -761,6 +761,93 @@ function gorselPaylas(baslik, ad, cv0, opt = {}) {
   });
 }
 
+/* Cari ekstresi: tarih araligi + R/GR secilip musteriye gorsel olarak gonderilir */
+function ekstreGonder(c, eks, tip0 = 'Tümü') {
+  const ilk = eks.length ? eks[0].tarih : today();
+  const uc = new Date(); uc.setMonth(uc.getMonth() - 3); const ucAy = uc.toISOString().slice(0, 10);
+  modal({
+    title: 'Ekstre gönder',
+    body: `<div class="grid2"><div class="field"><label>Başlangıç</label><input class="input" type="date" id="ek-bas" value="${ucAy < ilk ? ilk : ucAy}"></div>
+        <div class="field"><label>Bitiş</label><input class="input" type="date" id="ek-bit" value="${today()}"></div></div>
+      <div class="chips" style="margin-top:2px">${[['Bu ay', '0'], ['Son 3 ay', '3'], ['Bu yıl', 'y'], ['Tüm hareketler', 'h']].map(([t, v]) => `<button type="button" class="chip" data-p="${v}">${t}</button>`).join('')}</div>
+      <div class="field"><label>Hareketler</label><div class="seg" id="ek-tip">${['Tümü', 'R', 'GR'].map((t) => `<button type="button" data-v="${t}" class="${t === tip0 ? 'on' : ''}">${t === 'Tümü' ? 'R + GR' : t}</button>`).join('')}</div></div>
+      <p class="tiny" style="margin:8px 0 0">Başlangıçtan önceki hareketler “Devreden bakiye” satırında toplanır. Sevk edilmemiş siparişler ekstreye girmez.</p>`,
+    foot: `<button class="btn primary" id="ek-ok">${icon('print')}Ekstreyi hazırla</button>`,
+    onMount: (mm) => {
+      const E = (q) => $(q, mm.el);
+      E('#ek-tip').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; $$('button', E('#ek-tip')).forEach((x) => x.classList.toggle('on', x === b)); };
+      $$('[data-p]', mm.el).forEach((b) => (b.onclick = () => {
+        const v = b.dataset.p;
+        E('#ek-bit').value = today();
+        E('#ek-bas').value = v === 'h' ? ilk : v === 'y' ? `${today().slice(0, 4)}-01-01` : v === '0' ? today().slice(0, 8) + '01' : ucAy;
+      }));
+      E('#ek-ok').onclick = () => {
+        const bas = E('#ek-bas').value || ilk, bit = E('#ek-bit').value || today();
+        const tip = $('button.on', E('#ek-tip'))?.dataset.v || 'Tümü';
+        const rows = eks.filter((h) => !h.sevk_bekliyor && (tip === 'Tümü' || h.fatura_tipi === tip));
+        const devir = rows.filter((h) => h.tarih < bas).reduce((a, h) => a + num(h.borc) - num(h.alacak), 0);
+        const ic = rows.filter((h) => h.tarih >= bas && h.tarih <= bit);
+        mm.close();
+        gorselPaylas(`${c.unvan} ekstresi`, `Ekstre-${String(c.kod || 'cari')}-${bit}.png`, ekstreCanvas(c, ic, devir, bas, bit, tip));
+      };
+    }
+  });
+}
+function ekstreCanvas(c, rows, devir, bas, bit, tip) {
+  const W = 1240, pad = 60, rowH = 64;
+  const H = 520 + (rows.length + 1) * rowH + 300;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d');
+  const F = (w, sz) => `${w} ${sz}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const kes = (t, w) => { t = String(t || ''); while (x.measureText(t).width > w && t.length > 3) t = t.slice(0, -2); return t; };
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#16213a'; x.fillRect(0, 0, W, 150);
+  x.textBaseline = 'middle'; x.fillStyle = '#fff'; x.font = F(800, 44); x.fillText('Cari Hesap Ekstresi', pad, 62);
+  x.textAlign = 'right'; x.font = F(600, 26); x.fillStyle = '#c9d2e6';
+  x.fillText(`${fmtD(bas)} – ${fmtD(bit)}`, W - pad, 56); x.fillText(tip === 'Tümü' ? 'R + GR' : `${tip} hareketleri`, W - pad, 100); x.textAlign = 'left';
+  let y = 210;
+  x.fillStyle = '#5b6578'; x.font = F(600, 24); x.fillText('SAYIN', pad, y);
+  x.fillStyle = '#16213a'; x.font = F(800, 36); x.fillText(kes(c.unvan, W - 2 * pad), pad, y + 44);
+  x.fillStyle = '#5b6578'; x.font = F(500, 26); x.fillText([c.kod, c.sehir, c.vergi_no ? 'VKN/TC ' + c.vergi_no : ''].filter(Boolean).join('  ·  '), pad, y + 90);
+  y = 370;
+  const C = { tarih: pad, ac: pad + 170, borc: 820, alacak: 1000, bak: W - pad };
+  x.fillStyle = '#f1f4f9'; x.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60);
+  x.fillStyle = '#5b6578'; x.font = F(700, 22);
+  x.fillText('TARİH', C.tarih, y); x.fillText('İŞLEM', C.ac, y); x.textAlign = 'right'; x.fillText('BORÇ', C.borc, y); x.fillText('ALACAK', C.alacak, y); x.fillText('BAKİYE', C.bak, y); x.textAlign = 'left';
+  y += 60;
+  let bak = devir, tb = 0, ta = 0;
+  const cizgi = () => { x.strokeStyle = '#e3e7ef'; x.lineWidth = 2; x.beginPath(); x.moveTo(pad - 10, y + 30); x.lineTo(W - pad + 10, y + 30); x.stroke(); };
+  x.fillStyle = '#16213a'; x.font = F(600, 26); x.fillText(fmtD(bas), C.tarih, y); x.fillText('Devreden bakiye', C.ac, y);
+  x.textAlign = 'right'; x.font = F(700, 26); x.fillText(fmtTL(bak), C.bak, y); x.textAlign = 'left'; cizgi(); y += rowH;
+  rows.forEach((h) => {
+    bak += num(h.borc) - num(h.alacak); tb += num(h.borc); ta += num(h.alacak);
+    x.fillStyle = '#16213a'; x.font = F(500, 26); x.fillText(fmtD(h.tarih), C.tarih, y - 8);
+    x.font = F(600, 26); x.fillText(kes(`${h.islem}${h.belge_no ? ' · ' + h.belge_no : ''}`, C.borc - C.ac - 170), C.ac, y - 8);
+    const alt = [h.fatura_tipi, h.odeme_sekli, h.aciklama].filter(Boolean).join(' · ');
+    if (alt) { x.fillStyle = '#7a8496'; x.font = F(500, 20); x.fillText(kes(alt, C.borc - C.ac - 170), C.ac, y + 20); }
+    x.textAlign = 'right'; x.fillStyle = '#16213a'; x.font = F(500, 26);
+    if (num(h.borc)) x.fillText(fmtTL(h.borc), C.borc, y - 8);
+    if (num(h.alacak)) x.fillText(fmtTL(h.alacak), C.alacak, y - 8);
+    x.font = F(700, 26); x.fillText(fmtTL(bak), C.bak, y - 8); x.textAlign = 'left';
+    cizgi(); y += rowH;
+  });
+  if (!rows.length) { x.fillStyle = '#7a8496'; x.font = F(500, 24); x.fillText('Bu dönemde hareket yok', C.ac, y); y += rowH; }
+  y += 20;
+  x.textAlign = 'right'; x.fillStyle = '#5b6578'; x.font = F(700, 26);
+  x.fillText('Dönem toplamı', C.ac + 420, y); x.fillText(fmtTL(tb), C.borc, y); x.fillText(fmtTL(ta), C.alacak, y);
+  y += 70;
+  x.strokeStyle = '#16213a'; x.lineWidth = 3; x.beginPath(); x.moveTo(560, y - 36); x.lineTo(W - pad, y - 36); x.stroke();
+  x.fillStyle = '#16213a'; x.font = F(800, 34);
+  x.fillText(Math.abs(bak) < 0.005 ? 'Hesap kapalı' : bak > 0 ? 'Borç bakiyeniz' : 'Alacak bakiyeniz', 900, y);
+  if (Math.abs(bak) >= 0.005) x.fillText(fmtTL(Math.abs(bak)), W - pad, y);
+  x.textAlign = 'left';
+  y += 60; x.fillStyle = '#7a8496'; x.font = F(500, 22); x.fillText(`Düzenlenme: ${fmtD(today())}`, pad, y);
+  const out = document.createElement('canvas'); out.width = W; out.height = Math.min(H, y + 40);
+  out.getContext('2d').drawImage(cv, 0, 0);
+  return out;
+}
+
+/* Fisi A5 benzeri bir gorsele cizer (Turkce karakterler sorunsuz) */
 /* Ithalat siparisi ciktisi */
 function cinCanvas(c, kal, fab, ek = null) {
   const W = 1240, pad = 70, H = 1400 + kal.length * 56 + fab.length * 50 + (ek ? 600 + kal.length * 50 + ek.mas.length * 50 : 0);
@@ -5084,7 +5171,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.95';
+const APP_V = '1.96';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
