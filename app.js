@@ -865,6 +865,15 @@ function ekstreGonder(c, eks, tip0 = 'Tümü') {
     }
   });
 }
+/* Ciktilarda saga hizali sayi kolonlari: metinleri olcer, ust uste binmeyecek sekilde sag kenarlari belirler.
+   kol: soldan saga [{ sag: varsayilan sag kenar, t: [[metin, font], ...] }]. En sagdaki kolon yerinde kalir,
+   digerleri gerekirse sola kayar. sol: soldaki metin (urun adi vb.) icin kalan en sag nokta. */
+function kolonYerlestir(x, kol, bosluk = 32) {
+  const gen = kol.map((k) => k.t.reduce((m, [t, f]) => { x.font = f; return Math.max(m, x.measureText(String(t ?? '')).width); }, 0));
+  const sag = []; let sinir = Infinity;
+  for (let i = kol.length - 1; i >= 0; i--) { sag[i] = Math.min(kol[i].sag, sinir); sinir = sag[i] - gen[i] - bosluk; }
+  return { sag, sol: sinir };
+}
 function ekstreCanvas(c, rows, devir, bas, bit, tip) {
   const W = 1240, pad = 60, rowH = 64;
   const H = 520 + (rows.length + 1) * rowH + 300;
@@ -883,6 +892,12 @@ function ekstreCanvas(c, rows, devir, bas, bit, tip) {
   x.fillStyle = '#5b6578'; x.font = F(500, 26); x.fillText([c.kod, c.sehir, c.vergi_no ? 'VKN/TC ' + c.vergi_no : ''].filter(Boolean).join('  ·  '), pad, y + 90);
   y = 370;
   const C = { tarih: pad, ac: pad + 170, borc: 820, alacak: 1000, bak: W - pad };
+  { let b0 = devir; const bk = [fmtTL(b0)]; let tb0 = 0, ta0 = 0; rows.forEach((h) => { b0 += num(h.borc) - num(h.alacak); tb0 += num(h.borc); ta0 += num(h.alacak); bk.push(fmtTL(b0)); });
+    const k = kolonYerlestir(x, [
+      { sag: C.borc, t: [['BORÇ', F(700, 22)], ...rows.filter((h) => num(h.borc)).map((h) => [fmtTL(h.borc), F(500, 26)]), [fmtTL(tb0), F(700, 26)]] },
+      { sag: C.alacak, t: [['ALACAK', F(700, 22)], ...rows.filter((h) => num(h.alacak)).map((h) => [fmtTL(h.alacak), F(500, 26)]), [fmtTL(ta0), F(700, 26)]] },
+      { sag: C.bak, t: [['BAKİYE', F(700, 22)], ...bk.map((t) => [t, F(700, 26)])] }]);
+    [C.borc, C.alacak, C.bak] = k.sag; C.acW = Math.max(200, k.sol - C.ac); }
   x.fillStyle = '#f1f4f9'; x.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60);
   x.fillStyle = '#5b6578'; x.font = F(700, 22);
   x.fillText('TARİH', C.tarih, y); x.fillText('İŞLEM', C.ac, y); x.textAlign = 'right'; x.fillText('BORÇ', C.borc, y); x.fillText('ALACAK', C.alacak, y); x.fillText('BAKİYE', C.bak, y); x.textAlign = 'left';
@@ -894,9 +909,9 @@ function ekstreCanvas(c, rows, devir, bas, bit, tip) {
   rows.forEach((h) => {
     bak += num(h.borc) - num(h.alacak); tb += num(h.borc); ta += num(h.alacak);
     x.fillStyle = '#16213a'; x.font = F(500, 26); x.fillText(fmtD(h.tarih), C.tarih, y - 8);
-    x.font = F(600, 26); x.fillText(kes(`${h.islem}${h.belge_no ? ' · ' + h.belge_no : ''}`, C.borc - C.ac - 170), C.ac, y - 8);
+    x.font = F(600, 26); x.fillText(kes(`${h.islem}${h.belge_no ? ' · ' + h.belge_no : ''}`, C.acW), C.ac, y - 8);
     const alt = [h.fatura_tipi, h.odeme_sekli, h.aciklama].filter(Boolean).join(' · ');
-    if (alt) { x.fillStyle = '#7a8496'; x.font = F(500, 20); x.fillText(kes(alt, C.borc - C.ac - 170), C.ac, y + 20); }
+    if (alt) { x.fillStyle = '#7a8496'; x.font = F(500, 20); x.fillText(kes(alt, C.acW), C.ac, y + 20); }
     x.textAlign = 'right'; x.fillStyle = '#16213a'; x.font = F(500, 26);
     if (num(h.borc)) x.fillText(fmtTL(h.borc), C.borc, y - 8);
     if (num(h.alacak)) x.fillText(fmtTL(h.alacak), C.alacak, y - 8);
@@ -906,11 +921,12 @@ function ekstreCanvas(c, rows, devir, bas, bit, tip) {
   if (!rows.length) { x.fillStyle = '#7a8496'; x.font = F(500, 24); x.fillText('Bu dönemde hareket yok', C.ac, y); y += rowH; }
   y += 20;
   x.textAlign = 'right'; x.fillStyle = '#5b6578'; x.font = F(700, 26);
-  x.fillText('Dönem toplamı', C.ac + 420, y); x.fillText(fmtTL(tb), C.borc, y); x.fillText(fmtTL(ta), C.alacak, y);
+  x.fillText('Dönem toplamı', Math.min(C.ac + 420, C.ac + C.acW), y); x.fillText(fmtTL(tb), C.borc, y); x.fillText(fmtTL(ta), C.alacak, y);
   y += 70;
   x.strokeStyle = '#16213a'; x.lineWidth = 3; x.beginPath(); x.moveTo(560, y - 36); x.lineTo(W - pad, y - 36); x.stroke();
   x.fillStyle = '#16213a'; x.font = F(800, 34);
-  x.fillText(Math.abs(bak) < 0.005 ? 'Hesap kapalı' : bak > 0 ? 'Borç bakiyeniz' : 'Alacak bakiyeniz', 900, y);
+  const bakEt = Math.abs(bak) >= 0.005 ? fmtTL(Math.abs(bak)) : '';
+  x.fillText(Math.abs(bak) < 0.005 ? 'Hesap kapalı' : bak > 0 ? 'Borç bakiyeniz' : 'Alacak bakiyeniz', bakEt ? Math.min(900, W - pad - x.measureText(bakEt).width - 40) : W - pad, y);
   if (Math.abs(bak) >= 0.005) x.fillText(fmtTL(Math.abs(bak)), W - pad, y);
   x.textAlign = 'left';
   y += 60; x.fillStyle = '#7a8496'; x.font = F(500, 22); x.fillText(`Düzenlenme: ${fmtD(today())}`, pad, y);
@@ -942,22 +958,28 @@ function cinCanvas(c, kal, fab, ek = null) {
   const kv = [['Varış limanı', c.liman], ['Konteyner', c.konteyner_no], ['Takip / B/L', c.takip_no], ['Tahmini varış', c.tahmini_varis ? fmtD(c.tahmini_varis) : ''], ['Teslim alındı', c.teslim_tarihi ? fmtD(c.teslim_tarihi) : '']].filter(([, v]) => v);
   kv.forEach(([k, v]) => { x.fillStyle = '#5b6578'; x.font = F(600, 24); x.fillText(k, pad, y); x.fillStyle = '#16213a'; x.font = F(600, 26); x.fillText(kes(v, W - 2 * pad - 300), pad + 300, y); y += 44; });
   if (kv.length) y += 30;
-  const cols = [pad, 760, 960, W - pad];
-  const baslikSat = (a) => { kir.push(y - 34); x.fillStyle = '#f1f4f9'; x.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60); x.fillStyle = '#5b6578'; x.font = F(700, 22); x.fillText(a[0], cols[0], y); x.textAlign = 'right'; a.slice(1).forEach((t, i) => x.fillText(t, i === 2 ? cols[3] : cols[i + 1] + (i ? 60 : 50), y)); x.textAlign = 'left'; y += 58; };
+  // kolon sag kenarlari (miktar, birim fiyat, tutar) metin genisligine gore; urun adi kalan alana sigar
+  const H22 = F(700, 22);
+  let R = kolonYerlestir(x, [
+    { sag: 810, t: [['MİKTAR', H22], ...kal.map((k) => [`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, F(500, 26)])] },
+    { sag: 1020, t: [['BİRİM FİYAT', H22], ...kal.map((k) => [P(k.birim_fiyat), F(500, 26)])] },
+    { sag: W - pad, t: [['TUTAR', H22], ...kal.map((k) => [k.kaynak_kalem_id ? '–' : P(num(k.miktar) * num(k.birim_fiyat)), F(700, 26)])] }]);
+  let adW = Math.min(560, R.sol - pad);
+  const baslikSat = (a) => { kir.push(y - 34); x.fillStyle = '#f1f4f9'; x.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60); x.fillStyle = '#5b6578'; x.font = H22; x.fillText(a[0], pad, y); x.textAlign = 'right'; a.slice(1).forEach((t, i) => x.fillText(t, R.sag[i], y)); x.textAlign = 'left'; y += 58; };
   const cizgi = () => { x.strokeStyle = '#e3e7ef'; x.lineWidth = 2; x.beginPath(); x.moveTo(pad - 10, y + 26); x.lineTo(W - pad + 10, y + 26); x.stroke(); };
   baslikSat(['ÜRÜN', 'MİKTAR', 'BİRİM FİYAT', 'TUTAR']);
   kal.forEach((k) => {
     kir.push(y - 28);
-    x.fillStyle = '#16213a'; x.font = F(600, 26); x.fillText(kes(k.urunler?.ad, 560), cols[0], y - 8);
-    x.fillStyle = '#7a8496'; x.font = F(500, 19); x.fillText(kes([k.urunler?.kod, num(k.devreden) ? `${fmtN(k.devreden)} sonraki sevkiyata` : '', k.kaynak_kalem_id ? 'önceki siparişten devreden, önceden ödendi' : ''].filter(Boolean).join(' · '), 560), cols[0], y + 16);
+    x.fillStyle = '#16213a'; x.font = F(600, 26); x.fillText(kes(k.urunler?.ad, adW), pad, y - 8);
+    x.fillStyle = '#7a8496'; x.font = F(500, 19); x.fillText(kes([k.urunler?.kod, num(k.devreden) ? `${fmtN(k.devreden)} sonraki sevkiyata` : '', k.kaynak_kalem_id ? 'önceki siparişten devreden, önceden ödendi' : ''].filter(Boolean).join(' · '), adW), pad, y + 16);
     x.textAlign = 'right'; x.fillStyle = '#16213a'; x.font = F(500, 26);
-    x.fillText(`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, cols[1] + 50, y);
-    x.fillText(P(k.birim_fiyat), cols[2] + 60, y);
-    x.font = F(700, 26); x.fillText(k.kaynak_kalem_id ? '–' : P(num(k.miktar) * num(k.birim_fiyat)), cols[3], y); x.textAlign = 'left';
+    x.fillText(`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, R.sag[0], y);
+    x.fillText(P(k.birim_fiyat), R.sag[1], y);
+    x.font = F(700, 26); x.fillText(k.kaynak_kalem_id ? '–' : P(num(k.miktar) * num(k.birim_fiyat)), R.sag[2], y); x.textAlign = 'left';
     cizgi(); y += 56;
   });
   y += 24; kir.push(y - 30);
-  const tr = (l, v, big, renk) => { x.textAlign = 'right'; x.fillStyle = renk || (big ? '#16213a' : '#5b6578'); x.font = F(big ? 800 : 600, big ? 34 : 26); x.fillText(l, 860, y); x.fillText(v, W - pad, y); x.textAlign = 'left'; y += big ? 58 : 44; };
+  const tr = (l, v, big, renk) => { x.textAlign = 'right'; x.fillStyle = renk || (big ? '#16213a' : '#5b6578'); x.font = F(big ? 800 : 600, big ? 34 : 26); x.fillText(l, Math.min(860, W - pad - x.measureText(v).width - 40), y); x.fillText(v, W - pad, y); x.textAlign = 'left'; y += big ? 58 : 44; };
   tr('SİPARİŞ TOPLAMI', P(c.toplam), true);
   tr('Fabrikaya ödenen', P(c.fabrika_odenen));
   tr('Fabrikaya kalan', P(c.fabrika_kalan), false, num(c.fabrika_kalan) > 0.005 ? '#c0392b' : null);
@@ -965,12 +987,14 @@ function cinCanvas(c, kal, fab, ek = null) {
     y += 30; kir.push(y - 34);
     x.fillStyle = '#16213a'; x.font = F(800, 26); x.fillText('FABRİKA ÖDEME PLANI', pad, y); y += 20;
     x.strokeStyle = '#16213a'; x.lineWidth = 2; x.beginPath(); x.moveTo(pad, y); x.lineTo(W - pad, y); x.stroke(); y += 36;
+    const fDur = (p) => (p.odendi ? `Ödendi${p.odeme_tarihi ? ' ' + fmtD(p.odeme_tarihi) : ''}${p.odenen_kur ? ` · kur ${fmtN(p.odenen_kur)}` : ''}` : 'Bekliyor');
+    const fK = kolonYerlestir(x, [{ sag: 900, t: fab.map((p) => [fmtPB(p.tutar_hesap, p.para_birimi || pb), F(700, 24)]) }, { sag: W - pad, t: fab.map((p) => [fDur(p), F(600, 22)]) }]);
     fab.forEach((p) => {
       kir.push(y - 26);
       x.fillStyle = '#16213a'; x.font = F(600, 24); x.fillText(p.vade ? fmtD(p.vade) : 'tarih yok', pad, y);
-      x.fillStyle = '#5b6578'; x.font = F(500, 22); x.fillText(kes(p.aciklama || (p.yuzde ? `%${fmtN(num(p.yuzde) * (num(p.yuzde) <= 1 ? 100 : 1))}` : ''), 420), pad + 200, y);
-      x.textAlign = 'right'; x.fillStyle = '#16213a'; x.font = F(700, 24); x.fillText(fmtPB(p.tutar_hesap, p.para_birimi || pb), 900, y);
-      x.fillStyle = p.odendi ? '#1e8e3e' : '#5b6578'; x.font = F(600, 22); x.fillText(p.odendi ? `Ödendi${p.odeme_tarihi ? ' ' + fmtD(p.odeme_tarihi) : ''}${p.odenen_kur ? ` · kur ${fmtN(p.odenen_kur)}` : ''}` : 'Bekliyor', W - pad, y); x.textAlign = 'left';
+      x.fillStyle = '#5b6578'; x.font = F(500, 22); x.fillText(kes(p.aciklama || (p.yuzde ? `%${fmtN(num(p.yuzde) * (num(p.yuzde) <= 1 ? 100 : 1))}` : ''), Math.min(420, fK.sol - pad - 200)), pad + 200, y);
+      x.textAlign = 'right'; x.fillStyle = '#16213a'; x.font = F(700, 24); x.fillText(fmtPB(p.tutar_hesap, p.para_birimi || pb), fK.sag[0], y);
+      x.fillStyle = p.odendi ? '#1e8e3e' : '#5b6578'; x.font = F(600, 22); x.fillText(fDur(p), fK.sag[1], y); x.textAlign = 'left';
       cizgi(); y += 50;
     });
   }
@@ -979,17 +1003,23 @@ function cinCanvas(c, kal, fab, ek = null) {
     if (ek.mal.length) {
     y += 40; kir.push(y - 34);
     x.fillStyle = '#16213a'; x.font = F(800, 26); x.fillText(`MALİYET (KDV hariç, ₺${ek.kur ? ` · kur ${fmtN(ek.kur)}` : ''})`, pad, y); y += 46;
+    const mk = kal.filter((k) => malBy[k.id]);
+    R = kolonYerlestir(x, [
+      { sag: 810, t: [['DEPOYA', H22], ...mk.map((k) => { const m = malBy[k.id]; return [m.dahil ? 'dahil' : fmtN(num(m.miktar) || (num(k.miktar) - num(k.devreden))), F(500, 24)]; })] },
+      { sag: 1020, t: [['BİRİM MALİYET', H22], ...mk.map((k) => [malBy[k.id].birim_maliyet !== null ? fmtTL(malBy[k.id].birim_maliyet) : '–', F(500, 24)])] },
+      { sag: W - pad, t: [['TOPLAM', H22], ...mk.map((k) => [fmtTL(num(malBy[k.id].fob_tl) + num(malBy[k.id].masraf_tl)), F(700, 24)])] }]);
+    adW = Math.min(560, R.sol - pad);
     baslikSat(['ÜRÜN', 'DEPOYA', 'BİRİM MALİYET', 'TOPLAM']);
     let top = 0;
     kal.forEach((k) => {
       const m = malBy[k.id]; if (!m) return; kir.push(y - 26);
       const adet = num(m.miktar) || (num(k.miktar) - num(k.devreden));
-      x.fillStyle = '#16213a'; x.font = F(600, 24); x.fillText(kes(k.urunler?.ad, 560), cols[0], y);
+      x.fillStyle = '#16213a'; x.font = F(600, 24); x.fillText(kes(k.urunler?.ad, adW), pad, y);
       x.textAlign = 'right'; x.font = F(500, 24);
-      x.fillText(m.dahil ? 'dahil' : fmtN(adet), cols[1] + 50, y);
-      x.fillText(m.birim_maliyet !== null ? fmtTL(m.birim_maliyet) : '–', cols[2] + 60, y);
+      x.fillText(m.dahil ? 'dahil' : fmtN(adet), R.sag[0], y);
+      x.fillText(m.birim_maliyet !== null ? fmtTL(m.birim_maliyet) : '–', R.sag[1], y);
       const t = num(m.fob_tl) + num(m.masraf_tl); top += t;
-      x.font = F(700, 24); x.fillText(fmtTL(t), cols[3], y); x.textAlign = 'left';
+      x.font = F(700, 24); x.fillText(fmtTL(t), R.sag[2], y); x.textAlign = 'left';
       cizgi(); y += 50;
     });
     y += 16; tr('Toplam maliyet', fmtTL(top), true);
@@ -998,12 +1028,13 @@ function cinCanvas(c, kal, fab, ek = null) {
       y += 20; kir.push(y - 34);
       x.fillStyle = '#16213a'; x.font = F(800, 26); x.fillText('VERGİ VE MASRAFLAR', pad, y); y += 20;
       x.strokeStyle = '#16213a'; x.lineWidth = 2; x.beginPath(); x.moveTo(pad, y); x.lineTo(W - pad, y); x.stroke(); y += 36;
+      const mK = kolonYerlestir(x, [{ sag: 900, t: ek.mas.map((p) => [fmtTL(p.tutar_tl), F(700, 24)]) }, { sag: W - pad, t: [['Bekliyor', F(600, 22)], ['Ödendi', F(600, 22)]] }]);
       ek.mas.forEach((p) => {
         kir.push(y - 26);
         x.fillStyle = '#16213a'; x.font = F(600, 24); x.fillText(kes(p.kategori, 260), pad, y);
-        x.fillStyle = '#5b6578'; x.font = F(500, 22); x.fillText(kes([p.vade ? fmtD(p.vade) : '', p.aciklama].filter(Boolean).join(' · '), 360), pad + 270, y);
-        x.textAlign = 'right'; x.fillStyle = '#16213a'; x.font = F(700, 24); x.fillText(fmtTL(p.tutar_tl), 900, y);
-        x.fillStyle = p.odendi ? '#1e8e3e' : '#5b6578'; x.font = F(600, 22); x.fillText(p.odendi ? 'Ödendi' : 'Bekliyor', W - pad, y); x.textAlign = 'left';
+        x.fillStyle = '#5b6578'; x.font = F(500, 22); x.fillText(kes([p.vade ? fmtD(p.vade) : '', p.aciklama].filter(Boolean).join(' · '), Math.min(360, mK.sol - pad - 270)), pad + 270, y);
+        x.textAlign = 'right'; x.fillStyle = '#16213a'; x.font = F(700, 24); x.fillText(fmtTL(p.tutar_tl), mK.sag[0], y);
+        x.fillStyle = p.odendi ? '#1e8e3e' : '#5b6578'; x.font = F(600, 22); x.fillText(p.odendi ? 'Ödendi' : 'Bekliyor', mK.sag[1], y); x.textAlign = 'left';
         cizgi(); y += 50;
       });
       y += 10; tr('Vergi + masraf toplamı', fmtTL(ek.mas.reduce((a, p) => a + num(p.tutar_tl), 0)));
@@ -1037,27 +1068,32 @@ function alisCanvas(rows) {
   x.fillStyle = '#5b6578'; x.font = F(600, 24); x.fillText('TEDARİKÇİ', pad, y);
   x.fillStyle = '#16213a'; x.font = F(800, 36); x.fillText(kes(h0.tedarikci || '—', W - 2 * pad), pad, y + 44);
   y = 350;
-  const cols = [pad, 690, 920, W - pad];
+  const fiyatT = (h) => { const f = fiyat(h); return f === null || f === undefined ? ['–', '–'] : [P(f), P(num(f) * num(h.miktar))]; };
+  const R = kolonYerlestir(x, [
+    { sag: 740, t: [['MİKTAR', F(700, 22)], ...rows.map((h) => [`${fmtN(h.miktar)} ${h.urunler?.birim || ''}`, F(500, 26)])] },
+    { sag: 980, t: [['BİRİM FİYAT', F(700, 22)], ...rows.map((h) => [fiyatT(h)[0], F(500, 26)])] },
+    { sag: W - pad, t: [['TUTAR', F(700, 22)], ...rows.map((h) => [fiyatT(h)[1], F(700, 26)])] }]);
+  const cols = [pad, ...R.sag]; const adW = Math.min(540, R.sol - pad);
   kir.push(y - 34);
   x.fillStyle = '#f1f4f9'; x.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60);
   x.fillStyle = '#5b6578'; x.font = F(700, 22); x.fillText('ÜRÜN', cols[0], y); x.textAlign = 'right';
-  x.fillText('MİKTAR', cols[1] + 50, y); x.fillText('BİRİM FİYAT', cols[2] + 60, y); x.fillText('TUTAR', cols[3], y); x.textAlign = 'left';
+  x.fillText('MİKTAR', cols[1], y); x.fillText('BİRİM FİYAT', cols[2], y); x.fillText('TUTAR', cols[3], y); x.textAlign = 'left';
   y += 58;
   let ara = 0, eksik = false;
   rows.forEach((h) => {
     kir.push(y - 28);
     const f = fiyat(h); if (f === null || f === undefined) eksik = true; else ara += num(f) * num(h.miktar);
-    x.fillStyle = '#16213a'; x.font = F(600, 26); x.fillText(kes(h.urunler?.ad, 540), cols[0], y - 8);
-    x.fillStyle = '#7a8496'; x.font = F(500, 19); x.fillText(kes(h.urunler?.kod, 540), cols[0], y + 16);
+    x.fillStyle = '#16213a'; x.font = F(600, 26); x.fillText(kes(h.urunler?.ad, adW), cols[0], y - 8);
+    x.fillStyle = '#7a8496'; x.font = F(500, 19); x.fillText(kes(h.urunler?.kod, adW), cols[0], y + 16);
     x.textAlign = 'right'; x.fillStyle = '#16213a'; x.font = F(500, 26);
-    x.fillText(`${fmtN(h.miktar)} ${h.urunler?.birim || ''}`, cols[1] + 50, y);
-    x.fillText(f === null || f === undefined ? '–' : P(f), cols[2] + 60, y);
+    x.fillText(`${fmtN(h.miktar)} ${h.urunler?.birim || ''}`, cols[1], y);
+    x.fillText(f === null || f === undefined ? '–' : P(f), cols[2], y);
     x.font = F(700, 26); x.fillText(f === null || f === undefined ? '–' : P(num(f) * num(h.miktar)), cols[3], y); x.textAlign = 'left';
     x.strokeStyle = '#e3e7ef'; x.lineWidth = 2; x.beginPath(); x.moveTo(pad - 10, y + 26); x.lineTo(W - pad + 10, y + 26); x.stroke();
     y += 56;
   });
   y += 24; kir.push(y - 30);
-  const tr = (l, v, big) => { x.textAlign = 'right'; x.fillStyle = big ? '#16213a' : '#5b6578'; x.font = F(big ? 800 : 600, big ? 34 : 26); x.fillText(l, 860, y); x.fillText(v, W - pad, y); x.textAlign = 'left'; y += big ? 58 : 44; };
+  const tr = (l, v, big) => { x.textAlign = 'right'; x.fillStyle = big ? '#16213a' : '#5b6578'; x.font = F(big ? 800 : 600, big ? 34 : 26); x.fillText(l, Math.min(860, W - pad - x.measureText(v).width - 40), y); x.fillText(v, W - pad, y); x.textAlign = 'left'; y += big ? 58 : 44; };
   const kdv = h0.fatura_tipi === 'R' ? num(h0.kdv_orani) : 0;
   if (eksik && !ara) { x.fillStyle = '#5b6578'; x.font = F(500, 24); x.fillText('Alış fiyatı girilmemiş.', pad, y); y += 40; } else {
   tr(`Ara toplam${eksik ? ' (fiyatı girilenler)' : ''}`, P(ara));
@@ -1102,27 +1138,31 @@ function fisCanvas(s, kal) {
   c.fillStyle = '#5b6578'; c.font = F(500, 26);
   c.fillText([s.sevk_sehri, s.gonderim_sekli, s.durum].filter(Boolean).join('  ·  '), pad, y + 90);
   y = 370;
-  const cols = [pad, 690, 900, W - pad];
+  const R = kolonYerlestir(c, [
+    { sag: 750, t: [['MİKTAR', F(700, 24)], ...kal.map((k) => [`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, F(500, 28)])] },
+    { sag: 990, t: [['BİRİM FİYAT', F(700, 24)], ...kal.map((k) => [fmtTL(k.birim_fiyat), F(500, 28)])] },
+    { sag: W - pad, t: [['TUTAR', F(700, 24)], ...kal.map((k) => [fmtTL(k.tutar), F(700, 28)])] }]);
+  const cols = [pad, ...R.sag]; const adW = Math.min(520, R.sol - pad);
   c.fillStyle = '#f1f4f9'; c.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60);
   c.fillStyle = '#5b6578'; c.font = F(700, 24);
   c.fillText('ÜRÜN', cols[0], y); c.textAlign = 'right';
-  c.fillText('MİKTAR', cols[1] + 60, y); c.fillText('BİRİM FİYAT', cols[2] + 90, y); c.fillText('TUTAR', cols[3], y); c.textAlign = 'left';
+  c.fillText('MİKTAR', cols[1], y); c.fillText('BİRİM FİYAT', cols[2], y); c.fillText('TUTAR', cols[3], y); c.textAlign = 'left';
   y += 58;
   const kir = [];
   kal.forEach((k) => {
     kir.push(y - 28);
     c.fillStyle = '#16213a'; c.font = F(600, 28);
-    let ad = k.urunler?.ad || ''; while (c.measureText(ad).width > 520 && ad.length > 3) ad = ad.slice(0, -2);
+    let ad = k.urunler?.ad || ''; while (c.measureText(ad).width > adW && ad.length > 3) ad = ad.slice(0, -2);
     c.fillText(ad, cols[0], y);
     c.textAlign = 'right'; c.font = F(500, 28);
-    c.fillText(`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, cols[1] + 60, y);
-    c.fillText(fmtTL(k.birim_fiyat), cols[2] + 90, y);
+    c.fillText(`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, cols[1], y);
+    c.fillText(fmtTL(k.birim_fiyat), cols[2], y);
     c.font = F(700, 28); c.fillText(fmtTL(k.tutar), cols[3], y); c.textAlign = 'left';
     c.strokeStyle = '#e3e7ef'; c.lineWidth = 2; c.beginPath(); c.moveTo(pad - 10, y + 26); c.lineTo(W - pad + 10, y + 26); c.stroke();
     y += rowH;
   });
   y += 30;
-  const tr = (l, v, big) => { c.textAlign = 'right'; c.fillStyle = big ? '#16213a' : '#5b6578'; c.font = F(big ? 800 : 600, big ? 36 : 28); c.fillText(l, 880, y); c.fillText(v, W - pad, y); c.textAlign = 'left'; y += big ? 60 : 46; };
+  const tr = (l, v, big) => { c.textAlign = 'right'; c.fillStyle = big ? '#16213a' : '#5b6578'; c.font = F(big ? 800 : 600, big ? 36 : 28); c.fillText(l, Math.min(880, W - pad - c.measureText(v).width - 40), y); c.fillText(v, W - pad, y); c.textAlign = 'left'; y += big ? 60 : 46; };
   tr('Ara toplam', fmtTL(s.ara_toplam));
   if (s.fatura_tipi === 'R') tr(`KDV (%${fmtN(num(s.kdv_orani) * 100)})`, fmtTL(s.kdv_tutari));
   c.strokeStyle = '#16213a'; c.lineWidth = 3; c.beginPath(); c.moveTo(620, y - 22); c.lineTo(W - pad, y - 22); c.stroke(); y += 12;
@@ -4981,6 +5021,12 @@ function nakitDokumSayfalar(D, tg, tc) {
   const sayfalar = []; let cv, x, y;
   const kes = (t, w) => { t = String(t || ''); while (x.measureText(t).width > w && t.length > 3) t = t.slice(0, -2); return t; };
   const C = { tarih: pad, ac: pad + 150, gir: 790, cik: 975, kal: W - pad };
+  { const o = document.createElement('canvas').getContext('2d'), rs = [{ gir: D.kasaTop, kalan: D.kasaTop }, ...D.satir];
+    const k = kolonYerlestir(o, [
+      { sag: C.gir, t: [['GİRECEK', F(700, 19)], ...rs.filter((r) => r.gir).map((r) => [fmtTL(r.gir), F(600, 20)])] },
+      { sag: C.cik, t: [['ÇIKACAK', F(700, 19)], ...rs.filter((r) => r.cik).map((r) => [fmtTL(r.cik), F(600, 20)])] },
+      { sag: C.kal, t: [['KALAN', F(700, 19)], ...rs.map((r) => [fmtTL(r.kalan), F(700, 20)])] }], 28);
+    [C.gir, C.cik, C.kal] = k.sag; C.acW = Math.max(200, k.sol - C.ac); }
   const yeni = () => {
     cv = document.createElement('canvas'); cv.width = W; cv.height = H; x = cv.getContext('2d'); sayfalar.push(cv);
     x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.textBaseline = 'middle';
@@ -4994,7 +5040,7 @@ function nakitDokumSayfalar(D, tg, tc) {
   };
   yeni();
   // ozet
-  const oz = (l, v, kalin, girinti) => { x.fillStyle = kalin ? '#16213a' : '#3b4558'; x.font = F(kalin ? 800 : 500, kalin ? 26 : 22); x.fillText(kes(l, 700), pad + (girinti ? 30 : 0), y); x.textAlign = 'right'; x.fillText(v, W - pad, y); x.textAlign = 'left'; y += kalin ? 40 : 32; };
+  const oz = (l, v, kalin, girinti) => { x.fillStyle = kalin ? '#16213a' : '#3b4558'; x.font = F(kalin ? 800 : 500, kalin ? 26 : 22); x.fillText(kes(l, Math.min(700, W - 2 * pad - x.measureText(v).width - 40 - (girinti ? 30 : 0))), pad + (girinti ? 30 : 0), y); x.textAlign = 'right'; x.fillText(v, W - pad, y); x.textAlign = 'left'; y += kalin ? 40 : 32; };
   oz('Kasadaki para (başlangıç)', fmtTL(D.kasaTop), true);
   oz('+ Girecekler', '+' + fmtTL(tg), true); D.girecek.forEach(([g, o]) => oz(`${g} · ${o.n} kalem`, '+' + fmtTL(o.t), false, true));
   oz('− Çıkacaklar', '−' + fmtTL(tc), true); D.cikacak.forEach(([g, o]) => oz(`${g} · ${o.n} kalem`, '−' + fmtTL(o.t), false, true));
@@ -5005,9 +5051,9 @@ function nakitDokumSayfalar(D, tg, tc) {
     if (y > H - 70) { yeni(); baslik(); }
     x.fillStyle = '#16213a'; x.font = F(500, 20); x.fillText(fmtD(r.tarih), C.tarih, y - 8);
     if (r.gec) { x.fillStyle = '#c0392b'; x.font = F(600, 15); x.fillText(`vade ${fmtD(r.vade)}`, C.tarih, y + 13); }
-    x.fillStyle = '#16213a'; x.font = F(600, 20); x.fillText(kes([r.grup, r.kim].filter(Boolean).join(' · '), C.gir - C.ac - 175), C.ac, y - 8);
+    x.fillStyle = '#16213a'; x.font = F(600, 20); x.fillText(kes([r.grup, r.kim].filter(Boolean).join(' · '), C.acW), C.ac, y - 8);
     const alt = [r.belge, r.aciklama, r.pb !== 'TRY' ? `${fmtPB(r.tutar, r.pb)} × ${fmtN(r.kur)}` : ''].filter(Boolean).join(' · ');
-    if (alt) { x.fillStyle = '#7a8496'; x.font = F(500, 15); x.fillText(kes(alt, C.gir - C.ac - 175), C.ac, y + 13); }
+    if (alt) { x.fillStyle = '#7a8496'; x.font = F(500, 15); x.fillText(kes(alt, C.acW), C.ac, y + 13); }
     x.textAlign = 'right'; x.font = F(600, 20);
     if (r.gir) { x.fillStyle = '#1e8a4c'; x.fillText(fmtTL(r.gir), C.gir, y - 8); }
     if (r.cik) { x.fillStyle = '#c0392b'; x.fillText(fmtTL(r.cik), C.cik, y - 8); }
@@ -5019,7 +5065,7 @@ function nakitDokumSayfalar(D, tg, tc) {
   D.satir.forEach(satirCiz);
   if (D.tarihsiz.length) {
     if (y > H - 160) yeni(); y += 20; x.fillStyle = '#16213a'; x.font = F(800, 24); x.fillText('Tarihi belli olmayan kalemler (bakiyeye katılmadı)', pad, y); y += 40;
-    D.tarihsiz.forEach((r) => { if (y > H - 60) yeni(); x.fillStyle = '#3b4558'; x.font = F(500, 19); x.fillText(kes(`${r.yon} · ${r.grup} · ${[r.kim, r.belge, r.aciklama].filter(Boolean).join(' · ')}`, 900), pad, y); x.textAlign = 'right'; x.fillText(fmtTL(r.tl), W - pad, y); x.textAlign = 'left'; y += 34; });
+    D.tarihsiz.forEach((r) => { if (y > H - 60) yeni(); x.fillStyle = '#3b4558'; x.font = F(500, 19); x.fillText(kes(`${r.yon} · ${r.grup} · ${[r.kim, r.belge, r.aciklama].filter(Boolean).join(' · ')}`, Math.min(900, W - 2 * pad - x.measureText(fmtTL(r.tl)).width - 30)), pad, y); x.textAlign = 'right'; x.fillText(fmtTL(r.tl), W - pad, y); x.textAlign = 'left'; y += 34; });
   }
   return sayfalar;
 }
@@ -5251,7 +5297,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.97';
+const APP_V = '1.98';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
