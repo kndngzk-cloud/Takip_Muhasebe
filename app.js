@@ -742,17 +742,35 @@ async function viewSiparisDetay(id) {
     const b = e.target.closest('button'); if (!b || b.dataset.v === s.maliyet_yontemi) return;
     try { await api.update('siparisler', `id=eq.${s.id}`, { maliyet_yontemi: b.dataset.v }); toast(`Kâr yöntemi ${b.dataset.v} yapıldı`, 'ok'); render(); } catch (err) { fail(err); }
   };
-  if (s.durum === 'Sevk Edildi') {
-    api.rpc('kar_raporu', { p_baslangic: null, p_bitis: null, p_yontem: null }).then((rows) => {
-      const r = rows.filter((x) => x.siparis_id === s.id); if (sq !== renderSeq || !r.length || !$('#kar-kart')) return;
-      const sat = r.reduce((a, x) => a + num(x.satis_tutari), 0), mal = r.reduce((a, x) => a + num(x.maliyet), 0), ek = r.reduce((a, x) => a + num(x.maliyetsiz_miktar), 0);
-      $('#kar-kart').innerHTML = `<div class="card"><h2>Kâr (${esc(s.maliyet_yontemi)})</h2><div class="stats">
-        <div class="stat"><div class="l">Satış</div><div class="v">${fmtTL(sat)}</div></div>
-        <div class="stat"><div class="l">Maliyet</div><div class="v">${fmtTL(mal)}</div></div>
-        <div class="stat"><div class="l">Kâr</div><div class="v zero">${fmtTL(sat - mal)}</div></div></div>
-        ${ek > 0 ? `<p class="tiny" style="margin:8px 0 0;color:var(--orange)">${fmtN(ek)} birimin alış maliyeti girilmemiş; kâr olduğundan yüksek görünür. <a href="#/stok/hareketler">Maliyet gir →</a></p>` : ''}</div>`;
+  if (isAdmin()) {
+    api.rpc('siparis_maliyet', { p_siparis_id: s.id }).then((rows) => {
+      if (sq !== renderSeq || !rows.length || !$('#kar-kart')) return;
+      $('#kar-kart').innerHTML = maliyetKart(s, rows, kal);
     }).catch(() => {});
   }
+}
+
+/* Siparisin urun maliyetleri ve kari (sadece yonetici gorur; musteriye giden ciktida yok) */
+function maliyetOzet(rows) {
+  const sat = rows.reduce((a, x) => a + num(x.satis), 0), mal = rows.reduce((a, x) => a + num(x.maliyet), 0);
+  const eks = rows.reduce((a, x) => a + num(x.maliyetsiz), 0), tah = rows.some((x) => String(x.kaynak).startsWith('Tahmini'));
+  return { sat, mal, kar: sat - mal, marj: sat ? (sat - mal) / sat : null, eks, tah };
+}
+function maliyetKart(s, rows, kal) {
+  const o = maliyetOzet(rows), ad = (r) => kal.find((k) => k.id === r.kalem_id)?.urunler?.ad || '';
+  const kr = (v) => `<span style="color:${v < 0 ? 'var(--red)' : 'var(--green)'};font-weight:700">${fmtTL(v)}</span>`;
+  return `<div class="card not-kart" style="border-left:4px solid var(--accent)"><h2 style="margin-bottom:4px">Maliyet ve kâr <span class="badge">${o.tah ? 'Tahmini' : 'Gerçek'} · ${esc(s.maliyet_yontemi || 'FIFO')}</span></h2>
+    <p class="tiny" style="margin:0 0 10px">Sadece siz görürsünüz; müşteri çıktısına girmez. KDV hariç.${o.tah ? ' Sevk edilmediği için tahmini: ithalata bağlıysa ithalat maliyeti, değilse depodaki partiler (yoksa son alış maliyeti).' : ''}</p>
+    <div class="table-wrap"><table class="tbl stack"><thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim maliyet</th><th class="r">Maliyet</th><th class="r">Satış</th><th class="r">Kâr</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td class="w">${esc(ad(r))}${num(r.maliyetsiz) > 0 ? `<div class="tiny" style="color:var(--orange)">${fmtN(num(r.maliyetsiz))} birimin maliyeti yok</div>` : ''}${r.kaynak === 'Tahmini (ithalat)' ? '<div class="tiny">ithalat maliyeti</div>' : ''}</td>
+      <td class="r" data-l="Miktar">${fmtN(r.miktar)}</td><td class="r" data-l="Birim maliyet">${r.birim_maliyet !== null ? fmtTL(r.birim_maliyet) : '–'}</td>
+      <td class="r" data-l="Maliyet">${fmtTL(r.maliyet)}</td><td class="r" data-l="Satış">${fmtTL(r.satis)}</td><td class="r" data-l="Kâr">${kr(num(r.satis) - num(r.maliyet))}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="stats" style="margin-top:10px">
+      <div class="stat"><div class="l">Satış (KDV hariç)</div><div class="v">${fmtTL(o.sat)}</div></div>
+      <div class="stat"><div class="l">Maliyet</div><div class="v">${fmtTL(o.mal)}</div></div>
+      <div class="stat"><div class="l">Toplam kâr${o.marj !== null ? ` · %${fmtN(Math.round(o.marj * 1000) / 10)}` : ''}</div><div class="v">${kr(o.kar)}</div></div></div>
+    ${o.eks > 0 ? `<p class="tiny" style="margin:8px 0 0;color:var(--orange)">${fmtN(o.eks)} birimin alış maliyeti girilmemiş; kâr olduğundan yüksek görünür. <a href="#/stok/hareketler">Maliyet gir →</a></p>` : ''}</div>`;
 }
 
 function sevkEt(id, fis) {
@@ -772,7 +790,11 @@ function sevkEt(id, fis) {
   });
 }
 
-function printFis(s, kal) { gorselPaylas(`Fiş ${s.fis_no}`, `Fis-${s.fis_no}.png`, fisCanvas(s, kal)); }
+async function printFis(s, kal) {
+  let mal = [];
+  if (isAdmin() && s.durum !== 'İptal') { try { mal = await api.rpc('siparis_maliyet', { p_siparis_id: s.id }); } catch { mal = []; } }
+  gorselPaylas(`Fiş ${s.fis_no}`, `Fis-${s.fis_no}.png`, fisCanvas(s, kal), mal.length ? { secenek: { label: 'Ürün maliyetlerini ve kârı ekle <span class="tiny">(kendi kaydınız için; müşteriye giden çıktıda olmaz)</span>', ciz: (on) => fisCanvas(s, kal, on ? mal : null) } } : {});
+}
 /* uzun gorseli A4 sayfalara boler (cv.kir: satir sinirlari, satir ortadan kesilmesin) */
 function gorselPdf(cv) {
   const W = cv.width, PH = Math.round(W * 841.89 / 595.28);
@@ -961,9 +983,9 @@ function cinCanvas(c, kal, fab, ek = null) {
   // kolon sag kenarlari (miktar, birim fiyat, tutar) metin genisligine gore; urun adi kalan alana sigar
   const H22 = F(700, 22);
   let R = kolonYerlestir(x, [
-    { sag: 810, t: [['MİKTAR', H22], ...kal.map((k) => [`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, F(500, 26)])] },
-    { sag: 1020, t: [['BİRİM FİYAT', H22], ...kal.map((k) => [P(k.birim_fiyat), F(500, 26)])] },
-    { sag: W - pad, t: [['TUTAR', H22], ...kal.map((k) => [k.kaynak_kalem_id ? '–' : P(num(k.miktar) * num(k.birim_fiyat)), F(700, 26)])] }]);
+    { sag: 770, t: [['MİKTAR', H22], ...kal.map((k) => [`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, F(500, 26)])] },
+    { sag: 980, t: [['BİRİM FİYAT', H22], ...kal.map((k) => [P(k.birim_fiyat), F(500, 26)])] },
+    { sag: W - pad, t: [['TUTAR', H22], ...kal.map((k) => [k.kaynak_kalem_id ? '–' : P(num(k.miktar) * num(k.birim_fiyat)), F(700, 26)])] }], 44);
   let adW = Math.min(560, R.sol - pad);
   const baslikSat = (a) => { kir.push(y - 34); x.fillStyle = '#f1f4f9'; x.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60); x.fillStyle = '#5b6578'; x.font = H22; x.fillText(a[0], pad, y); x.textAlign = 'right'; a.slice(1).forEach((t, i) => x.fillText(t, R.sag[i], y)); x.textAlign = 'left'; y += 58; };
   const cizgi = () => { x.strokeStyle = '#e3e7ef'; x.lineWidth = 2; x.beginPath(); x.moveTo(pad - 10, y + 26); x.lineTo(W - pad + 10, y + 26); x.stroke(); };
@@ -1005,9 +1027,9 @@ function cinCanvas(c, kal, fab, ek = null) {
     x.fillStyle = '#16213a'; x.font = F(800, 26); x.fillText(`MALİYET (KDV hariç, ₺${ek.kur ? ` · kur ${fmtN(ek.kur)}` : ''})`, pad, y); y += 46;
     const mk = kal.filter((k) => malBy[k.id]);
     R = kolonYerlestir(x, [
-      { sag: 810, t: [['DEPOYA', H22], ...mk.map((k) => { const m = malBy[k.id]; return [m.dahil ? 'dahil' : fmtN(num(m.miktar) || (num(k.miktar) - num(k.devreden))), F(500, 24)]; })] },
-      { sag: 1020, t: [['BİRİM MALİYET', H22], ...mk.map((k) => [malBy[k.id].birim_maliyet !== null ? fmtTL(malBy[k.id].birim_maliyet) : '–', F(500, 24)])] },
-      { sag: W - pad, t: [['TOPLAM', H22], ...mk.map((k) => [fmtTL(num(malBy[k.id].fob_tl) + num(malBy[k.id].masraf_tl)), F(700, 24)])] }]);
+      { sag: 740, t: [['DEPOYA', H22], ...mk.map((k) => { const m = malBy[k.id]; return [m.dahil ? 'dahil' : fmtN(num(m.miktar) || (num(k.miktar) - num(k.devreden))), F(500, 24)]; })] },
+      { sag: 950, t: [['BİRİM MALİYET', H22], ...mk.map((k) => [malBy[k.id].birim_maliyet !== null ? fmtTL(malBy[k.id].birim_maliyet) : '–', F(500, 24)])] },
+      { sag: W - pad, t: [['TOPLAM', H22], ...mk.map((k) => [fmtTL(num(malBy[k.id].fob_tl) + num(malBy[k.id].masraf_tl)), F(700, 24)])] }], 44);
     adW = Math.min(560, R.sol - pad);
     baslikSat(['ÜRÜN', 'DEPOYA', 'BİRİM MALİYET', 'TOPLAM']);
     let top = 0;
@@ -1119,9 +1141,9 @@ async function alisFisiGoster(id) {
   } catch (e) { fail(e); }
 }
 
-function fisCanvas(s, kal) {
+function fisCanvas(s, kal, mal = null) {
   const W = 1240, pad = 70, rowH = 52;
-  const H = 560 + kal.length * rowH + (s.aciklama ? 80 : 0) + 260;
+  const H = 560 + kal.length * rowH + (s.aciklama ? 80 : 0) + 260 + (mal ? 420 + mal.length * 52 : 0);
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
   const F = (w, sz) => `${w} ${sz}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
@@ -1169,6 +1191,35 @@ function fisCanvas(s, kal) {
   tr('GENEL TOPLAM', fmtTL(s.genel_toplam), true);
   if (s.para_birimi && s.para_birimi !== 'TRY') tr(`${s.para_birimi} karşılığı (kur ${fmtN(s.kur)})`, fmtPB(num(s.genel_toplam) / num(s.kur), s.para_birimi));
   if (s.aciklama) { y += 10; c.fillStyle = '#5b6578'; c.font = F(500, 26); c.fillText('Not: ' + s.aciklama, pad, y); y += 40; }
+  if (mal && mal.length) {
+    const o = maliyetOzet(mal), ad = (r) => kal.find((k) => k.id === r.kalem_id)?.urunler?.ad || '';
+    y += 40; kir.push(y - 34);
+    c.fillStyle = '#16213a'; c.font = F(800, 26); c.fillText(`MALİYET VE KÂR (iç kullanım · KDV hariç · ${o.tah ? 'tahmini' : 'gerçek'} · ${s.maliyet_yontemi || 'FIFO'})`, pad, y); y += 46;
+    const H22 = F(700, 22), m24 = F(500, 24), b24 = F(700, 24);
+    const R = kolonYerlestir(c, [
+      { sag: 640, t: [['MİKTAR', H22], ...mal.map((r) => [fmtN(r.miktar), m24])] },
+      { sag: 820, t: [['BİRİM MAL.', H22], ...mal.map((r) => [r.birim_maliyet !== null ? fmtTL(r.birim_maliyet) : '–', m24])] },
+      { sag: 1000, t: [['MALİYET', H22], ...mal.map((r) => [fmtTL(r.maliyet), m24])] },
+      { sag: W - pad, t: [['KÂR', H22], ...mal.map((r) => [fmtTL(num(r.satis) - num(r.maliyet)), b24])] }], 40);
+    const adW = Math.min(480, R.sol - pad);
+    c.fillStyle = '#f1f4f9'; c.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60);
+    c.fillStyle = '#5b6578'; c.font = H22; c.fillText('ÜRÜN', pad, y); c.textAlign = 'right';
+    ['MİKTAR', 'BİRİM MAL.', 'MALİYET', 'KÂR'].forEach((t, i) => c.fillText(t, R.sag[i], y)); c.textAlign = 'left'; y += 58;
+    mal.forEach((r) => {
+      kir.push(y - 26);
+      let a = ad(r); c.font = F(600, 24); while (c.measureText(a).width > adW && a.length > 3) a = a.slice(0, -2);
+      c.fillStyle = '#16213a'; c.fillText(a, pad, y);
+      c.textAlign = 'right'; c.font = m24; c.fillText(fmtN(r.miktar), R.sag[0], y); c.fillText(r.birim_maliyet !== null ? fmtTL(r.birim_maliyet) : '–', R.sag[1], y); c.fillText(fmtTL(r.maliyet), R.sag[2], y);
+      const k = num(r.satis) - num(r.maliyet); c.font = b24; c.fillStyle = k < 0 ? '#c0392b' : '#1e8e3e'; c.fillText(fmtTL(k), R.sag[3], y); c.textAlign = 'left';
+      c.strokeStyle = '#e3e7ef'; c.lineWidth = 2; c.beginPath(); c.moveTo(pad - 10, y + 26); c.lineTo(W - pad + 10, y + 26); c.stroke();
+      y += 52;
+    });
+    y += 24;
+    tr('Satış (KDV hariç)', fmtTL(o.sat)); tr('Toplam maliyet', fmtTL(o.mal));
+    c.strokeStyle = '#16213a'; c.lineWidth = 3; c.beginPath(); c.moveTo(620, y - 22); c.lineTo(W - pad, y - 22); c.stroke(); y += 12;
+    tr(`TOPLAM KÂR${o.marj !== null ? ` (%${fmtN(Math.round(o.marj * 1000) / 10)})` : ''}`, fmtTL(o.kar), true);
+    if (o.eks > 0) { c.fillStyle = '#d35400'; c.font = F(500, 22); c.fillText(`${fmtN(o.eks)} birimin alış maliyeti girilmemiş; kâr olduğundan yüksek görünür.`, pad, y); y += 36; }
+  }
   const out = document.createElement('canvas'); out.width = W; out.height = Math.min(H, y + 40);
   out.getContext('2d').drawImage(cv, 0, 0); out.kir = kir;
   return out;
@@ -5297,7 +5348,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.98';
+const APP_V = '1.99';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
