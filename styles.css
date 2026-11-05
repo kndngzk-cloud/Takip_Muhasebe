@@ -456,3 +456,10 @@ details.gum[open] summary { margin-bottom: 10px; }
   .not-ik.var, .not-satir { color: #f0b429; }
 }
 @media print { .not-ik, .not-satir, .not-kart, .not-ekle { display: none !important; } }
+
+/* Fiyat listeleri: mobilde her odeme secenegi kendi satirinda, fiyatlar sagda hizali */
+@media (max-width: 640px) {
+  .fl-tbl.stack td[data-l] { flex-basis: 100%; display: flex !important; justify-content: space-between; align-items: center; gap: 10px; }
+  .fl-tbl.stack td[data-l]::before { flex: 1; }
+  .fl-tbl.stack td:last-child { flex-basis: 100%; text-align: right !important; }
+}

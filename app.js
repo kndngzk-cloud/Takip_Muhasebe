@@ -354,6 +354,7 @@ const NAV = [
   { h: '#/siparisler', k: 'siparis', t: 'Siparişler', i: 'order' },
   { h: '#/stok', k: 'stok', t: 'Stok', i: 'box' },
   { h: '#/cariler', k: 'cari', t: 'Cariler', i: 'users' },
+  { h: '#/fiyat-listeleri', k: 'fiyat', t: 'Fiyat listeleri', i: 'list', side: true },
   { h: '#/cin', k: 'cin', t: 'İthalat', i: 'ship', side: true },
   { h: '#/vergi-simulator', k: 'vsim', t: 'Vergi simülatörü', i: 'calc', side: true, sub: true },
   { h: '#/odemeler', k: 'odeme', t: 'Ödemeler', i: 'cash', side: true },
@@ -387,6 +388,8 @@ const ROUTES = [
   [/^#\/paytr$/, 'paytr', viewPaytr],
   [/^#\/tahsilatlar$/, 'odeme', viewOdemeTakvimi],
   [/^#\/fabrikalar$/, 'cin', viewFabrikalar],
+  [/^#\/fiyat-listeleri$/, 'fiyat', viewFiyatListeleri],
+  [/^#\/fiyat-listesi\/(\d+)$/, 'fiyat', viewFiyatListesi],
   [/^#\/vergi-simulator$/, 'vsim', viewVergiSim]
 ];
 
@@ -404,7 +407,7 @@ function shell(active) {
         <main class="view" id="view"><div class="loading"><div class="spinner"></div>Yükleniyor…</div></main>
       </div>
       <nav class="bottomnav">
-        ${NAV.filter((n) => !n.side).map((n) => `<a href="${n.h}" class="${n.k === active || (n.k === 'daha' && ['rapor', 'ayar', 'cin', 'odeme', 'paytr', 'vsim'].includes(active)) ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
+        ${NAV.filter((n) => !n.side).map((n) => `<a href="${n.h}" class="${n.k === active || (n.k === 'daha' && ['rapor', 'ayar', 'cin', 'odeme', 'paytr', 'vsim', 'fiyat'].includes(active)) ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
       </nav>
     </div>`;
 }
@@ -2688,6 +2691,7 @@ async function viewDaha() {
   topbar('Daha fazla');
   $('#view').innerHTML = `
     <div class="list">
+      <div class="row" data-go="#/fiyat-listeleri"><div class="main-col"><div class="t">Fiyat listeleri</div><div class="st">Ürünler için peşin, kredi kartı, taksit ve çek fiyatları</div></div></div>
       <div class="row" data-go="#/cin"><div class="main-col"><div class="t">İthalat</div><div class="st">Fabrika siparişleri, aşamalar, yoldaki mallar, gümrük vergisi</div></div></div>
       <div class="row" data-go="#/vergi-simulator"><div class="main-col"><div class="t">Vergi simülatörü</div><div class="st">Eviye ithalatında depo giriş maliyeti, gümrük vergisi ve kâr hesabı (kayıt oluşturmaz)</div></div></div>
       <div class="row" data-go="#/odemeler"><div class="main-col"><div class="t">Ödemeler</div><div class="st">Yapılacak ödemeler, çekler, platform ödemeleri, müşteri taksitleri, aylık nakit akışı</div></div></div>
@@ -4409,6 +4413,181 @@ function fabrikaForm(f = null, preset = null, onSaved = null) {
   });
 }
 
+/* ---------- Fiyat listeleri ----------
+   Her liste: ad + odeme secenekleri (Pesin, KK tek cekim, KK 3/5 taksit, Cek ...). Secenekler listeye gore duzenlenebilir.
+   Kalem: urun + her secenek icin fiyat (fiyatlar = { secenek_k: fiyat }). Fiyat hucresi degisince aninda kaydedilir. */
+const FL_SECENEK = [{ k: 'pesin', ad: 'Peşin' }, { k: 'kk1', ad: 'Kredi kartı tek çekim' }, { k: 'kk3', ad: 'Kredi kartı 3 taksit' }, { k: 'kk5', ad: 'Kredi kartı 5 taksit' }, { k: 'cek', ad: 'Çek' }];
+const flSec = (l) => (Array.isArray(l?.secenekler) && l.secenekler.length ? l.secenekler : FL_SECENEK);
+const flFmt = (v) => (v === null || v === undefined || v === '' ? '' : num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+async function viewFiyatListeleri() {
+  topbar('Fiyat listeleri', { back: !wideScr(), actions: `<button class="tb-btn" id="fl-yeni">${icon('plus')}Yeni liste</button>` });
+  const [listeler, kal] = await Promise.all([
+    api.get('fiyat_listeleri', 'select=*&order=sira.asc,ad.asc'),
+    api.get('fiyat_listesi_kalemleri', 'select=liste_id&limit=100000')
+  ]);
+  const say = {}; kal.forEach((k) => { say[k.liste_id] = (say[k.liste_id] || 0) + 1; });
+  $('#view').innerHTML = `<div class="list">${listeler.length ? listeler.map((l) => `<div class="row" data-go="#/fiyat-listesi/${l.id}">
+      <div class="main-col"><div class="t">${esc(l.ad)}</div>
+        <div class="st"><span>${say[l.id] || 0} ürün</span><span>${flSec(l).map((s) => esc(s.ad)).join(' · ')}</span>${l.aciklama ? `<span>${esc(l.aciklama)}</span>` : ''}</div></div>
+      <div class="end"><div class="tiny">${PB_AD[l.para_birimi] || l.para_birimi} · ${l.kdv_dahil ? 'KDV dahil' : 'KDV hariç'}</div><div class="tiny">güncelleme ${fmtD(l.guncelleme)}</div></div>
+    </div>`).join('') : '<div class="empty">Henüz fiyat listesi yok. “Yeni liste” ile başlayın; ürünleri ekleyip her ödeme şekli için ayrı fiyat girebilirsiniz.</div>'}</div>`;
+  bindRows();
+  $('#fl-yeni').onclick = () => flForm(null, (r) => go(`#/fiyat-listesi/${r.id}`));
+}
+
+function flForm(l, onSaved) {
+  let sec = flSec(l).map((s) => ({ ...s }));
+  modal({
+    title: l ? 'Listeyi düzenle' : 'Yeni fiyat listesi',
+    body: `<div class="field"><label>Liste adı</label><input class="input" id="fl-ad" value="${esc(l?.ad || '')}" placeholder="Örn. Bayi listesi Kasım 2026"></div>
+      <div class="field"><label>Açıklama (isteğe bağlı)</label><input class="input" id="fl-ac" value="${esc(l?.aciklama || '')}"></div>
+      <div class="grid2"><div class="field"><label>Para birimi</label><select class="input" id="fl-pb">${Object.keys(PB).map((p) => `<option value="${p}" ${(l?.para_birimi || 'TRY') === p ? 'selected' : ''}>${PB_AD[p]}</option>`).join('')}</select></div>
+        <div class="field"><label>Fiyatlar</label><select class="input" id="fl-kdv"><option value="1" ${l?.kdv_dahil === false ? '' : 'selected'}>KDV dahil</option><option value="0" ${l?.kdv_dahil === false ? 'selected' : ''}>KDV hariç</option></select></div></div>
+      <div class="field"><label>Ödeme seçenekleri (her biri listede ayrı fiyat kolonu olur)</label><div id="fl-sec"></div>
+        <button class="btn sm" id="fl-sec-ek" type="button" style="margin-top:6px">${icon('plus')}Seçenek ekle</button></div>`,
+    foot: `${l && isAdmin() ? `<button class="btn red" id="fl-sil" style="margin-right:auto">${icon('trash')}Sil</button>` : ''}<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="fl-ok">Kaydet</button>`,
+    onMount: (m) => {
+      const ciz = () => {
+        $('#fl-sec', m.el).innerHTML = sec.map((s, i) => `<div style="display:flex;gap:6px;margin-bottom:6px" data-i="${i}">
+          <input class="input fl-sa" value="${esc(s.ad)}" placeholder="Seçenek adı">
+          <button class="icon-btn fl-up" type="button" title="Yukarı" ${i ? '' : 'disabled'}>↑</button>
+          <button class="icon-btn fl-sd" type="button" title="Kaldır">${icon('trash')}</button></div>`).join('');
+        $$('#fl-sec [data-i]', m.el).forEach((row) => {
+          const i = +row.dataset.i;
+          $('.fl-sa', row).oninput = (e) => { sec[i].ad = e.target.value; };
+          $('.fl-up', row).onclick = () => { if (i) { [sec[i - 1], sec[i]] = [sec[i], sec[i - 1]]; ciz(); } };
+          $('.fl-sd', row).onclick = () => { if (sec.length === 1) return toast('En az bir seçenek kalmalı', 'err'); sec.splice(i, 1); ciz(); };
+        });
+      };
+      ciz();
+      $('#fl-sec-ek', m.el).onclick = () => { sec.push({ k: 's' + Date.now().toString(36), ad: '' }); ciz(); $$('.fl-sa', m.el).at(-1)?.focus(); };
+      $('#fl-ok', m.el).onclick = async (e) => {
+        const row = { ad: $('#fl-ad', m.el).value.trim(), aciklama: $('#fl-ac', m.el).value.trim() || null, para_birimi: $('#fl-pb', m.el).value,
+          kdv_dahil: $('#fl-kdv', m.el).value === '1', secenekler: sec.map((s) => ({ k: s.k, ad: s.ad.trim() })).filter((s) => s.ad), guncelleme: new Date().toISOString() };
+        if (!row.ad) return toast('Liste adı girin', 'err');
+        if (!row.secenekler.length) return toast('En az bir ödeme seçeneği girin', 'err');
+        const silinen = l ? flSec(l).filter((s) => !row.secenekler.some((x) => x.k === s.k)) : [];
+        if (silinen.length && !(await confirmBox('Seçenek kaldırılsın mı?', `${silinen.map((s) => `<b>${esc(s.ad)}</b>`).join(', ')} kolonundaki fiyatlar artık listede görünmeyecek.`, 'Kaldır', true))) return;
+        try {
+          const [r] = await busy(e.currentTarget, () => (l ? api.update('fiyat_listeleri', `id=eq.${l.id}`, row) : api.insert('fiyat_listeleri', [row])));
+          m.close(); toast('Kaydedildi', 'ok'); onSaved && onSaved(r);
+        } catch (err) { fail(err); }
+      };
+      $('#fl-sil', m.el)?.addEventListener('click', async () => {
+        if (!(await confirmBox('Liste silinsin mi?', `<b>${esc(l.ad)}</b> ve içindeki tüm fiyatlar silinecek. Ürün kartları etkilenmez.`, 'Sil', true))) return;
+        try { await api.del('fiyat_listeleri', `id=eq.${l.id}`); m.close(); toast('Liste silindi', 'ok'); go('#/fiyat-listeleri', true); } catch (err) { fail(err); }
+      });
+    }
+  });
+}
+
+async function viewFiyatListesi(id) {
+  const [[l], kal, urunler] = await Promise.all([
+    api.get('fiyat_listeleri', `select=*&id=eq.${id}`),
+    api.get('fiyat_listesi_kalemleri', `select=*&liste_id=eq.${id}&order=sira.asc,id.asc&limit=10000`),
+    cache.urunler()
+  ]);
+  if (!l) { topbar('Fiyat listesi', { back: true }); $('#view').innerHTML = '<div class="card empty">Liste bulunamadı.</div>'; return; }
+  topbar(l.ad, { back: true, actions: `<button class="tb-btn" id="fl-top">${icon('calc')}Toplu fiyat</button><button class="tb-btn" id="fl-ed">${icon('edit')}Düzenle</button>` });
+  const sec = flSec(l), pb = l.para_birimi || 'TRY';
+  const U = Object.fromEntries(urunler.map((u) => [u.id, u]));
+  const ui = (state.ui.fl ||= {}); ui.q ||= '';
+  const dokun = () => api.update('fiyat_listeleri', `id=eq.${l.id}`, { guncelleme: new Date().toISOString() }).catch(() => {});
+  $('#view').innerHTML = `
+    <div class="card" style="padding:12px">
+      <div class="small muted" style="margin-bottom:8px">${PB_AD[pb]} · ${l.kdv_dahil ? 'KDV dahil' : 'KDV hariç'} fiyatlar${l.aciklama ? ` · ${esc(l.aciklama)}` : ''}. Fiyatı yazıp başka hücreye geçince kaydedilir.</div>
+      <div class="grid2"><div class="field" style="margin:0"><div class="picker"><input class="input" id="fl-ekle" placeholder="Listeye ürün ekle… (ad veya kod)" autocomplete="off"></div></div>
+        <div class="field" style="margin:0"><input class="input" id="fl-q" placeholder="Listede ara…" value="${esc(ui.q)}"></div></div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table class="tbl stack fl-tbl"><thead><tr><th>Ürün</th>${sec.map((s) => `<th class="r">${esc(s.ad)}</th>`).join('')}<th></th></tr></thead><tbody id="fl-body"></tbody></table></div></div>
+    <p class="tiny" style="margin:0 4px"><span id="fl-say"></span> ürün. Ürünün kartındaki liste fiyatı ürün adının altında gösterilir.</p>`;
+  const satir = (k) => { const u = U[k.urun_id] || {}; const f = k.fiyatlar || {}; return `<tr data-k="${k.id}">
+      <td class="w"><b>${esc(u.ad || 'Silinmiş ürün')}</b><div class="tiny">${esc(u.kod || '')}${u.satis_fiyati ? ` · kart fiyatı ${fmtTL(u.satis_fiyati)}` : ''}</div></td>
+      ${sec.map((s) => `<td class="r" data-l="${esc(s.ad)}"><input class="input fl-f" data-s="${s.k}" inputmode="decimal" style="width:120px;padding:6px 8px;text-align:right" value="${flFmt(f[s.k])}" placeholder="${PB[pb]}"></td>`).join('')}
+      <td class="r"><button class="icon-btn fl-del" title="Listeden çıkar">${icon('trash')}</button></td></tr>`; };
+  const ciz = () => {
+    const q = norm(ui.q);
+    const gor = kal.filter((k) => !q || norm(`${U[k.urun_id]?.ad} ${U[k.urun_id]?.kod}`).includes(q));
+    $('#fl-say').textContent = q ? `${gor.length} / ${kal.length}` : kal.length;
+    $('#fl-body').innerHTML = gor.length ? gor.map(satir).join('') : `<tr><td colspan="${sec.length + 2}" class="empty">${kal.length ? 'Aramaya uyan ürün yok.' : 'Listede ürün yok. Yukarıdan ürün ekleyin.'}</td></tr>`;
+    $$('#fl-body tr[data-k]').forEach((tr) => {
+      const k = kal.find((x) => x.id === +tr.dataset.k);
+      $$('.fl-f', tr).forEach((inp) => {
+        inp.onfocus = () => inp.select();
+        inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const all = $$('#fl-body .fl-f'); all[all.indexOf(inp) + 1]?.focus(); } };
+        inp.onchange = async () => {
+          const s = inp.dataset.s, raw = inp.value.trim(), v = raw === '' ? null : parseNum(raw);
+          if (raw !== '' && (isNaN(v) || v < 0)) { toast('Geçerli bir fiyat girin', 'err'); inp.value = flFmt(k.fiyatlar?.[s]); return; }
+          const yeni = { ...(k.fiyatlar || {}) }; if (v === null) delete yeni[s]; else yeni[s] = Math.round(v * 100) / 100;
+          try { await api.update('fiyat_listesi_kalemleri', `id=eq.${k.id}`, { fiyatlar: yeni }); k.fiyatlar = yeni; inp.value = flFmt(yeni[s]); inp.style.borderColor = 'var(--green)'; setTimeout(() => { inp.style.borderColor = ''; }, 900); dokun(); }
+          catch (err) { inp.value = flFmt(k.fiyatlar?.[s]); fail(err); }
+        };
+      });
+      $('.fl-del', tr).onclick = async () => {
+        try { await api.del('fiyat_listesi_kalemleri', `id=eq.${k.id}`); kal.splice(kal.indexOf(k), 1); ciz(); dokun(); toast(`${U[k.urun_id]?.ad || 'Ürün'} listeden çıkarıldı`, 'ok'); } catch (err) { fail(err); }
+      };
+    });
+  };
+  ciz();
+  $('#fl-q').oninput = (e) => { ui.q = e.target.value; ciz(); };
+  picker($('#fl-ekle'), {
+    items: () => urunler.filter((u) => u.aktif && !kal.some((k) => k.urun_id === u.id)),
+    label: (u) => u.ad, sub: (u) => `${esc(u.kod)}${u.satis_fiyati ? ` · kart fiyatı ${fmtTL(u.satis_fiyati)}` : ''}`,
+    onPick: async (u) => {
+      $('#fl-ekle').value = '';
+      try {
+        const [r] = await api.insert('fiyat_listesi_kalemleri', [{ liste_id: l.id, urun_id: u.id, fiyatlar: {}, sira: kal.length ? Math.max(...kal.map((k) => k.sira || 0)) + 1 : 0 }]);
+        kal.push(r); ui.q = ''; $('#fl-q').value = ''; ciz(); dokun();
+        setTimeout(() => $(`#fl-body tr[data-k="${r.id}"] .fl-f`)?.focus(), 30);
+      } catch (err) { fail(err); }
+    }
+  });
+  $('#fl-ed').onclick = () => flForm(l, () => render());
+  $('#fl-top').onclick = () => flToplu(l, kal, U, () => render());
+}
+
+/* Toplu fiyat: bir kolonu baska bir kolondan yuzdeyle hesaplar (orn. KK 3 taksit = Pesin + %8) */
+function flToplu(l, kal, U, onSaved) {
+  const sec = flSec(l);
+  const opt = (sel) => sec.map((s) => `<option value="${s.k}" ${s.k === sel ? 'selected' : ''}>${esc(s.ad)}</option>`).join('');
+  modal({
+    title: 'Toplu fiyat',
+    body: `<p class="small muted" style="margin-top:0">Seçilen kolonu, başka bir kolondaki fiyatın üzerine yüzde ekleyerek (ya da düşerek) doldurur. Kaynak fiyatı boş olan ürünler atlanır.</p>
+      <div class="grid2"><div class="field"><label>Doldurulacak kolon</label><select class="input" id="ft-h">${opt(sec[1]?.k || sec[0].k)}</select></div>
+        <div class="field"><label>Kaynak kolon</label><select class="input" id="ft-k">${opt(sec[0].k)}</select></div></div>
+      <div class="grid2"><div class="field"><label>Fark (%)</label><input class="input" id="ft-y" inputmode="decimal" placeholder="Örn. 8 ya da -5"></div>
+        <div class="field"><label>Yuvarlama</label><select class="input" id="ft-r"><option value="0.01">Kuruş</option><option value="1">1 ₺</option><option value="5">5 ₺</option><option value="10" selected>10 ₺</option><option value="50">50 ₺</option></select></div></div>
+      <label class="check"><input type="checkbox" id="ft-b"> Sadece boş olan hücreleri doldur</label>
+      <div class="tiny" id="ft-o" style="margin-top:8px"></div>`,
+    foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="ft-ok">Uygula</button>`,
+    onMount: (m) => {
+      const hesap = () => {
+        const h = $('#ft-h', m.el).value, k = $('#ft-k', m.el).value, y = parseNum($('#ft-y', m.el).value), r = +$('#ft-r', m.el).value, bos = $('#ft-b', m.el).checked;
+        if (h === k || isNaN(y)) return { h, k, list: [] };
+        const list = kal.filter((x) => x.fiyatlar?.[k] !== undefined && x.fiyatlar?.[k] !== null && !(bos && x.fiyatlar?.[h] !== undefined && x.fiyatlar?.[h] !== null))
+          .map((x) => ({ x, v: Math.round(Math.round((num(x.fiyatlar[k]) * (1 + y / 100)) / r) * r * 100) / 100 }));
+        return { h, k, list };
+      };
+      const onizle = () => { const { h, k, list } = hesap(); const o = $('#ft-o', m.el);
+        o.innerHTML = h === k ? 'Kaynak ve hedef kolon farklı olmalı.' : list.length ? `${list.length} ürün güncellenecek. Örn. ${esc(U[list[0].x.urun_id]?.ad || '')}: ${flFmt(list[0].x.fiyatlar[k])} → <b>${flFmt(list[0].v)}</b>` : 'Güncellenecek ürün yok.'; };
+      ['#ft-h', '#ft-k', '#ft-y', '#ft-r', '#ft-b'].forEach((s) => { $(s, m.el).oninput = onizle; $(s, m.el).onchange = onizle; });
+      onizle();
+      $('#ft-ok', m.el).onclick = async (e) => {
+        const { h, list } = hesap();
+        if (!list.length) return toast('Güncellenecek ürün yok', 'err');
+        try {
+          await busy(e.currentTarget, async () => {
+            for (const { x, v } of list) { const yeni = { ...(x.fiyatlar || {}), [h]: v }; await api.update('fiyat_listesi_kalemleri', `id=eq.${x.id}`, { fiyatlar: yeni }); x.fiyatlar = yeni; }
+            await api.update('fiyat_listeleri', `id=eq.${l.id}`, { guncelleme: new Date().toISOString() });
+          });
+          m.close(); toast(`${list.length} fiyat güncellendi`, 'ok'); onSaved && onSaved();
+        } catch (err) { fail(err); }
+      };
+    }
+  });
+}
+
 const gozetimli = (u) => !!(u?.gumruk && (u.gumruk.gozetim === true || (u.gumruk.gozetim === undefined && u.gumruk.kg)));
 /* ---------- Urun karti: ithalat / gumruk bilgileri ----------
    Gozetim var  -> gumruk kiymeti = max(kg x $/kg, CIF); farka dusen KDV indirilemez (maliyete)
@@ -5348,7 +5527,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '1.99';
+const APP_V = '2.00';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
