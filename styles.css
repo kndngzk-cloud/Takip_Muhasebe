@@ -463,3 +463,4 @@ details.gum[open] summary { margin-bottom: 10px; }
   .fl-tbl.stack td[data-l]::before { flex: 1; }
   .fl-tbl.stack td:last-child { flex-basis: 100%; text-align: right !important; }
 }
+@media (max-width: 520px) { .topbar .tb-btn .tb-l { display: none; } }

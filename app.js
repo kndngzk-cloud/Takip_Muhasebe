@@ -1960,6 +1960,7 @@ async function viewCariDetay(id) {
       <button class="btn primary" id="b-sip">${icon('order')}Yeni sipariş</button>
       <button class="btn" id="b-acl">Açılış / düzeltme</button>
       <button class="btn" id="b-eks">${icon('print')}Ekstre gönder</button>
+      <button class="btn" id="b-fl">${icon('list')}Fiyat listesi gönder</button>
     </div>
     ${acikTk.length ? (() => { const tl = (p) => num(p.tutar_tl) || (p.para_birimi === 'TRY' ? num(p.tutar_hesap) : tlTahmin(p)); const ta = acikTk.filter((p) => p.yon === 'Tahsilat').reduce((a, p) => a + tl(p), 0), od = acikTk.filter((p) => p.yon === 'Ödeme').reduce((a, p) => a + tl(p), 0);
       return `<div class="section-title">Açık taksit / ödemeler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${acikTk.length} kalem${ta ? ` · tahsil edilecek ${fmtTL(ta)}` : ''}${od ? ` · ödenecek ${fmtTL(od)}` : ''}</span></div>
@@ -1980,6 +1981,7 @@ async function viewCariDetay(id) {
       : '<div class="empty">Bu müşteri için özel fiyat yok. Siparişte girdiğiniz fiyatlar burada otomatik birikir.</div>'}</div>`;
 
   $('#b-eks').onclick = () => ekstreGonder(c, eks, ui.tip);
+  $('#b-fl').onclick = () => flCariGonder(c);
   bindPlanRows($('#cd-tk'), acikTk, null); if ($('#cd-sip')) bindRows($('#cd-sip')); bindNakitRows($('#cd-cek'), cekler);
   const dvzNot = (h) => (h.para_birimi && h.para_birimi !== 'TRY' && h.doviz_tutar !== null ? `<div class="tiny">${fmtPB(h.doviz_tutar, h.para_birimi)} × ${fmtN(h.kur)}</div>` : '');
   const drawEks = () => {
@@ -4491,7 +4493,7 @@ async function viewFiyatListesi(id) {
     cache.urunler()
   ]);
   if (!l) { topbar('Fiyat listesi', { back: true }); $('#view').innerHTML = '<div class="card empty">Liste bulunamadı.</div>'; return; }
-  topbar(l.ad, { back: true, actions: `<button class="tb-btn" id="fl-top">${icon('calc')}Toplu fiyat</button><button class="tb-btn" id="fl-ed">${icon('edit')}Düzenle</button>` });
+  topbar(l.ad, { back: true, actions: `<button class="tb-btn" id="fl-gon" title="Gönder / çıktı">${icon('print')}<span class="tb-l">Gönder</span></button><button class="tb-btn" id="fl-top" title="Toplu fiyat">${icon('calc')}<span class="tb-l">Toplu</span></button><button class="tb-btn" id="fl-ed" title="Düzenle">${icon('edit')}<span class="tb-l">Düzenle</span></button>` });
   const sec = flSec(l), pb = l.para_birimi || 'TRY';
   const U = Object.fromEntries(urunler.map((u) => [u.id, u]));
   const ui = (state.ui.fl ||= {}); ui.q ||= '';
@@ -4547,6 +4549,130 @@ async function viewFiyatListesi(id) {
   });
   $('#fl-ed').onclick = () => flForm(l, () => render());
   $('#fl-top').onclick = () => flToplu(l, kal, U, () => render());
+  $('#fl-gon').onclick = () => flGonder(l);
+}
+
+/* Fiyat listesi ciktisi / gonderme: kolon secimi, istege bagli "Sayin <cari>", not; gorselPaylas ile Yazdir / PDF / Gorsel / Paylas */
+async function flGonder(l, cari0 = null) {
+  const [kal, urunler, cariler] = await Promise.all([
+    api.get('fiyat_listesi_kalemleri', `select=*&liste_id=eq.${l.id}&order=sira.asc,id.asc&limit=10000`),
+    cache.urunler(), cache.cariler()
+  ]);
+  const U = Object.fromEntries(urunler.map((u) => [u.id, u]));
+  const sec = flSec(l);
+  let cari = cari0;
+  let son = {}; try { son = JSON.parse(localStorage.getItem('ssc_flg') || '{}'); } catch { son = {}; }
+  modal({
+    title: 'Fiyat listesi gönder',
+    body: `<div class="field"><label>Müşteri (isteğe bağlı, çıktıda “Sayın …” olarak yazılır)</label><div class="picker"><input class="input" id="fg-cari" placeholder="Cari ara… (boş bırakılabilir)" value="${esc(cari?.unvan || '')}" autocomplete="off"></div></div>
+      <div class="field"><label>Çıktıda görünecek ödeme seçenekleri</label>${sec.map((s) => `<label class="check" style="margin:0 0 4px"><input type="checkbox" class="fg-s" value="${s.k}" ${son.gizli?.includes(s.k) ? '' : 'checked'}> ${esc(s.ad)}</label>`).join('')}</div>
+      <label class="check" style="margin:0 0 4px"><input type="checkbox" id="fg-kod" ${son.kod ? 'checked' : ''}> Ürün kodlarını göster</label>
+      <label class="check" style="margin:0 0 8px"><input type="checkbox" id="fg-bos" ${son.bos === false ? '' : 'checked'}> Seçili kolonlarda hiç fiyatı olmayan ürünleri çıkar</label>
+      <div class="field"><label>Not (isteğe bağlı, listenin altına yazılır)</label><textarea class="input" id="fg-not" placeholder="Örn. Fiyatlar 30.11.2026’ya kadar geçerlidir.">${esc(son.not || '')}</textarea></div>`,
+    foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="fg-ok">${icon('print')}Listeyi hazırla</button>`,
+    onMount: (m) => {
+      const E = (q) => $(q, m.el);
+      picker(E('#fg-cari'), { items: () => cariler.filter((c) => c.aktif !== false), label: (c) => c.unvan, sub: (c) => esc([c.kod, c.sehir].filter(Boolean).join(' · ')), onPick: (c) => { cari = c; E('#fg-cari').value = c.unvan; } });
+      E('#fg-cari').oninput = () => { if (!E('#fg-cari').value.trim()) cari = null; };
+      E('#fg-ok').onclick = () => {
+        const secili = $$('.fg-s', m.el).filter((i) => i.checked).map((i) => i.value);
+        if (!secili.length) return toast('En az bir ödeme seçeneği seçin', 'err');
+        const kod = E('#fg-kod').checked, bos = E('#fg-bos').checked, not = E('#fg-not').value.trim();
+        if (cari && E('#fg-cari').value.trim() !== cari.unvan) cari = null;
+        try { localStorage.setItem('ssc_flg', JSON.stringify({ gizli: sec.filter((s) => !secili.includes(s.k)).map((s) => s.k), kod, bos, not })); } catch { /* */ }
+        const kol = sec.filter((s) => secili.includes(s.k));
+        const rows = kal.map((k) => ({ u: U[k.urun_id], f: k.fiyatlar || {} })).filter((r) => r.u && (!bos || kol.some((s) => r.f[s.k] !== undefined && r.f[s.k] !== null)));
+        if (!rows.length) return toast('Seçili kolonlarda fiyatı olan ürün yok', 'err');
+        m.close();
+        const dosya = `Fiyat-listesi-${String(l.ad).replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '')}${cari ? '-' + String(cari.kod || cari.unvan).replace(/[^\p{L}\p{N}]+/gu, '-') : ''}-${today()}.png`;
+        gorselPaylas(l.ad, dosya, flCanvas(l, kol, rows, { cari, kod, not }));
+      };
+    }
+  });
+}
+
+function flCanvas(l, kol, rows, { cari = null, kod = false, not = '' } = {}) {
+  const pb = l.para_birimi || 'TRY', P = (v) => (v === null || v === undefined || v === '' ? '–' : fmtPB(v, pb));
+  const pad = 60, rowH = kod ? 70 : 58, gap = 40, adMin = 440;
+  const F = (w, sz) => `${w} ${sz}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const H21 = F(700, 21), V26 = F(600, 26);
+  // olcum: her kolonun genisligi = en genis fiyat; uzun baslik iki satira bolunur
+  const m = document.createElement('canvas').getContext('2d');
+  const gen = (t, f) => { m.font = f; return m.measureText(String(t ?? '')).width; };
+  const kolon = kol.map((s) => {
+    const ust = s.ad.toLocaleUpperCase('tr-TR');
+    const vw = Math.max(gen('–', V26), ...rows.map((r) => gen(P(r.f[s.k]), V26)));
+    let sat = [ust];
+    if (gen(ust, H21) > vw + 10 && ust.includes(' ')) {
+      const k = ust.split(' '); let en = null;
+      for (let i = 1; i < k.length; i++) { const a = [k.slice(0, i).join(' '), k.slice(i).join(' ')]; const w = Math.max(gen(a[0], H21), gen(a[1], H21)); if (!en || w < en.w) en = { a, w }; }
+      sat = en.a;
+    }
+    return { s, sat, w: Math.max(vw, ...sat.map((t) => gen(t, H21))) };
+  });
+  const kolTop = kolon.reduce((a, c) => a + c.w + gap, 0);
+  const W = Math.max(1240, Math.ceil(pad * 2 + adMin + kolTop));
+  let sag = W - pad; for (let i = kolon.length - 1; i >= 0; i--) { kolon[i].sag = sag; sag -= kolon[i].w + gap; }
+  const adW = sag - pad;
+  const ikiSat = kolon.some((c) => c.sat.length > 1);
+  const notSat = not ? not.split('\n').length + Math.ceil(not.length / 80) : 0;
+  const H = 520 + rows.length * rowH + 220 + notSat * 34;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d'); const kir = [];
+  const kes = (t, w) => { t = String(t ?? ''); if (x.measureText(t).width <= w) return t; while (x.measureText(t + '…').width > w && t.length > 3) t = t.slice(0, -1); return t + '…'; };
+  const sar = (t, w) => String(t).split('\n').flatMap((p) => { const out = []; let q = ''; p.split(' ').forEach((k) => { const d = q ? q + ' ' + k : k; if (x.measureText(d).width > w && q) { out.push(q); q = k; } else q = d; }); out.push(q); return out; });
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#16213a'; x.fillRect(0, 0, W, 150); x.textBaseline = 'middle';
+  x.fillStyle = '#fff'; x.font = F(800, 44); x.fillText('Fiyat Listesi', pad, 60);
+  x.font = F(500, 26); x.fillStyle = '#c9d2e6'; x.fillText(kes(state.ayarlar?.firma_adi || '', W / 2 - pad), pad, 110);
+  x.textAlign = 'right'; x.fillStyle = '#fff'; x.font = F(700, 30); x.fillText(kes(l.ad, W / 2 - pad), W - pad, 60);
+  x.font = F(600, 24); x.fillStyle = '#c9d2e6'; x.fillText(`${fmtD(today())} · ${PB_AD[pb] || pb} · ${l.kdv_dahil ? 'KDV dahil' : 'KDV hariç'}`, W - pad, 110); x.textAlign = 'left';
+  let y = 205;
+  if (cari) {
+    x.fillStyle = '#5b6578'; x.font = F(600, 24); x.fillText('SAYIN', pad, y);
+    x.fillStyle = '#16213a'; x.font = F(800, 34); x.fillText(kes(cari.unvan, W - 2 * pad), pad, y + 42);
+    const alt = [cari.kod, cari.sehir].filter(Boolean).join('  ·  ');
+    if (alt) { x.fillStyle = '#5b6578'; x.font = F(500, 24); x.fillText(alt, pad, y + 84); }
+    y += 140;
+  } else y += 10;
+  if (l.aciklama) { x.fillStyle = '#5b6578'; x.font = F(500, 24); x.fillText(kes(l.aciklama, W - 2 * pad), pad, y); y += 50; }
+  const bh = ikiSat ? 84 : 64;
+  kir.push(y - 34); x.fillStyle = '#f1f4f9'; x.fillRect(pad - 10, y - 32, W - 2 * pad + 20, bh);
+  const by = y - 32 + bh / 2;
+  x.fillStyle = '#5b6578'; x.font = H21; x.fillText('ÜRÜN', pad, by);
+  x.textAlign = 'right'; kolon.forEach((c) => { if (c.sat.length > 1) { x.fillText(c.sat[0], c.sag, by - 13); x.fillText(c.sat[1], c.sag, by + 13); } else x.fillText(c.sat[0], c.sag, by); }); x.textAlign = 'left';
+  y += bh - 32 + rowH / 2 + 4;
+  rows.forEach((r, i) => {
+    kir.push(y - rowH / 2);
+    if (i % 2) { x.fillStyle = '#fafbfd'; x.fillRect(pad - 10, y - rowH / 2, W - 2 * pad + 20, rowH); }
+    const ty = kod ? y - 12 : y;
+    x.fillStyle = '#16213a'; x.font = F(600, 26); x.fillText(kes(r.u.ad, adW), pad, ty);
+    if (kod) { x.fillStyle = '#7a8496'; x.font = F(500, 20); x.fillText(kes(r.u.kod || '', adW), pad, y + 18); }
+    x.textAlign = 'right'; x.font = V26;
+    kolon.forEach((c) => { const v = r.f[c.s.k]; x.fillStyle = v === undefined || v === null ? '#a0a8b8' : '#16213a'; x.fillText(P(v), c.sag, ty); });
+    x.textAlign = 'left';
+    x.strokeStyle = '#e3e7ef'; x.lineWidth = 2; x.beginPath(); x.moveTo(pad - 10, y + rowH / 2); x.lineTo(W - pad + 10, y + rowH / 2); x.stroke();
+    y += rowH;
+  });
+  y += 30; kir.push(y - 20);
+  if (not) { x.fillStyle = '#16213a'; x.font = F(500, 24); sar(not, W - 2 * pad).forEach((t) => { x.fillText(t, pad, y); y += 34; }); y += 10; }
+  x.fillStyle = '#7a8496'; x.font = F(500, 22); x.fillText(`Düzenlenme: ${fmtD(today())} · ${rows.length} ürün`, pad, y);
+  const out = document.createElement('canvas'); out.width = W; out.height = Math.min(H, y + 40);
+  out.getContext('2d').drawImage(cv, 0, 0); out.kir = kir;
+  return out;
+}
+
+/* Cari sayfasindan: liste secip o musteriye gonder */
+async function flCariGonder(c) {
+  const listeler = await api.get('fiyat_listeleri', 'select=*&order=sira.asc,ad.asc');
+  if (!listeler.length) { toast('Önce Fiyat listeleri sayfasından bir liste oluşturun', 'err'); return; }
+  if (listeler.length === 1) return flGonder(listeler[0], c);
+  modal({
+    title: 'Hangi fiyat listesi?',
+    body: `<div class="list" style="margin:0">${listeler.map((l) => `<div class="row" data-l="${l.id}" style="cursor:pointer"><div class="main-col"><div class="t">${esc(l.ad)}</div><div class="st">${flSec(l).map((s) => esc(s.ad)).join(' · ')}</div></div></div>`).join('')}</div>`,
+    foot: '<button class="btn" data-close>Vazgeç</button>',
+    onMount: (m) => { $$('[data-l]', m.el).forEach((r) => (r.onclick = () => { m.close(); flGonder(listeler.find((l) => l.id === +r.dataset.l), c); })); }
+  });
 }
 
 /* Toplu fiyat: bir kolonu baska bir kolondan yuzdeyle hesaplar (orn. KK 3 taksit = Pesin + %8) */
@@ -5529,7 +5655,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.01';
+const APP_V = '2.02';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
