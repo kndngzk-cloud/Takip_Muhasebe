@@ -464,3 +464,9 @@ details.gum[open] summary { margin-bottom: 10px; }
   .fl-tbl.stack td:last-child { flex-basis: 100%; text-align: right !important; }
 }
 @media (max-width: 520px) { .topbar .tb-btn .tb-l { display: none; } }
+/* Fiyat listesi tablosu: uzun secenek adlari iki-uc satira sarilir, urun adi kolonu daralmaz */
+.fl-tbl th { vertical-align: bottom; }
+.fl-tbl th.r { white-space: normal; width: 140px; min-width: 130px; line-height: 1.3; }
+.fl-tbl th:first-child, .fl-tbl td:first-child { min-width: 260px; }
+.fl-tbl th:last-child, .fl-tbl td:last-child { width: 44px; }
+@media (max-width: 640px) { .fl-tbl th:first-child, .fl-tbl td:first-child { min-width: 0; } }
