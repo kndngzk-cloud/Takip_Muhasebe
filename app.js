@@ -279,11 +279,13 @@ function fail(e) { console.error(e); toast(e.message || String(e), 'err'); }
 function modal({ title, body, foot = '', onMount, wide = false }) {
   const ov = document.createElement('div');
   ov.className = 'overlay';
+  // pencere disina tiklamak kapatmaz (yazilanlar kaybolmasin); alt tarafta Vazgec/Kapat varsa ustteki X de gizlenir
+  const altKapat = /data-close/.test(foot);
   ov.innerHTML = `<div class="sheet" style="${wide ? 'max-width:900px' : ''}">
-      <div class="sh-head"><h3>${esc(title)}</h3><button class="icon-btn" data-close>${icon('x')}</button></div>
+      <div class="sh-head"><h3>${esc(title)}</h3>${altKapat ? '' : `<button class="icon-btn" data-close>${icon('x')}</button>`}</div>
       <div class="sh-body">${body}</div>${foot ? `<div class="sh-foot">${foot}</div>` : ''}</div>`;
   const close = () => { ov.remove(); if (!$('#modal-root .overlay')) document.body.style.overflow = ''; };
-  ov.addEventListener('click', (e) => { if (e.target === ov || e.target.closest('[data-close]')) close(); });
+  ov.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) close(); });
   $('#modal-root').appendChild(ov);
   document.body.style.overflow = 'hidden';
   const ctx = { el: ov, close };
@@ -299,7 +301,7 @@ function confirmBox(title, text, okText = 'Onayla', danger = false) {
       foot: `<button class="btn" data-close>Vazgeç</button><button class="btn ${danger ? 'red' : 'primary'}" id="cfm-ok">${esc(okText)}</button>`,
       onMount: (m) => {
         $('#cfm-ok', m.el).onclick = () => { m.close(); res(true); };
-        m.el.addEventListener('click', (e) => { if (e.target === m.el || e.target.closest('[data-close]')) res(false); });
+        m.el.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) res(false); });
       }
     });
   });
@@ -5527,7 +5529,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.00';
+const APP_V = '2.01';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
