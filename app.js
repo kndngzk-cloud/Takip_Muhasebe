@@ -4495,6 +4495,7 @@ async function viewFiyatListesi(id) {
   if (!l) { topbar('Fiyat listesi', { back: true }); $('#view').innerHTML = '<div class="card empty">Liste bulunamadı.</div>'; return; }
   topbar(l.ad, { back: true, actions: `<button class="tb-btn" id="fl-gon" title="Gönder / çıktı">${icon('print')}<span class="tb-l">Gönder</span></button><button class="tb-btn" id="fl-top" title="Toplu fiyat">${icon('calc')}<span class="tb-l">Toplu</span></button><button class="tb-btn" id="fl-ed" title="Düzenle">${icon('edit')}<span class="tb-l">Düzenle</span></button>` });
   const sec = flSec(l), pb = l.para_birimi || 'TRY';
+  const flP = (v) => (v === null || v === undefined || v === '' ? '' : `${flFmt(v)} ${PB[pb] || pb}`);
   const U = Object.fromEntries(urunler.map((u) => [u.id, u]));
   const ui = (state.ui.fl ||= {}); ui.q ||= '';
   const dokun = () => api.update('fiyat_listeleri', `id=eq.${l.id}`, { guncelleme: new Date().toISOString() }).catch(() => {});
@@ -4504,11 +4505,11 @@ async function viewFiyatListesi(id) {
       <div class="grid2"><div class="field" style="margin:0"><div class="picker"><input class="input" id="fl-ekle" placeholder="Listeye ürün ekle… (ad veya kod)" autocomplete="off"></div></div>
         <div class="field" style="margin:0"><input class="input" id="fl-q" placeholder="Listede ara…" value="${esc(ui.q)}"></div></div>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table class="tbl stack fl-tbl"><thead><tr><th>Ürün</th>${sec.map((s) => `<th class="r">${esc(s.ad)}</th>`).join('')}<th></th></tr></thead><tbody id="fl-body"></tbody></table></div></div>
+    <div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table class="tbl stack fl-tbl"><thead><tr><th>Ürün</th>${sec.map((s) => `<th class="r">${esc(s.ad)} <span style="text-transform:none">(${PB[pb] || pb})</span></th>`).join('')}<th></th></tr></thead><tbody id="fl-body"></tbody></table></div></div>
     <p class="tiny" style="margin:0 4px"><span id="fl-say"></span> ürün. Ürünün kartındaki liste fiyatı ürün adının altında gösterilir.</p>`;
   const satir = (k) => { const u = U[k.urun_id] || {}; const f = k.fiyatlar || {}; return `<tr data-k="${k.id}">
       <td class="w"><b>${esc(u.ad || 'Silinmiş ürün')}</b><div class="tiny">${esc(u.kod || '')}${u.satis_fiyati ? ` · kart fiyatı ${fmtTL(u.satis_fiyati)}` : ''}</div></td>
-      ${sec.map((s) => `<td class="r" data-l="${esc(s.ad)}"><input class="input fl-f" data-s="${s.k}" inputmode="decimal" style="width:120px;padding:6px 8px;text-align:right" value="${flFmt(f[s.k])}" placeholder="${PB[pb]}"></td>`).join('')}
+      ${sec.map((s) => `<td class="r" data-l="${esc(s.ad)}"><input class="input fl-f" data-s="${s.k}" inputmode="decimal" style="width:120px;padding:6px 8px;text-align:right" value="${flP(f[s.k])}" placeholder="${PB[pb]}"></td>`).join('')}
       <td class="r"><button class="icon-btn fl-del" title="Listeden çıkar">${icon('trash')}</button></td></tr>`; };
   const ciz = () => {
     const q = norm(ui.q);
@@ -4522,10 +4523,10 @@ async function viewFiyatListesi(id) {
         inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const all = $$('#fl-body .fl-f'); all[all.indexOf(inp) + 1]?.focus(); } };
         inp.onchange = async () => {
           const s = inp.dataset.s, raw = inp.value.trim(), v = raw === '' ? null : parseNum(raw);
-          if (raw !== '' && (isNaN(v) || v < 0)) { toast('Geçerli bir fiyat girin', 'err'); inp.value = flFmt(k.fiyatlar?.[s]); return; }
+          if (raw !== '' && (isNaN(v) || v < 0)) { toast('Geçerli bir fiyat girin', 'err'); inp.value = flP(k.fiyatlar?.[s]); return; }
           const yeni = { ...(k.fiyatlar || {}) }; if (v === null) delete yeni[s]; else yeni[s] = Math.round(v * 100) / 100;
-          try { await api.update('fiyat_listesi_kalemleri', `id=eq.${k.id}`, { fiyatlar: yeni }); k.fiyatlar = yeni; inp.value = flFmt(yeni[s]); inp.style.borderColor = 'var(--green)'; setTimeout(() => { inp.style.borderColor = ''; }, 900); dokun(); }
-          catch (err) { inp.value = flFmt(k.fiyatlar?.[s]); fail(err); }
+          try { await api.update('fiyat_listesi_kalemleri', `id=eq.${k.id}`, { fiyatlar: yeni }); k.fiyatlar = yeni; inp.value = flP(yeni[s]); inp.style.borderColor = 'var(--green)'; setTimeout(() => { inp.style.borderColor = ''; }, 900); dokun(); }
+          catch (err) { inp.value = flP(k.fiyatlar?.[s]); fail(err); }
         };
       });
       $('.fl-del', tr).onclick = async () => {
@@ -4698,7 +4699,7 @@ function flToplu(l, kal, U, onSaved) {
         return { h, k, list };
       };
       const onizle = () => { const { h, k, list } = hesap(); const o = $('#ft-o', m.el);
-        o.innerHTML = h === k ? 'Kaynak ve hedef kolon farklı olmalı.' : list.length ? `${list.length} ürün güncellenecek. Örn. ${esc(U[list[0].x.urun_id]?.ad || '')}: ${flFmt(list[0].x.fiyatlar[k])} → <b>${flFmt(list[0].v)}</b>` : 'Güncellenecek ürün yok.'; };
+        o.innerHTML = h === k ? 'Kaynak ve hedef kolon farklı olmalı.' : list.length ? `${list.length} ürün güncellenecek. Örn. ${esc(U[list[0].x.urun_id]?.ad || '')}: ${fmtPB(list[0].x.fiyatlar[k], l.para_birimi || 'TRY')} → <b>${fmtPB(list[0].v, l.para_birimi || 'TRY')}</b>` : 'Güncellenecek ürün yok.'; };
       ['#ft-h', '#ft-k', '#ft-y', '#ft-r', '#ft-b'].forEach((s) => { $(s, m.el).oninput = onizle; $(s, m.el).onchange = onizle; });
       onizle();
       $('#ft-ok', m.el).onclick = async (e) => {
@@ -5655,7 +5656,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.03';
+const APP_V = '2.04';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
