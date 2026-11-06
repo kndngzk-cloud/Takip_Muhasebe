@@ -2945,22 +2945,80 @@ function barkodSvg(t) {
 
 
 const PL_KART = {};
-const etiketVar = (p) => p.durum !== 'İptal' && !p.teslim_tarihi && (p.platform === 'Hepsiburada' ? !!p.paket_no : p.platform === 'Trendyol' ? !!p.kargo_takip : !SADECE_SIPARIS.includes(p.platform));
+const etiketVar = (p) => p.durum !== 'İptal' && !p.teslim_tarihi && (p.platform === 'Hepsiburada' ? !!p.paket_no : p.platform === 'Trendyol' ? !!p.kargo_takip : p.platform === 'N11' ? !!p.paket_no : !SADECE_SIPARIS.includes(p.platform));
 const b64Blob = (b, tip) => { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Blob([u], { type: tip }); };
-async function etiketGoster(p, btn) {
-  if (!p) return;
-  let pdf;
-  try {
-    const yuk = async () => { const r = await (await api.raw('functions/v1/kargo-etiket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id }) })).json(); if (r.hata) throw new Error(r.hata); return r; };
-    const r = btn ? await busy(btn, yuk) : await yuk();
-    pdf = b64Blob(r.dosyalar[0], 'application/pdf');
-  } catch (err) { modal({ title: 'Kargo etiketi alınamadı', body: `<p style="margin:0">${esc(err.message || String(err))}</p>`, foot: '<button class="btn primary" data-close>Tamam</button>' }); return; }
-  const onizleme = `<iframe src="${URL.createObjectURL(pdf)}#toolbar=0&view=FitH" style="width:100%;height:60vh;border:0;background:#fff"></iframe>`, not = '';
-  const ad = `Etiket-${p.platform}-${p.siparis_no}.pdf`;
+/* N11 etiketi: N11 API etiket vermez; kargo barkod / kampanya numarasi (paket no) ile 100x100 mm etiket cizilir */
+function n11EtiketCanvas(p) {
+  const W = 1200, pad = 48;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = W;
+  const x = cv.getContext('2d');
+  const F = (w, sz) => `${w} ${sz}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const kes = (t, w) => { t = String(t ?? ''); while (x.measureText(t).width > w && t.length > 3) t = t.slice(0, -2); return t; };
+  const sar = (t, w, max) => { const out = []; let cur = ''; for (const k of String(t || '').split(/\s+/).filter(Boolean)) { const d = cur ? cur + ' ' + k : k; if (x.measureText(d).width > w && cur) { out.push(cur); cur = k; } else cur = d; } if (cur) out.push(cur); if (out.length > max) { out.length = max; out[max - 1] = kes(out[max - 1] + '…', w); } return out; };
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, W);
+  x.strokeStyle = '#000'; x.lineWidth = 6; x.strokeRect(12, 12, W - 24, W - 24);
+  x.fillStyle = '#000'; x.textBaseline = 'middle';
+  x.font = F(900, 64); x.fillText('n11', pad, 80);
+  x.textAlign = 'right'; x.font = F(900, 56); x.fillText(kes((p.kargo_firma || 'Kargo').toLocaleUpperCase('tr-TR'), 760), W - pad, 80); x.textAlign = 'left';
+  const cizgi = (y) => { x.lineWidth = 4; x.beginPath(); x.moveTo(12, y); x.lineTo(W - 12, y); x.stroke(); };
+  cizgi(140);
+  const kod = String(p.paket_no || '');
+  const des = c128Desen(kod);
+  if (des) {
+    const top = [...des].reduce((a, n) => a + +n, 0);
+    const mw = Math.max(2, Math.floor((W - 2 * pad - 40) / top)), bw = top * mw;
+    let bx = Math.round((W - bw) / 2);
+    for (let i = 0; i < des.length; i++) { const n = +des[i] * mw; if (i % 2 === 0) x.fillRect(bx, 175, n, 250); bx += n; }
+  }
+  x.textAlign = 'center'; x.font = F(800, 48); x.fillText(kod.replace(/(\d{3})(?=\d)/g, '$1 '), W / 2, 470); x.textAlign = 'left';
+  x.font = F(500, 26); x.textAlign = 'center'; x.fillText('Kargo barkod / kampanya no', W / 2, 512); x.textAlign = 'left';
+  cizgi(545);
+  let y = 590;
+  x.font = F(700, 28); x.fillText('ALICI', pad, y); y += 54;
+  x.font = F(900, 56); x.fillText(kes(p.alici || p.musteri || '', W - 2 * pad), pad, y); y += 62;
+  x.font = F(600, 38);
+  sar(p.adres || p.sehir || '', W - 2 * pad, 4).forEach((l) => { x.fillText(l, pad, y); y += 46; });
+  if (p.telefon) { x.font = F(700, 38); x.fillText(`Tel: ${p.telefon}`, pad, y); y += 46; }
+  y = Math.max(y + 6, 900); cizgi(y - 26);
+  x.font = F(700, 26); x.fillText('GÖNDEREN', pad, y + 8);
+  x.font = F(800, 34); x.fillText(kes(state.ayarlar?.firma_adi || '', W - 2 * pad - 200), pad + 190, y + 8);
+  y += 56;
+  x.font = F(700, 30); x.fillText(kes(`Sipariş ${p.siparis_no}${p.fis_no ? ` · Fiş ${p.fis_no}` : ''}`, W - 2 * pad), pad, y); y += 44;
+  x.font = F(500, 28);
+  sar((p.satirlar || []).map((l) => `${num(l.miktar) > 1 ? fmtN(l.miktar) + '× ' : ''}${l.kod || l.ad}`).join(', '), W - 2 * pad, 3).forEach((l) => { if (y < W - 40) { x.fillText(l, pad, y); y += 38; } });
+  return cv;
+}
+const MM100 = 283.46; // 100 mm, pt
+// tek siparisin etiket(ler)i: [{ pdf: Uint8Array }] ya da [{ cv }]
+async function etiketParcalari(p) {
+  if (p.platform === 'N11') { await cache.ayarlar(); return [{ cv: n11EtiketCanvas(p) }]; }
+  const r = await (await api.raw('functions/v1/kargo-etiket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id }) })).json();
+  if (r.hata) throw new Error(r.hata);
+  return (r.dosyalar || []).map((b) => ({ pdf: new Uint8Array(atob(b).split('').map((c) => c.charCodeAt(0))) }));
+}
+let PDFLIB;
+function pdfKutuphane() {
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  return PDFLIB ||= new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'vendor/pdf-lib.min.js'; sc.onload = () => res(window.PDFLib); sc.onerror = () => { PDFLIB = null; rej(new Error('PDF birleştirici yüklenemedi; internet bağlantısını kontrol edin.')); }; document.head.appendChild(sc); });
+}
+// parcalari tek PDF'te birlestirir
+async function etiketBirlestir(parcalar) {
+  if (parcalar.length === 1 && parcalar[0].pdf) return new Blob([parcalar[0].pdf], { type: 'application/pdf' });
+  if (parcalar.length === 1 && parcalar[0].cv) return canvasPdf(parcalar[0].cv, MM100);
+  const { PDFDocument } = await pdfKutuphane();
+  const out = await PDFDocument.create();
+  for (const par of parcalar) {
+    if (par.pdf) { const d = await PDFDocument.load(par.pdf, { ignoreEncryption: true }); (await out.copyPages(d, d.getPageIndices())).forEach((pg) => out.addPage(pg)); }
+    else { const jpg = await out.embedJpg(par.cv.toDataURL('image/jpeg', 0.95)); const pg = out.addPage([MM100, MM100 * par.cv.height / par.cv.width]); pg.drawImage(jpg, { x: 0, y: 0, width: pg.getWidth(), height: pg.getHeight() }); }
+  }
+  return new Blob([await out.save()], { type: 'application/pdf' });
+}
+function etiketPdfGoster(pdf, ad, baslik, not = '') {
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const url = URL.createObjectURL(pdf);
   modal({
-    title: `Kargo etiketi · ${p.siparis_no}`, wide: true,
-    body: `${ios ? '<p class="small muted" style="margin-top:0">Yazdırmak için “Paylaş / Yazdır”a basın, menüden <b>Yazdır</b>’ı seçin.</p>' : ''}<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff">${onizleme}</div>${not}`,
+    title: baslik, wide: true,
+    body: `${not}${ios ? '<p class="small muted" style="margin-top:0">Yazdırmak için “Paylaş / Yazdır”a basın, menüden <b>Yazdır</b>’ı seçin.</p>' : ''}<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff"><iframe src="${url}#toolbar=0&view=FitH" style="width:100%;height:60vh;border:0;background:#fff"></iframe></div>`,
     foot: `${!ios ? `<button class="btn" id="et-print">${icon('print')}Yazdır</button>` : ''}<button class="btn primary" id="et-dl">${icon('download')}PDF indir</button>${navigator.canShare ? `<button class="btn" id="et-share">Paylaş${ios ? ' / Yazdır' : ''}</button>` : ''}`,
     onMount: (m) => {
       $('#et-dl', m.el).onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(pdf); a.download = ad; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); };
@@ -2969,6 +3027,56 @@ async function etiketGoster(p, btn) {
         try { const file = new File([pdf], ad, { type: 'application/pdf' }); if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: ad }); else $('#et-dl', m.el).click(); }
         catch (e) { if (e.name !== 'AbortError') fail(e); }
       });
+    }
+  });
+}
+async function etiketGoster(p, btn) {
+  if (!p) return;
+  let pdf;
+  try {
+    const yuk = async () => etiketBirlestir(await etiketParcalari(p));
+    pdf = btn ? await busy(btn, yuk) : await yuk();
+  } catch (err) { modal({ title: 'Kargo etiketi alınamadı', body: `<p style="margin:0">${esc(err.message || String(err))}</p>`, foot: '<button class="btn primary" data-close>Tamam</button>' }); return; }
+  etiketPdfGoster(pdf, `Etiket-${p.platform}-${p.siparis_no}.pdf`, `Kargo etiketi · ${p.siparis_no}`,
+    p.platform === 'N11' ? '<p class="tiny" style="margin-top:0">N11 etiketi programda hazırlanır: barkod, N11’in bu paket için verdiği kargo barkod / kampanya numarasıdır. Etiketi 10×10 cm basın.</p>' : '');
+}
+// toplu etiket: kargoya verilmemis siparisler
+function topluEtiket(data) {
+  const aday = data.filter((p) => etiketVar(p) && !p.sevk_tarihi && !p.iade_durum && p.durum !== 'Onay bekliyor')
+    .sort((a, b) => String(a.son_kargo || a.tarih).localeCompare(String(b.son_kargo || b.tarih)));
+  if (!aday.length) { toast('Kargoya verilmeyi bekleyen, etiketi alınabilen sipariş yok'); return; }
+  modal({
+    title: 'Toplu kargo etiketi', wide: true,
+    body: `<p class="tiny" style="margin-top:0">Kargoya henüz verilmemiş siparişler. Seçtiklerinizin etiketleri tek PDF’te, her etiket ayrı sayfada birleşir.</p>
+      <label class="check" style="margin:0 0 6px"><input type="checkbox" id="te-hep" checked> <b>Hepsini seç</b> <span class="tiny" id="te-say"></span></label>
+      <div class="list" id="te-l">${aday.map((p) => `<label class="row" style="cursor:pointer"><input type="checkbox" class="te-c" value="${p.id}" checked style="width:20px;height:20px;flex:none">
+        <div class="main-col"><div class="t">${plBadge(p.platform)} ${esc(p.alici || p.musteri || '–')}</div>
+        <div class="st"><span class="num">${esc(p.siparis_no)}</span>${p.fis_no ? `<span>Fiş ${p.fis_no}</span>` : ''}${p.son_kargo ? `<span>son kargo ${fmtD(p.son_kargo)}</span>` : ''}<span>${esc((p.satirlar || []).map((l) => `${num(l.miktar) > 1 ? fmtN(l.miktar) + '× ' : ''}${l.kod || l.ad}`).join(', '))}</span></div></div></label>`).join('')}</div>
+      <div id="te-d" class="tiny" style="margin-top:8px"></div>`,
+    foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="te-ok">${icon('print')}PDF oluştur</button>`,
+    onMount: (m) => {
+      const say = () => { const n = $$('.te-c:checked', m.el).length; $('#te-say', m.el).textContent = `(${n}/${aday.length})`; $('#te-hep', m.el).checked = n === aday.length; };
+      say();
+      $('#te-hep', m.el).onchange = (e) => { $$('.te-c', m.el).forEach((c) => { c.checked = e.target.checked; }); say(); };
+      $$('.te-c', m.el).forEach((c) => { c.onchange = say; });
+      $('#te-ok', m.el).onclick = async (e) => {
+        const sec = aday.filter((p) => $$('.te-c:checked', m.el).some((c) => +c.value === p.id));
+        if (!sec.length) return toast('Sipariş seçin', 'err');
+        const btn = e.currentTarget; btn.disabled = true;
+        const parca = [], hata = [];
+        try {
+          for (const [k, p] of sec.entries()) {
+            $('#te-d', m.el).textContent = `Etiketler alınıyor… ${k + 1}/${sec.length}`;
+            try { parca.push(...await etiketParcalari(p)); } catch (err) { hata.push(`${p.platform} ${p.siparis_no}: ${err.message || err}`); }
+          }
+          if (!parca.length) { $('#te-d', m.el).innerHTML = `<b style="color:var(--red)">Hiç etiket alınamadı.</b><br>${hata.map(esc).join('<br>')}`; btn.disabled = false; return; }
+          $('#te-d', m.el).textContent = 'PDF birleştiriliyor…';
+          const pdf = await etiketBirlestir(parca);
+          m.close();
+          etiketPdfGoster(pdf, `Kargo-etiketleri-${today()}.pdf`, `Kargo etiketleri · ${sec.length - hata.length} sipariş`,
+            hata.length ? `<div class="card" style="border-left:4px solid var(--red);margin-bottom:10px"><b>${hata.length} siparişin etiketi alınamadı:</b><div class="tiny">${hata.map(esc).join('<br>')}</div></div>` : '');
+        } catch (err) { fail(err); btn.disabled = false; $('#te-d', m.el).textContent = ''; }
+      };
     }
   });
 }
@@ -3047,7 +3155,7 @@ async function viewPlatformSiparisler() {
   const son = data.reduce((m, p) => (p.guncelleme > m ? p.guncelleme : m), '');
   const platformlar = [...new Set(data.map((p) => p.platform))].sort();
   $('#view').innerHTML = `${siparisTabs('pl', sorun)}
-    <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Müşteri, sipariş no, takip no ara…" value="${esc(ui.q)}"></div></div>
+    <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Müşteri, sipariş no, takip no ara…" value="${esc(ui.q)}"></div><button class="btn" id="pl-te">${icon('print')}Toplu etiket</button></div>
     <div class="chips" id="pl-c">${['Tümü', 'İşlem bekleyen', 'Aktarıldı', 'İade', 'Programda yok', 'İptal'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}
       ${platformlar.length > 1 ? `<span style="width:8px"></span>${[['', 'Tüm platformlar'], ...platformlar.map((x) => [x, x])].map(([v, t]) => `<button class="chip ${ui.pl === v ? 'on' : ''}" data-p="${esc(v)}">${t}</button>`).join('')}` : ''}</div>
     <div id="sum" class="tiny" style="margin:0 4px 8px"></div>
@@ -3063,6 +3171,7 @@ async function viewPlatformSiparisler() {
     $$('[data-pl]', $('#lst')).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; plDetay(data.find((x) => x.id === +el.dataset.pl), data); }));
   };
   $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
+  $('#pl-te').onclick = () => topluEtiket(data);
   $('#pl-c').onclick = (e) => {
     const b = e.target.closest('.chip'); if (!b) return;
     if (b.dataset.f) ui.f = b.dataset.f; if (b.dataset.p !== undefined) ui.pl = b.dataset.p;
@@ -5656,7 +5765,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.04';
+const APP_V = '2.05';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
