@@ -279,7 +279,7 @@ async function trendyol(a: Record<string, string>, gunSay: number, bitGun = 0): 
 }
 
 /* ---------------- N11 (REST shipmentPackages) ---------------- */
-async function n11(a: Record<string, string>, gunSay: number, bitGun = 0): Promise<Sip[]> {
+async function n11(a: Record<string, string>, gunSay: number, bitGun = 0, onayla = false): Promise<Sip[]> {
   if (!a.api_key || !a.api_secret) throw new Error("N11 bilgileri eksik");
   const hd = { appkey: a.api_key, appsecret: a.api_secret, Accept: "application/json" };
   const al = async (u: string) => { const r = await fetch(u, { headers: hd }); const t = await r.text(); if (!r.ok) throw new Error(`N11 ${r.status}: ${t.slice(0, 200)}`); return JSON.parse(t); };
@@ -294,6 +294,29 @@ async function n11(a: Record<string, string>, gunSay: number, bitGun = 0): Promi
     }
   }
   const IPTAL = /cancel|unsupplied|iptal/i;
+  // Yeni gelen (Created) paketler otomatik onaylanir (Picking); onaydan sonra n11 kargo kodunu/etiket bilgisini uretir
+  const onay = { denenen: 0, onaylanan: 0, hatalar: [] as string[] };
+  if (onayla && !bitGun) {
+    const yeniPk = paketler.filter((p) => /^created$/i.test(String(p.shipmentPackageStatus)) && !p.isReturned);
+    const satirId = yeniPk.flatMap((p) => (p.lines ?? []).filter((l: any) => !IPTAL.test(String(l.orderItemLineItemStatusName)) && l.orderLineId != null).map((l: any) => Number(l.orderLineId)));
+    if (satirId.length) {
+      onay.denenen = satirId.length;
+      try {
+        const r = await fetch("https://api.n11.com/rest/order/v1/update", { method: "PUT", headers: { ...hd, "Content-Type": "application/json" }, body: JSON.stringify({ lines: satirId.map((lineId) => ({ lineId })), status: "Picking" }) });
+        const t = await r.text();
+        if (!r.ok) throw new Error(`${r.status}: ${t.slice(0, 200)}`);
+        for (const c of (JSON.parse(t || "{}").content ?? []) as Record<string, any>[]) { if (String(c.status).toUpperCase() === "SUCCESS") onay.onaylanan++; else onay.hatalar.push(`${c.lineId}: ${String(c.reasons ?? c.status).slice(0, 120)}`); }
+      } catch (err) { onay.hatalar.push(String((err as Error).message || err).slice(0, 200)); }
+      if (onay.onaylanan) {
+        // kargo bilgisinin olusmasi icin kisa bekleme, sonra onaylanan paketler tazelenir
+        await new Promise((r) => setTimeout(r, 4000));
+        for (const p of yeniPk) {
+          try { const j = await al(`https://api.n11.com/rest/delivery/v1/shipmentPackages?packageIds=${encodeURIComponent(String(p.id))}&sender=ALL&page=0&size=10`); const t = (j.content ?? []).find((x: any) => String(x.id) === String(p.id)); if (t) paketler[paketler.indexOf(p)] = t; }
+          catch (err) { onay.hatalar.push(`tazele ${p.id}: ${String((err as Error).message || err).slice(0, 120)}`); }
+        }
+      }
+    }
+  }
   const iadeler: Iade[] = [];
   const grup: Record<string, Record<string, any>[]> = {};
   for (const p of paketler) (grup[p.orderNumber] ||= []).push(p);
@@ -317,17 +340,17 @@ async function n11(a: Record<string, string>, gunSay: number, bitGun = 0): Promi
       telefon: sa.gsm || null, eposta: p0.customerEmail || null, sehir: sa.city || null, adres: [sa.address, sa.neighborhood, sa.district, sa.city].filter(Boolean).join(" ") || null, vergi_no: p0.taxId || null,
       satirlar: lines.map((l: any) => ({ kod: l.stockCode || l.barcode || String(l.productId ?? ""), ad: String(l.productName || "").trim(), miktar: Number(l.quantity) || 1, tutar: r2(tutar(l)) })),
       brut, komisyon: kom > 0 ? kom : null, kargo_kesinti: null, net: null, kesinti_kesin: false,
-      kargo_firma: p0.cargoProviderName || null, kargo_takip: p0.cargoSenderNumber ? String(p0.cargoSenderNumber) : null, kargo_link: p0.cargoTrackingLink || null, barkod: p0.cargoSenderNumber ? String(p0.cargoSenderNumber) : null,
+      kargo_firma: p0.cargoProviderName || null, kargo_takip: p0.cargoSenderNumber ? String(p0.cargoSenderNumber) : null, kargo_link: p0.cargoTrackingLink || null, barkod: p0.cargoSenderNumber ? String(p0.cargoSenderNumber) : p0.cargoTrackingNumber ? String(p0.cargoTrackingNumber) : null,
       sevk_tarihi: kargolu ? d10(tarihce("Shipped") ?? kargolu.lastModifiedDate) : null, teslim_tarihi: teslim ? d10(tarihce("Delivered") ?? teslim.lastModifiedDate) : null,
-      paket_no: p0.id != null ? String(p0.id) : null, son_kargo: iso(p0.agreedDeliveryDate), iptal: !aktif.length, ham: { durum: ps.map((p) => p.shipmentPackageStatus) },
+      paket_no: p0.id != null ? String(p0.id) : null, son_kargo: iso(p0.agreedDeliveryDate), iptal: !aktif.length, ham: { durum: ps.map((p) => p.shipmentPackageStatus), kampanya: p0.cargoTrackingNumber ? String(p0.cargoTrackingNumber) : null, ilce: sa.district || null, mahalle: sa.neighborhood || null },
     });
   }
   IADE.N11 = iadeler;
-  TESHIS.N11 = { paket: paketler.length, siparis: out.length };
+  TESHIS.N11 = { paket: paketler.length, siparis: out.length, onay };
   return out;
 }
 
-const PLATFORM: Record<string, (a: Record<string, string>, g: number, b?: number) => Promise<Sip[]>> = { "Koçtaş": koctas, Hepsiburada: hepsiburada, Trendyol: trendyol, N11: n11 };
+const PLATFORM: Record<string, (a: Record<string, string>, g: number, b?: number, onayla?: boolean) => Promise<Sip[]>> = { "Koçtaş": koctas, Hepsiburada: hepsiburada, Trendyol: trendyol, N11: n11 };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -348,7 +371,7 @@ Deno.serve(async (req) => {
       if (!Object.keys(a).length) continue;
       try {
         const gunSay = typeof body.gun === "number" ? body.gun : 3;
-        const liste = await PLATFORM[e.platform](a, gunSay, typeof body.bitis_gun === "number" ? body.bitis_gun : 0);
+        const liste = await PLATFORM[e.platform](a, gunSay, typeof body.bitis_gun === "number" ? body.bitis_gun : 0, !kuru);
         let yeni = 0, aktarilan = 0, baglanan = 0, guncellenen = 0, eslesmedi = 0; const hatalar: string[] = [];
         if (liste.length) {
           const mevcut = await rest(`platform_siparisler?select=id,siparis_no,durum,siparis_id&platform=eq.${encodeURIComponent(e.platform)}&siparis_no=in.(${liste.map((s) => `"${s.siparis_no.replace(/"/g, "")}"`).join(",")})`);
@@ -395,7 +418,10 @@ Deno.serve(async (req) => {
           const bekleyen = IADE[e.platform].filter((i) => i.durum === "Talep bekliyor" || i.durum === "İade talebi").map((i) => `"${i.no}"`);
           await rest(`platform_siparisler?${plq}&iade_durum=in.(${encodeURIComponent('"Talep bekliyor","İade talebi"')})${bekleyen.length ? `&siparis_no=not.in.(${encodeURIComponent(bekleyen.join(","))})` : ""}`, { method: "PATCH", body: JSON.stringify({ iade_durum: null }) }).catch(() => {});
         }
-        const durumMetni = `Siparişler: ${liste.length} çekildi${iadeSay ? ` · ${iadeSay} iade işlendi` : ""} · ${yeni} yeni · ${aktarilan} aktarıldı${baglanan ? ` · ${baglanan} elle girilmiş siparişe bağlandı` : ""}${eslesmedi ? ` · ${eslesmedi} ürün eşleşmedi` : ""}${hatalar.length ? ` · ${hatalar.length} hata` : ""}`;
+        const onayT = (TESHIS[e.platform] as Record<string, any> | undefined)?.onay;
+        if (onayT?.onaylanan) olaylar.push({ baslik: `${e.platform}: sipariş otomatik onaylandı`, metin: `${onayT.onaylanan} kalem onaylandı (Picking); kargo etiketi bilgisi çekildi`, url: "#/platform-siparisler", etiket: `onay-${e.platform}-${Date.now()}` });
+        if (onayT?.hatalar?.length) hatalar.push(...onayT.hatalar.map((h: string) => `onay ${h}`));
+        const durumMetni = `Siparişler: ${liste.length} çekildi${onayT?.onaylanan ? ` · ${onayT.onaylanan} kalem onaylandı` : ""}${iadeSay ? ` · ${iadeSay} iade işlendi` : ""} · ${yeni} yeni · ${aktarilan} aktarıldı${baglanan ? ` · ${baglanan} elle girilmiş siparişe bağlandı` : ""}${eslesmedi ? ` · ${eslesmedi} ürün eşleşmedi` : ""}${hatalar.length ? ` · ${hatalar.length} hata` : ""}`;
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(e.son_yanit || {}), siparis: { zaman: new Date().toISOString(), durum: durumMetni, hatalar: hatalar.slice(0, 5), teshis: TESHIS[e.platform] ?? null } } }) });
         sonuc[e.platform] = { teshis: TESHIS[e.platform], iade: (IADE[e.platform] ?? []).length, cekilen: liste.length, yeni, aktarilan, baglanan, guncellenen, eslesmedi, hatalar: hatalar.slice(0, 5) };
       } catch (err) {

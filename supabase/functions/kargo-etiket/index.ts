@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     if (!(await yetkili(req, body))) return json({ hata: "Yetkisiz" }, 401);
-    const [p] = await rest(`platform_siparisler?select=id,platform,siparis_no,paket_no,kargo_takip,barkod,durum&id=eq.${Number(body.id)}`);
+    const [p] = await rest(`platform_siparisler?select=id,platform,siparis_no,paket_no,kargo_takip,barkod,durum,kargo_firma,alici,musteri,telefon,adres,sehir,satirlar,ham&id=eq.${Number(body.id)}`);
     if (!p) return json({ hata: "Platform siparişi bulunamadı" }, 404);
     const [e] = await rest(`entegrasyonlar?select=ayar&platform=eq.${encodeURIComponent(p.platform)}`);
     const a = e?.ayar || {};
@@ -88,6 +88,28 @@ Deno.serve(async (req) => {
       const buf = new Uint8Array(await d.arrayBuffer());
       if (new TextDecoder("latin1").decode(buf.slice(0, 4)) !== "%PDF") return json({ hata: "Koçtaş belgesi PDF değil; panelden yazdırın." }, 502);
       return json({ format: "pdf", dosyalar: [b64(buf)], ad: `etiket-KT-${p.siparis_no}.pdf` });
+    }
+    if (p.platform === "N11") {
+      const kod = p.barkod || p.kargo_takip || p.ham?.kampanya;
+      if (!kod) return json({ hata: "N11 bu sipariş için henüz kargo kodu üretmedi. Sipariş otomatik onaylandıktan birkaç dakika sonra tekrar deneyin." }, 400);
+      const [ay] = await rest("ayarlar?select=firma_adi&limit=1");
+      const temiz = (v: unknown) => String(v ?? "").replace(/[\^~]/g, " ").replace(/\s+/g, " ").trim();
+      const sar = (t: string, n: number, max: number) => { const out: string[] = []; let cur = ""; for (const w of t.split(" ")) { if ((cur + " " + w).trim().length > n) { if (cur) out.push(cur); cur = w; } else cur = (cur + " " + w).trim(); } if (cur) out.push(cur); return out.slice(0, max); };
+      const urun = ((p.satirlar ?? []) as Record<string, any>[]).map((x) => `${Number(x.miktar) > 1 ? x.miktar + " x " : ""}${x.kod || x.ad}`).join(", ");
+      const adres = sar(temiz(p.adres), 44, 4);
+      let y = 0; const L: string[] = ["^XA", "^CI28", "^PW800", "^LL800"];
+      const yaz = (t: string, h: number, x = 30) => { L.push(`^FO${x},${y}^A0N,${h},${h}^FD${temiz(t)}^FS`); y += h + 8; };
+      y = 25; yaz(`${temiz(p.kargo_firma) || "Kargo"} · n11`, 40); yaz(`Sipariş: ${p.siparis_no}`, 28);
+      L.push(`^FO30,${y}^GB740,3,3^FS`); y += 15;
+      yaz("ALICI", 24); yaz(temiz(p.alici || p.musteri), 40);
+      for (const a2 of adres) yaz(a2, 28);
+      if (p.telefon) yaz(`Tel: ${p.telefon}`, 28);
+      L.push(`^FO30,${y}^GB740,3,3^FS`); y += 15;
+      yaz(`GÖNDEREN: ${temiz(ay?.firma_adi) || ""}`, 24);
+      if (urun) for (const u2 of sar(temiz(urun), 52, 2)) yaz(u2, 22);
+      y = Math.max(y + 10, 560);
+      L.push(`^FO60,${y}^BY3^BCN,150,Y,N,N^FD${temiz(kod)}^FS`, "^XZ");
+      return json({ format: "pdf", dosyalar: [await zplPdf(L.join("\n"))], ad: `etiket-N11-${p.siparis_no}.pdf` });
     }
     return json({ hata: `${p.platform} için etiket programdan alınamıyor; platform panelinden yazdırın.` }, 400);
   } catch (err) {
