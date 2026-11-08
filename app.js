@@ -3223,9 +3223,13 @@ async function soruAnaSayfa() {
   } catch { /* */ }
 }
 function soruRow(q) {
+  // konusmada musteri sizin cevabinizdan sonra yeniden yazdiysa son mesaji one cikar
+  const ms = Array.isArray(q.mesajlar) ? q.mesajlar : [];
+  const son = ms[ms.length - 1];
+  const tekrar = ms.length > 1 && son && son.kim !== 'Satıcı' && ms.some((m) => m.kim === 'Satıcı');
   return `<div class="row" data-soru="${q.id}" style="cursor:pointer;align-items:flex-start">
     ${q.gorsel ? `<img src="${esc(q.gorsel)}" alt="" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex:none;background:#fff;border:1px solid var(--line)">` : `<div style="width:44px;height:44px;border-radius:8px;flex:none;display:grid;place-items:center;background:var(--bg2,#f1f4f9);color:var(--muted)">${icon('soru')}</div>`}
-    <div class="main-col"><div class="t" style="white-space:normal">${esc((q.soru || '').slice(0, 160))}</div>
+    <div class="main-col">${tekrar ? `<div class="tiny" style="color:var(--red);font-weight:700">${esc(son.kim === 'Koçtaş' ? 'Koçtaş' : 'Müşteri')} cevabınızdan sonra tekrar yazdı · ${esc(soruZaman(son.tarih))}</div>` : ''}<div class="t" style="white-space:normal">${esc(((tekrar ? son.metin : q.soru) || '').slice(0, 160))}</div>
       <div class="st">${plBadge(q.platform)} <span class="badge ${SORU_RENK[q.durum] ?? ''}">${esc(q.durum)}</span>${q.durum === 'Bekliyor' ? soruKalan(q.son_tarih) : ''}<span>${esc(soruZaman(q.soru_tarih))}</span>${q.musteri ? `<span>${esc(q.musteri)}</span>` : ''}</div>
       <div class="tiny" style="margin-top:3px">${esc([q.urun, soruKonu(q.konu)].filter(Boolean).join(' · ').slice(0, 110))}</div></div></div>`;
 }
@@ -5881,7 +5885,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.06';
+const APP_V = '2.07';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
