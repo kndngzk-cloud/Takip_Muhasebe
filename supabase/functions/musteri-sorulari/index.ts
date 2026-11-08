@@ -212,6 +212,15 @@ Deno.serve(async (req) => {
     const ent = await rest(`entegrasyonlar?select=platform,ayar,aktif,son_yanit&platform=in.(${encodeURIComponent('"Koçtaş","Hepsiburada","Trendyol","N11"')})`) as Record<string, any>[];
     const ayar = Object.fromEntries(ent.filter((e) => e.ayar && Object.keys(e.ayar).length).map((e) => [e.platform, e.ayar]));
 
+    if (body.mod === "yanitsiz") {
+      // Koctas'in "yanit gerekmiyor" isaretinin API'si yok: programda isaretlenir, yeni mesaj gelirse yeniden bekleyene duser
+      const [s] = await rest(`platform_sorular?id=eq.${Number(body.id)}&select=id,durum,yanitsiz`) as Record<string, any>[];
+      if (!s) return json({ hata: "Soru bulunamadı." }, 404);
+      const geri = !!body.geri;
+      await rest(`platform_sorular?id=eq.${s.id}`, { method: "PATCH", body: JSON.stringify({ yanitsiz: geri ? null : new Date().toISOString(), durum: geri ? "Bekliyor" : "Yanıt gerekmiyor", guncelleme: new Date().toISOString() }) });
+      return json({ ok: true });
+    }
+
     if (body.mod === "cevapla") {
       const metin = String(body.metin || "").trim();
       if (!metin) return json({ hata: "Cevap boş olamaz." }, 400);
@@ -239,7 +248,7 @@ Deno.serve(async (req) => {
     for (const [pl, f] of Object.entries(CEK)) {
       if (!ayar[pl] || (body.platform && body.platform !== pl)) continue;
       try {
-        const onceki = await rest(`platform_sorular?platform=eq.${encodeURIComponent(pl)}&select=soru_id,durum,musteri,soru_tarih&soru_tarih=gte.${new Date(Date.now() - 70 * 86400000).toISOString()}`) as Record<string, any>[];
+        const onceki = await rest(`platform_sorular?platform=eq.${encodeURIComponent(pl)}&select=soru_id,durum,musteri,soru_tarih,yanitsiz&soru_tarih=gte.${new Date(Date.now() - 70 * 86400000).toISOString()}`) as Record<string, any>[];
         const om = new Map(onceki.map((o) => [String(o.soru_id), o]));
         const liste0 = await f(ayar[pl], gun, new Set(om.keys()), onceki.filter((o) => o.durum === "Bekliyor").map((o) => String(o.soru_id)));
         const tekil = new Map<string, Soru>(); for (const s of liste0) { const v = tekil.get(s.soru_id); if (!v || v.durum === "Bekliyor") tekil.set(s.soru_id, s); }
@@ -247,6 +256,12 @@ Deno.serve(async (req) => {
         for (const s of liste) {
           const o = om.get(s.soru_id);
           if (!o && s.durum === "Bekliyor") yeniBekleyen.push(s);
+          // "yanit gerekmiyor" denmis ve o andan sonra yeni mesaj gelmemisse bekleyen sayilmaz
+          if (o?.yanitsiz && s.durum === "Bekliyor") {
+            const ms = Array.isArray(s.mesajlar) ? s.mesajlar as Record<string, any>[] : [];
+            const sonTarih = ms.length ? ms[ms.length - 1].tarih : s.soru_tarih;
+            if (!sonTarih || String(sonTarih) <= new Date(o.yanitsiz).toISOString()) s.durum = "Yanıt gerekmiyor";
+          }
           // N11 detay her seferinde sorulmadigi icin eski musteri/tarih korunur
           if (o) { if (s.musteri == null) delete s.musteri; if (s.soru_tarih == null) delete s.soru_tarih; }
           if (!o && !s.soru_tarih) s.soru_tarih = new Date().toISOString();

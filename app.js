@@ -3198,7 +3198,7 @@ async function viewPlatformSiparisler() {
 /* ------------------------------------------------------------------ */
 /* MUSTERI SORULARI (Trendyol, Hepsiburada, N11, Koctas)               */
 /* ------------------------------------------------------------------ */
-const SORU_RENK = { Bekliyor: 'b-red', 'Cevaplandı': 'b-green', Onayda: 'b-orange', Reddedildi: '', Bildirildi: '', 'Cevapsız kaldı': '', 'Süresi geçti': '', Bilgi: '' };
+const SORU_RENK = { 'Yanıt gerekmiyor': '', Bekliyor: 'b-red', 'Cevaplandı': 'b-green', Onayda: 'b-orange', Reddedildi: '', Bildirildi: '', 'Cevapsız kaldı': '', 'Süresi geçti': '', Bilgi: '' };
 const soruKonu = (k) => (!k ? '' : /^ORDER_MESSAGING/.test(k) ? 'Sipariş mesajı' : k.replace(/\s+\d{6,}\s+Ürünü Hakkında$/, ''));
 const soruZaman = (t) => (t ? new Date(t).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 function soruKalan(t) {
@@ -3248,7 +3248,7 @@ async function viewSorular() {
     <div class="tiny" style="margin:10px 4px">Sorular 10 dakikada bir otomatik çekilir; yeni soru gelince bildirim gönderilir${son ? ` · son kontrol ${new Date(son).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}. Koçtaş’ta sipariş mesajları da burada görünür.</div>`;
   const draw = () => {
     const q = norm(ui.q);
-    const f = data.filter((x) => (ui.f === 'Tümü' || (ui.f === 'Cevaplandı' ? ['Cevaplandı', 'Onayda'].includes(x.durum) : x.durum === ui.f)) && (!ui.pl || x.platform === ui.pl)
+    const f = data.filter((x) => (ui.f === 'Tümü' || (ui.f === 'Cevaplandı' ? ['Cevaplandı', 'Onayda', 'Yanıt gerekmiyor'].includes(x.durum) : x.durum === ui.f)) && (!ui.pl || x.platform === ui.pl)
       && (!q || norm(`${x.soru || ''} ${x.urun || ''} ${x.musteri || ''} ${x.cevap || ''} ${x.siparis_no || ''}`).includes(q)));
     if (ui.f === 'Bekliyor') f.sort((a, b) => String(a.son_tarih || a.soru_tarih).localeCompare(String(b.son_tarih || b.soru_tarih)));
     $('#lst').innerHTML = f.length ? f.slice(0, 300).map(soruRow).join('') : `<div class="empty">${ui.f === 'Bekliyor' ? 'Cevap bekleyen soru yok 🎉' : 'Kayıt bulunamadı'}</div>`;
@@ -3275,7 +3275,8 @@ async function viewSorular() {
 function soruDetay(q, yenile) {
   if (!q) return;
   const msj = Array.isArray(q.mesajlar) && q.mesajlar.length ? q.mesajlar : [{ kim: 'Müşteri', ad: q.musteri, metin: q.soru, tarih: q.soru_tarih }, ...(q.cevap ? [{ kim: 'Satıcı', metin: q.cevap, tarih: q.cevap_tarih }] : [])];
-  const acik = ['Bekliyor', 'Bilgi', 'Cevaplandı', 'Onayda'].includes(q.durum) && isAdmin();
+  const acik = ['Bekliyor', 'Bilgi', 'Cevaplandı', 'Onayda', 'Yanıt gerekmiyor'].includes(q.durum) && isAdmin();
+  const yanitsizBtn = isAdmin() && q.platform === 'Koçtaş' ? (q.durum === 'Bekliyor' ? `<button class="btn" id="sr-yok">Yanıt gerekmiyor</button>` : q.durum === 'Yanıt gerekmiyor' ? `<button class="btn" id="sr-geri">Bekleyenlere geri al</button>` : '') : '';
   // Trendyol ve N11'de bir soruya bir kez cevap verilir; HB ve Koctas'ta konusma devam eder
   const tekCevap = (q.platform === 'Trendyol' || q.platform === 'N11') && q.durum !== 'Bekliyor';
   const koctasMusteriVar = msj.some((m) => m.kim === 'Müşteri');
@@ -3291,9 +3292,19 @@ function soruDetay(q, yenile) {
       ${q.platform === 'Trendyol' && q.durum === 'Onayda' ? '<p class="tiny">Cevabınız Trendyol onayından sonra yayınlanır.</p>' : ''}
       ${acik && !tekCevap ? `<div class="field" style="margin-top:12px"><label>Cevabınız</label><textarea class="input" id="sr-m" rows="4" maxlength="2000" placeholder="Müşteriye cevabınızı yazın…"></textarea><div class="tiny" id="sr-say">0 / 2000${min > 1 ? ` · en az ${min} karakter` : ''}</div></div>
         ${q.platform === 'Koçtaş' ? `<div class="field"><label>Kime</label><select class="input" id="sr-kime">${koctasMusteriVar ? '<option value="CUSTOMER">Müşteriye</option>' : ''}<option value="OPERATOR">Koçtaş’a</option></select></div>` : ''}
+        ${q.platform === 'Koçtaş' && q.durum === 'Bekliyor' ? '<p class="tiny" style="margin:4px 0 0">Cevap gerekmiyorsa “Yanıt gerekmiyor”a basın: soru bekleyenlerden çıkar, yeni mesaj gelirse tekrar düşer. Koçtaş bu işareti dışarıya açmadığı için Koçtaş panelinde ayrıca işaretlemeniz gerekebilir.</p>' : ''}
         <p class="tiny" style="margin:4px 0 0">Cevap doğrudan ${esc(q.platform)}’a gönderilir ve müşteri görür${q.platform === 'Trendyol' || q.platform === 'N11' ? '; gönderdikten sonra değiştirilemez' : ''}.</p>` : ''}`,
-    foot: `<button class="btn" data-close>Kapat</button>${acik && !tekCevap ? `<button class="btn primary" id="sr-ok">Cevabı gönder</button>` : ''}`,
+    foot: `<button class="btn" data-close>Kapat</button>${yanitsizBtn}${acik && !tekCevap ? `<button class="btn primary" id="sr-ok">Cevabı gönder</button>` : ''}`,
     onMount: (m) => {
+      const isaret = async (btn, geri) => {
+        try {
+          const r = await busy(btn, async () => (await api.raw('functions/v1/musteri-sorulari', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mod: 'yanitsiz', id: q.id, geri }) })).json());
+          if (r.hata) throw new Error(r.hata);
+          m.close(); toast(geri ? 'Bekleyenlere alındı' : 'Yanıt gerekmiyor olarak işaretlendi', 'ok'); yenile?.();
+        } catch (err) { fail(err); }
+      };
+      $('#sr-yok', m.el)?.addEventListener('click', (e) => isaret(e.currentTarget, false));
+      $('#sr-geri', m.el)?.addEventListener('click', (e) => isaret(e.currentTarget, true));
       const ta = $('#sr-m', m.el); if (!ta) return;
       ta.oninput = () => { $('#sr-say', m.el).textContent = `${ta.value.length} / 2000${min > 1 ? ` · en az ${min} karakter` : ''}`; };
       setTimeout(() => ta.focus(), 80);
@@ -5885,7 +5896,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.07';
+const APP_V = '2.08';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
