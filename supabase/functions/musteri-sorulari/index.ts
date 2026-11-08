@@ -71,7 +71,7 @@ type Soru = { platform: string; soru_id: string; urun?: string | null; urun_kod?
 /* ---------------- Trendyol ---------------- */
 const tyHd = (a: Record<string, string>) => ({ Authorization: "Basic " + btoa(`${a.api_key}:${a.api_secret}`), "User-Agent": `${a.seller_id} - SelfIntegration`, storeFrontCode: "TR", Accept: "application/json" });
 const TY_DURUM: Record<string, string> = { WAITING_FOR_ANSWER: "Bekliyor", ANSWERED: "Cevaplandı", REJECTED: "Reddedildi", REPORTED: "Bildirildi", WAITING_FOR_APPROVE: "Onayda", UNANSWERED: "Cevapsız kaldı" };
-async function trendyolCek(a: Record<string, string>, gun: number): Promise<Soru[]> {
+async function trendyolCek(a: Record<string, string>, gun: number, _o: Set<string>, bekleyen: string[]): Promise<Soru[]> {
   const out: Soru[] = [];
   const bit = Date.now();
   const yollar = [`status=WAITING_FOR_ANSWER&page=0&size=200`];
@@ -80,12 +80,19 @@ async function trendyolCek(a: Record<string, string>, gun: number): Promise<Soru
     const r = await fetch(`https://apigw.trendyol.com/integration/qna/sellers/${a.seller_id}/questions/filter?${q}`, { headers: tyHd(a) });
     if (!r.ok) throw new Error(`Trendyol sorular: ${r.status} ${(await r.text()).slice(0, 200)}`);
     const j = await r.json();
-    for (const s of j.content ?? []) {
-      out.push({ platform: "Trendyol", soru_id: String(s.id), urun: s.productName, urun_kod: s.productMainId || s.barcode || null, gorsel: s.imageUrl, link: s.webUrl, musteri: s.showUserName === false ? null : s.userName, soru: s.text, soru_tarih: iso(s.creationDate),
-        durum: TY_DURUM[s.status] || s.status, cevap: s.answer?.text ?? null, cevap_tarih: iso(s.answer?.creationDate), ham: { status: s.status, answeredDateMessage: s.answeredDateMessage, public: s.public, rejectedAnswer: s.rejectedAnswer, rejectedDate: s.rejectedDate, reason: s.reason } });
-    }
+    for (const s of j.content ?? []) out.push(tyMap(s));
+  }
+  // listede artik gorunmeyen bekleyen sorular (platform panelinden cevaplanmis olabilir) tek tek sorulur
+  const gelen = new Set(out.map((x) => x.soru_id));
+  for (const id of bekleyen.filter((x) => !gelen.has(x)).slice(0, 20)) {
+    const r = await fetch(`https://apigw.trendyol.com/integration/qna/sellers/${a.seller_id}/questions/${encodeURIComponent(id)}`, { headers: tyHd(a) });
+    if (r.ok) out.push(tyMap(await r.json()));
   }
   return out;
+}
+function tyMap(s: Record<string, any>): Soru {
+  return ({ platform: "Trendyol", soru_id: String(s.id), urun: s.productName, urun_kod: s.productMainId || s.barcode || null, gorsel: s.imageUrl, link: s.webUrl, musteri: s.showUserName === false ? null : s.userName, soru: s.text, soru_tarih: iso(s.creationDate),
+        durum: TY_DURUM[s.status] || s.status, cevap: s.answer?.text ?? null, cevap_tarih: iso(s.answer?.creationDate), ham: { status: s.status, answeredDateMessage: s.answeredDateMessage, public: s.public, rejectedAnswer: s.rejectedAnswer, rejectedDate: s.rejectedDate, reason: s.reason } });
 }
 async function trendyolCevap(a: Record<string, string>, id: string, metin: string) {
   const r = await fetch(`https://apigw.trendyol.com/integration/qna/sellers/${a.seller_id}/questions/${encodeURIComponent(id)}/answers`, { method: "POST", headers: { ...tyHd(a), "Content-Type": "application/json" }, body: JSON.stringify({ text: metin }) });
@@ -96,29 +103,37 @@ async function trendyolCevap(a: Record<string, string>, id: string, metin: strin
 const HB = "https://api-asktoseller-merchant.hepsiburada.com/api/v1.0/issues";
 const hbHd = (a: Record<string, string>) => ({ Authorization: "Basic " + btoa(`${a.merchant_id}:${a.servis_anahtari}`), "User-Agent": a.kullanici_adi, Accept: "application/json", merchantId: a.merchant_id });
 const HB_DURUM = (s: string) => /wait/i.test(s) ? "Bekliyor" : /answer/i.test(s) ? "Cevaplandı" : /reject/i.test(s) ? "Reddedildi" : /report/i.test(s) ? "Bildirildi" : /expire|timeout/i.test(s) ? "Süresi geçti" : s;
-async function hbCek(a: Record<string, string>, gun: number): Promise<Soru[]> {
+async function hbCek(a: Record<string, string>, gun: number, _o: Set<string>, bekleyen: string[]): Promise<Soru[]> {
   const out: Soru[] = [];
   const min = new Date(Date.now() - gun * 86400000).toISOString().slice(0, 19);
-  for (const q of [`status=WaitingForAnswer&page=0&size=100`, `minCreatedAt=${min}&page=0&size=100`, `minCreatedAt=${min}&page=1&size=100`]) {
+  for (const q of [`status=WaitingForAnswer&page=0&size=100`, `status=Answered&minCreatedAt=${min}&page=0&size=100`, `minCreatedAt=${min}&page=0&size=100`, `minCreatedAt=${min}&page=1&size=100`]) {
     const r = await ham("GET", `${HB}?${q}`, hbHd(a));
     if (r.status === 404 && q.includes("page=1")) break;
-    if (r.status < 200 || r.status >= 300) throw new Error(`Hepsiburada sorular: ${r.status} ${r.text.slice(0, 200)}`);
+    if (r.status < 200 || r.status >= 300) { if (q.startsWith("status=WaitingForAnswer")) throw new Error(`Hepsiburada sorular: ${r.status} ${r.text.slice(0, 200)}`); continue; }
     const j = JSON.parse(r.text || "[]");
     const liste = Array.isArray(j) ? j : j.items ?? j.data ?? j.issues ?? [];
-    for (const s of liste) {
+    for (const s of liste) out.push(hbMap(s));
+    if (q.startsWith("status=")) continue;
+    if (liste.length < 100) break;
+  }
+  // panelden cevaplanan sorular bekleyen listesinden duser: programda hala bekleyen gorunenler tek tek sorulur
+  const gelen = new Set(out.filter((x) => x.durum !== "Bekliyor").map((x) => x.soru_id));
+  const bekGelen = new Set(out.filter((x) => x.durum === "Bekliyor").map((x) => x.soru_id));
+  for (const id of bekleyen.filter((x) => !gelen.has(x) && !bekGelen.has(x)).slice(0, 25)) {
+    const r = await ham("GET", `${HB}/${encodeURIComponent(id)}`, hbHd(a));
+    if (r.status >= 200 && r.status < 300) { try { const j = JSON.parse(r.text); out.push(hbMap(j.data ?? j)); } catch { /* */ } }
+  }
+  return out;
+}
+function hbMap(s: Record<string, any>): Soru {
       const konus = (s.conversations ?? []) as Record<string, any>[];
       const musteriMsj = konus.filter((c) => !/merchant|seller|satıcı|satici/i.test(String(c.from ?? c.type ?? "")));
       const saticiMsj = konus.filter((c) => /merchant|seller|satıcı|satici/i.test(String(c.from ?? c.type ?? "")));
       const ilk = musteriMsj[0] ?? konus[0];
       const son = saticiMsj[saticiMsj.length - 1];
-      out.push({ platform: "Hepsiburada", soru_id: String(s.issueNumber ?? s.number ?? s.id), urun: s.product?.name, urun_kod: s.product?.stockCode || s.product?.sku || null, gorsel: s.product?.imageUrl, link: s.product?.sku ? `https://www.hepsiburada.com/-p-${s.product.sku}` : null,
+      return ({ platform: "Hepsiburada", soru_id: String(s.issueNumber ?? s.number ?? s.id), urun: s.product?.name, urun_kod: s.product?.stockCode || s.product?.sku || null, gorsel: s.product?.imageUrl, link: s.product?.sku ? `https://www.hepsiburada.com/-p-${s.product.sku}` : null,
         konu: s.subject?.description ?? null, soru: ilk?.content ?? s.lastContent ?? null, soru_tarih: iso(s.createdAt), durum: HB_DURUM(String(s.status ?? "")), cevap: son?.content ?? null, cevap_tarih: iso(son?.createdAt), son_tarih: iso(s.expireDate), siparis_no: s.orderNumber || null,
         mesajlar: konus.length > 1 ? konus.map((c) => ({ kim: /merchant|seller|satıcı|satici/i.test(String(c.from ?? c.type ?? "")) ? "Satıcı" : "Müşteri", metin: c.content, tarih: iso(c.createdAt) })) : null, ham: { status: s.status, from: konus.map((c) => c.from ?? c.type) } });
-    }
-    if (q.startsWith("status=")) continue;
-    if (liste.length < 100) break;
-  }
-  return out;
 }
 async function hbCevap(a: Record<string, string>, id: string, metin: string) {
   const m = multipart({ Answer: metin });
@@ -186,7 +201,7 @@ async function koctasCevap(a: Record<string, string>, id: string, metin: string,
   if (!r.ok) throw new Error(`Koçtaş: ${r.status} ${(await r.text()).slice(0, 300)}`);
 }
 
-const CEK: Record<string, (a: Record<string, string>, gun: number, onceki: Set<string>) => Promise<Soru[]>> = { Trendyol: trendyolCek, Hepsiburada: hbCek, N11: n11Cek, "Koçtaş": koctasCek };
+const CEK: Record<string, (a: Record<string, string>, gun: number, onceki: Set<string>, bekleyen: string[]) => Promise<Soru[]>> = { Trendyol: trendyolCek, Hepsiburada: hbCek, N11: n11Cek, "Koçtaş": koctasCek };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -226,8 +241,8 @@ Deno.serve(async (req) => {
       try {
         const onceki = await rest(`platform_sorular?platform=eq.${encodeURIComponent(pl)}&select=soru_id,durum,musteri,soru_tarih&soru_tarih=gte.${new Date(Date.now() - 70 * 86400000).toISOString()}`) as Record<string, any>[];
         const om = new Map(onceki.map((o) => [String(o.soru_id), o]));
-        const liste0 = await f(ayar[pl], gun, new Set(om.keys()));
-        const tekil = new Map<string, Soru>(); for (const s of liste0) tekil.set(s.soru_id, s);
+        const liste0 = await f(ayar[pl], gun, new Set(om.keys()), onceki.filter((o) => o.durum === "Bekliyor").map((o) => String(o.soru_id)));
+        const tekil = new Map<string, Soru>(); for (const s of liste0) { const v = tekil.get(s.soru_id); if (!v || v.durum === "Bekliyor") tekil.set(s.soru_id, s); }
         const liste = [...tekil.values()];
         for (const s of liste) {
           const o = om.get(s.soru_id);
