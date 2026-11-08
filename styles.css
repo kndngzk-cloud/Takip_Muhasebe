@@ -470,3 +470,12 @@ details.gum[open] summary { margin-bottom: 10px; }
 .fl-tbl th:first-child, .fl-tbl td:first-child { min-width: 260px; }
 .fl-tbl th:last-child, .fl-tbl td:last-child { width: 44px; }
 @media (max-width: 640px) { .fl-tbl th:first-child, .fl-tbl td:first-child { min-width: 0; } }
+
+/* musteri sorulari: konusma */
+.soru-akis { display: flex; flex-direction: column; gap: 8px; }
+.soru-akis .sa-m { max-width: 88%; align-self: flex-start; background: var(--bg2, #f1f4f9); border-radius: 12px 12px 12px 4px; padding: 8px 12px; }
+.soru-akis .sa-m.ben { align-self: flex-end; background: #e5efff; border-radius: 12px 12px 4px 12px; }
+.soru-akis .sa-m.op { background: #fff4e0; }
+.soru-akis .sa-h { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.soru-akis .sa-t { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (prefers-color-scheme: dark) { .soru-akis .sa-m { background: #1f2633; } .soru-akis .sa-m.ben { background: #1d3354; } .soru-akis .sa-m.op { background: #3a2f12; } }

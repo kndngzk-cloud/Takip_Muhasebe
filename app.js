@@ -90,6 +90,7 @@ const ICON = {
   cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   factory: '<path d="M3 21V10l6 4V10l6 4V6l6-3v18z"/><path d="M7 17h2M12 17h2M17 17h1"/>'
 };
+ICON.soru = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M9.5 8.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.2M12 15.5h.01"/>';
 ICON.yenile = '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>';
 /* ------------------------------------------------------------------ */
 /* Ozel notlar: her kayda kendiniz icin not (ekstre / fis / ciktilarda yok) */
@@ -354,6 +355,7 @@ function picker(input, { items, label, sub, onPick, onAdd, addText = 'Yeni ekle'
 const NAV = [
   { h: '#/', k: 'home', t: 'Ana Sayfa', i: 'home' },
   { h: '#/siparisler', k: 'siparis', t: 'Siparişler', i: 'order' },
+  { h: '#/sorular', k: 'soru', t: 'Müşteri soruları', i: 'soru', side: true, sub: true },
   { h: '#/stok', k: 'stok', t: 'Stok', i: 'box' },
   { h: '#/cariler', k: 'cari', t: 'Cariler', i: 'users' },
   { h: '#/fiyat-listeleri', k: 'fiyat', t: 'Fiyat listeleri', i: 'list', side: true },
@@ -373,6 +375,7 @@ const ROUTES = [
   [/^#\/siparis\/(\d+)\/duzenle$/, 'siparis', viewSiparisDuzenle],
   [/^#\/siparis\/(\d+)$/, 'siparis', viewSiparisDetay],
   [/^#\/platform-siparisler$/, 'siparis', viewPlatformSiparisler],
+  [/^#\/sorular$/, 'soru', viewSorular],
   [/^#\/stok$/, 'stok', viewStok],
   [/^#\/stok\/hareketler$/, 'stok', viewStokHareketleri],
   [/^#\/alis\/yeni(?:\?urun=(\d+))?$/, 'stok', viewMalAlisi],
@@ -409,7 +412,7 @@ function shell(active) {
         <main class="view" id="view"><div class="loading"><div class="spinner"></div>Yükleniyor…</div></main>
       </div>
       <nav class="bottomnav">
-        ${NAV.filter((n) => !n.side).map((n) => `<a href="${n.h}" class="${n.k === active || (n.k === 'daha' && ['rapor', 'ayar', 'cin', 'odeme', 'paytr', 'vsim', 'fiyat'].includes(active)) ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
+        ${NAV.filter((n) => !n.side).map((n) => `<a href="${n.h}" class="${n.k === active || (n.k === 'daha' && ['rapor', 'ayar', 'cin', 'odeme', 'paytr', 'vsim', 'fiyat', 'soru'].includes(active)) ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
       </nav>
     </div>`;
 }
@@ -435,7 +438,7 @@ async function render() {
   const r = ROUTES.find(([re]) => re.test(h)) || ROUTES[0];
   const m = h.match(r[0]) || [];
   shell(r[1]);
-  try { await r[2](...m.slice(1)); }
+  try { await r[2](...m.slice(1)); if ($('#h-soru')) soruAnaSayfa(); }
   catch (e) { if (seq === renderSeq) { $('#view').innerHTML = `<div class="card empty">Bir hata oluştu: ${esc(e.message)}<br><br><button class="btn" data-fn="render">Tekrar dene</button></div>`; } fail(e); }
   window.scrollTo(0, 0);
 }
@@ -523,6 +526,7 @@ async function viewHome() {
       <div class="kpi purple"><div class="l">Bekleyen sipariş</div><div class="v num">${oz.bekleyen_siparis}</div><div class="s">sevk edilmeyi bekliyor</div></div>
       <div class="kpi ${eksi.length ? 'red' : 'green'}"><div class="l">Eksi stok</div><div class="v num">${eksi.length}</div><div class="s">ürün</div></div>
     </div>
+    <div id="h-soru"></div>
     ${plSon.length ? `<div class="section-title" style="color:var(--red)">Sizden işlem bekleyen platform siparişleri <a href="#/platform-siparisler">Tümü</a></div>
     <div class="list" id="h-pl">${plSon.map(plRow).join('')}</div>` : ''}
     ${(() => { const st = bek.filter((s) => !yoldaMi(s)), yl = bek.filter(yoldaMi); const top = (a) => fmtTL(a.reduce((t, s) => t + num(s.genel_toplam), 0));
@@ -2695,6 +2699,7 @@ async function viewDaha() {
   topbar('Daha fazla');
   $('#view').innerHTML = `
     <div class="list">
+      <div class="row" data-go="#/sorular"><div class="main-col"><div class="t">Müşteri soruları</div><div class="st">Trendyol, Hepsiburada, N11 ve Koçtaş’taki müşteri soruları ve mesajları; buradan cevaplayın</div></div></div>
       <div class="row" data-go="#/fiyat-listeleri"><div class="main-col"><div class="t">Fiyat listeleri</div><div class="st">Ürünler için peşin, kredi kartı, taksit ve çek fiyatları</div></div></div>
       <div class="row" data-go="#/cin"><div class="main-col"><div class="t">İthalat</div><div class="st">Fabrika siparişleri, aşamalar, yoldaki mallar, gümrük vergisi</div></div></div>
       <div class="row" data-go="#/vergi-simulator"><div class="main-col"><div class="t">Vergi simülatörü</div><div class="st">Eviye ithalatında depo giriş maliyeti, gümrük vergisi ve kâr hesabı (kayıt oluşturmaz)</div></div></div>
@@ -3137,7 +3142,7 @@ function platformKartBagla(root, yenile) {
   }));
 }
 
-const siparisTabs = (k, n = 0) => `<div class="chips" style="margin-bottom:10px">${[['#/siparisler', 'sip', 'Siparişler'], ['#/platform-siparisler', 'pl', 'Platform siparişleri']].map(([h, kk, t]) => `<a class="chip ${k === kk ? 'on' : ''}" href="${h}">${t}${kk === 'pl' && n ? ` <span class="badge b-red" style="margin-left:6px">${n}</span>` : ''}</a>`).join('')}</div>`;
+const siparisTabs = (k, n = 0) => { setTimeout(soruSayac, 0); return `<div class="chips" style="margin-bottom:10px">${[['#/siparisler', 'sip', 'Siparişler'], ['#/platform-siparisler', 'pl', 'Platform siparişleri'], ['#/sorular', 'soru', 'Müşteri soruları']].map(([h, kk, t]) => `<a class="chip ${k === kk ? 'on' : ''}" href="${h}">${t}${kk === 'pl' && n ? ` <span class="badge b-red" style="margin-left:6px">${n}</span>` : ''}${kk === 'soru' ? '<span class="soru-say"></span>' : ''}</a>`).join('')}</div>`; };
 
 const plRow = (p) => `<div class="row" data-pl="${p.id}">
         <div class="main-col"><div class="t">${esc(p.musteri || '–')}</div>
@@ -3188,6 +3193,117 @@ async function viewPlatformSiparisler() {
     } catch (err) { fail(err); btn.disabled = false; btn.innerHTML = `${icon('download')}Şimdi çek`; }
   });
   draw();
+}
+
+/* ------------------------------------------------------------------ */
+/* MUSTERI SORULARI (Trendyol, Hepsiburada, N11, Koctas)               */
+/* ------------------------------------------------------------------ */
+const SORU_RENK = { Bekliyor: 'b-red', 'Cevaplandı': 'b-green', Onayda: 'b-orange', Reddedildi: '', Bildirildi: '', 'Cevapsız kaldı': '', 'Süresi geçti': '', Bilgi: '' };
+const soruKonu = (k) => (!k ? '' : /^ORDER_MESSAGING/.test(k) ? 'Sipariş mesajı' : k.replace(/\s+\d{6,}\s+Ürünü Hakkında$/, ''));
+const soruZaman = (t) => (t ? new Date(t).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+function soruKalan(t) {
+  if (!t) return '';
+  const dk = Math.round((new Date(t) - Date.now()) / 60000);
+  if (dk < 0) return '<span class="badge">süresi doldu</span>';
+  return `<span class="badge ${dk < 360 ? 'b-red' : 'b-orange'}">${dk < 60 ? dk + ' dk' : dk < 2880 ? Math.floor(dk / 60) + ' sa' : Math.floor(dk / 1440) + ' gün'} kaldı</span>`;
+}
+async function soruSayac() {
+  const el = $$('.soru-say'); if (!el.length) return;
+  try {
+    const r = await api.get('platform_sorular', 'select=id&durum=eq.Bekliyor');
+    el.forEach((e) => { e.innerHTML = r.length ? ` <span class="badge b-red" style="margin-left:6px">${r.length}</span>` : ''; });
+  } catch { /* tablo yoksa sessiz */ }
+}
+async function soruAnaSayfa() {
+  try {
+    const r = await api.get('platform_sorular', 'select=*&durum=eq.Bekliyor&order=soru_tarih.asc&limit=6');
+    const el = $('#h-soru'); if (!el || !r.length) return;
+    el.innerHTML = `<div class="section-title" style="color:var(--red)">Cevap bekleyen müşteri soruları <a href="#/sorular">Tümü</a></div><div class="list">${r.map(soruRow).join('')}</div>`;
+    $$('[data-soru]', el).forEach((x) => x.addEventListener('click', () => soruDetay(r.find((q) => q.id === +x.dataset.soru), () => render())));
+  } catch { /* */ }
+}
+function soruRow(q) {
+  return `<div class="row" data-soru="${q.id}" style="cursor:pointer;align-items:flex-start">
+    ${q.gorsel ? `<img src="${esc(q.gorsel)}" alt="" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex:none;background:#fff;border:1px solid var(--line)">` : `<div style="width:44px;height:44px;border-radius:8px;flex:none;display:grid;place-items:center;background:var(--bg2,#f1f4f9);color:var(--muted)">${icon('soru')}</div>`}
+    <div class="main-col"><div class="t" style="white-space:normal">${esc((q.soru || '').slice(0, 160))}</div>
+      <div class="st">${plBadge(q.platform)} <span class="badge ${SORU_RENK[q.durum] ?? ''}">${esc(q.durum)}</span>${q.durum === 'Bekliyor' ? soruKalan(q.son_tarih) : ''}<span>${esc(soruZaman(q.soru_tarih))}</span>${q.musteri ? `<span>${esc(q.musteri)}</span>` : ''}</div>
+      <div class="tiny" style="margin-top:3px">${esc([q.urun, soruKonu(q.konu)].filter(Boolean).join(' · ').slice(0, 110))}</div></div></div>`;
+}
+async function viewSorular() {
+  topbar('Müşteri Soruları', { back: !wideScr(), actions: isAdmin() ? `<button class="tb-btn" id="sr-cek">${icon('download')}Şimdi çek</button>` : '' });
+  const ui = state.ui.soru ||= { f: 'Bekliyor', pl: '', q: '' };
+  const data = await api.get('platform_sorular', 'select=*&order=soru_tarih.desc&limit=1000');
+  const platformlar = [...new Set(data.map((q) => q.platform))].sort();
+  const bek = data.filter((q) => q.durum === 'Bekliyor').length;
+  const son = data.reduce((m, q) => (q.guncelleme > m ? q.guncelleme : m), '');
+  $('#view').innerHTML = `${siparisTabs('soru')}
+    <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Soru, ürün, müşteri ara…" value="${esc(ui.q)}"></div></div>
+    <div class="chips" id="sr-c">${[['Bekliyor', `Cevap bekleyen${bek ? ` (${bek})` : ''}`], ['Cevaplandı', 'Cevaplanan'], ['Tümü', 'Tümü']].map(([v, t]) => `<button class="chip ${ui.f === v ? 'on' : ''}" data-f="${v}">${t}</button>`).join('')}
+      ${platformlar.length > 1 ? `<span style="width:8px"></span>${[['', 'Tüm platformlar'], ...platformlar.map((x) => [x, x])].map(([v, t]) => `<button class="chip ${ui.pl === v ? 'on' : ''}" data-p="${esc(v)}">${t}</button>`).join('')}` : ''}</div>
+    <div class="list" id="lst"></div>
+    <div class="tiny" style="margin:10px 4px">Sorular 10 dakikada bir otomatik çekilir; yeni soru gelince bildirim gönderilir${son ? ` · son kontrol ${new Date(son).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}. Koçtaş’ta sipariş mesajları da burada görünür.</div>`;
+  const draw = () => {
+    const q = norm(ui.q);
+    const f = data.filter((x) => (ui.f === 'Tümü' || (ui.f === 'Cevaplandı' ? ['Cevaplandı', 'Onayda'].includes(x.durum) : x.durum === ui.f)) && (!ui.pl || x.platform === ui.pl)
+      && (!q || norm(`${x.soru || ''} ${x.urun || ''} ${x.musteri || ''} ${x.cevap || ''} ${x.siparis_no || ''}`).includes(q)));
+    if (ui.f === 'Bekliyor') f.sort((a, b) => String(a.son_tarih || a.soru_tarih).localeCompare(String(b.son_tarih || b.soru_tarih)));
+    $('#lst').innerHTML = f.length ? f.slice(0, 300).map(soruRow).join('') : `<div class="empty">${ui.f === 'Bekliyor' ? 'Cevap bekleyen soru yok 🎉' : 'Kayıt bulunamadı'}</div>`;
+    $$('[data-soru]', $('#lst')).forEach((el) => el.addEventListener('click', () => soruDetay(data.find((x) => x.id === +el.dataset.soru), () => render())));
+  };
+  $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
+  $('#sr-c').onclick = (e) => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    if (b.dataset.f) ui.f = b.dataset.f; if (b.dataset.p !== undefined) ui.pl = b.dataset.p;
+    $$('#sr-c .chip').forEach((c) => c.classList.toggle('on', (c.dataset.f && c.dataset.f === ui.f) || (c.dataset.p !== undefined && c.dataset.p === ui.pl)));
+    draw();
+  };
+  $('#sr-cek')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget; btn.disabled = true; btn.innerHTML = 'Çekiliyor…';
+    try {
+      const r = await (await api.raw('functions/v1/musteri-sorulari', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mod: 'cek' }) })).json();
+      if (r.hata) throw new Error(r.hata);
+      const ozet = Object.entries(r.sonuc || {}).map(([k, v]) => (v.hata ? `${k}: hata (${v.hata.slice(0, 60)})` : `${k}: ${v.bekleyen} bekleyen`)).join(' · ');
+      toast(ozet || 'Tamamlandı', Object.values(r.sonuc || {}).some((v) => v.hata) ? 'err' : 'ok'); render();
+    } catch (err) { fail(err); btn.disabled = false; btn.innerHTML = `${icon('download')}Şimdi çek`; }
+  });
+  draw();
+}
+function soruDetay(q, yenile) {
+  if (!q) return;
+  const msj = Array.isArray(q.mesajlar) && q.mesajlar.length ? q.mesajlar : [{ kim: 'Müşteri', ad: q.musteri, metin: q.soru, tarih: q.soru_tarih }, ...(q.cevap ? [{ kim: 'Satıcı', metin: q.cevap, tarih: q.cevap_tarih }] : [])];
+  const acik = ['Bekliyor', 'Bilgi', 'Cevaplandı', 'Onayda'].includes(q.durum) && isAdmin();
+  // Trendyol ve N11'de bir soruya bir kez cevap verilir; HB ve Koctas'ta konusma devam eder
+  const tekCevap = (q.platform === 'Trendyol' || q.platform === 'N11') && q.durum !== 'Bekliyor';
+  const koctasMusteriVar = msj.some((m) => m.kim === 'Müşteri');
+  const min = q.platform === 'Trendyol' ? 10 : 1;
+  modal({
+    title: `${q.platform} · ${q.siparis_no ? 'sipariş ' + q.siparis_no : 'müşteri sorusu'}`, wide: true,
+    body: `<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">
+        ${q.gorsel ? `<img src="${esc(q.gorsel)}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--line);background:#fff;flex:none">` : ''}
+        <div style="min-width:0"><div style="font-weight:700">${esc(q.urun || soruKonu(q.konu) || '')}</div>
+          <div class="tiny">${[q.urun_kod ? `Kod ${esc(q.urun_kod)}` : '', q.urun && q.konu ? esc(soruKonu(q.konu)) : '', q.musteri ? esc(q.musteri) : ''].filter(Boolean).join(' · ')}</div>
+          <div style="margin-top:4px">${plBadge(q.platform)} <span class="badge ${SORU_RENK[q.durum] ?? ''}">${esc(q.durum)}</span> ${q.durum === 'Bekliyor' ? soruKalan(q.son_tarih) : ''} ${q.link ? `<a href="${esc(q.link)}" target="_blank" rel="noopener" class="tiny">Ürünü platformda aç ↗</a>` : ''}</div></div></div>
+      <div class="soru-akis">${msj.map((m) => `<div class="sa-m ${m.kim === 'Satıcı' ? 'ben' : m.kim === 'Koçtaş' ? 'op' : ''}"><div class="sa-h">${esc(m.kim === 'Satıcı' ? 'Siz' : m.ad && m.kim !== 'Müşteri' ? m.ad : m.kim)} · ${esc(soruZaman(m.tarih))}</div><div class="sa-t">${esc(m.metin || '')}</div></div>`).join('')}</div>
+      ${q.platform === 'Trendyol' && q.durum === 'Onayda' ? '<p class="tiny">Cevabınız Trendyol onayından sonra yayınlanır.</p>' : ''}
+      ${acik && !tekCevap ? `<div class="field" style="margin-top:12px"><label>Cevabınız</label><textarea class="input" id="sr-m" rows="4" maxlength="2000" placeholder="Müşteriye cevabınızı yazın…"></textarea><div class="tiny" id="sr-say">0 / 2000${min > 1 ? ` · en az ${min} karakter` : ''}</div></div>
+        ${q.platform === 'Koçtaş' ? `<div class="field"><label>Kime</label><select class="input" id="sr-kime">${koctasMusteriVar ? '<option value="CUSTOMER">Müşteriye</option>' : ''}<option value="OPERATOR">Koçtaş’a</option></select></div>` : ''}
+        <p class="tiny" style="margin:4px 0 0">Cevap doğrudan ${esc(q.platform)}’a gönderilir ve müşteri görür${q.platform === 'Trendyol' || q.platform === 'N11' ? '; gönderdikten sonra değiştirilemez' : ''}.</p>` : ''}`,
+    foot: `<button class="btn" data-close>Kapat</button>${acik && !tekCevap ? `<button class="btn primary" id="sr-ok">Cevabı gönder</button>` : ''}`,
+    onMount: (m) => {
+      const ta = $('#sr-m', m.el); if (!ta) return;
+      ta.oninput = () => { $('#sr-say', m.el).textContent = `${ta.value.length} / 2000${min > 1 ? ` · en az ${min} karakter` : ''}`; };
+      setTimeout(() => ta.focus(), 80);
+      $('#sr-ok', m.el).onclick = async (e) => {
+        const metin = ta.value.trim();
+        if (metin.length < min) return toast(`${q.platform} en az ${min} karakterlik cevap istiyor`, 'err');
+        try {
+          const r = await busy(e.currentTarget, async () => (await api.raw('functions/v1/musteri-sorulari', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mod: 'cevapla', id: q.id, metin, alici: $('#sr-kime', m.el)?.value }) })).json());
+          if (r.hata) throw new Error(r.hata);
+          m.close(); toast('Cevap gönderildi', 'ok'); yenile?.();
+        } catch (err) { fail(err); }
+      };
+    }
+  });
 }
 
 async function plDetay(p, data) {
@@ -5765,7 +5881,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.05';
+const APP_V = '2.06';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
