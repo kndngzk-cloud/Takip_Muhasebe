@@ -479,3 +479,8 @@ details.gum[open] summary { margin-bottom: 10px; }
 .soru-akis .sa-h { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
 .soru-akis .sa-t { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (prefers-color-scheme: dark) { .soru-akis .sa-m { background: #1f2633; } .soru-akis .sa-m.ben { background: #1d3354; } .soru-akis .sa-m.op { background: #3a2f12; } }
+.soru-akis .sa-ekler { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.soru-akis .sa-ek img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; display: block; border: 1px solid var(--line); background: #fff; }
+.soru-akis .sa-ek.dosya { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 6px 10px; border-radius: 8px; background: rgba(0,0,0,.05); max-width: 220px; }
+.soru-akis .sa-ek.dosya span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soru-akis .sa-ek.dosya svg { width: 14px; height: 14px; flex: none; }

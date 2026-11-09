@@ -3230,7 +3230,7 @@ function soruRow(q) {
   return `<div class="row" data-soru="${q.id}" style="cursor:pointer;align-items:flex-start">
     ${q.gorsel ? `<img src="${esc(q.gorsel)}" alt="" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex:none;background:#fff;border:1px solid var(--line)">` : `<div style="width:44px;height:44px;border-radius:8px;flex:none;display:grid;place-items:center;background:var(--bg2,#f1f4f9);color:var(--muted)">${icon('soru')}</div>`}
     <div class="main-col">${tekrar ? `<div class="tiny" style="color:var(--red);font-weight:700">${esc(son.kim === 'Koçtaş' ? 'Koçtaş' : 'Müşteri')} cevabınızdan sonra tekrar yazdı · ${esc(soruZaman(son.tarih))}</div>` : ''}<div class="t" style="white-space:normal">${esc(((tekrar ? son.metin : q.soru) || '').slice(0, 160))}</div>
-      <div class="st">${plBadge(q.platform)} <span class="badge ${SORU_RENK[q.durum] ?? ''}">${esc(q.durum)}</span>${q.durum === 'Bekliyor' ? soruKalan(q.son_tarih) : ''}<span>${esc(soruZaman(q.soru_tarih))}</span>${q.musteri ? `<span>${esc(q.musteri)}</span>` : ''}</div>
+      <div class="st">${plBadge(q.platform)} <span class="badge ${SORU_RENK[q.durum] ?? ''}">${esc(q.durum)}</span>${q.durum === 'Bekliyor' ? soruKalan(q.son_tarih) : ''}<span>${esc(soruZaman(q.soru_tarih))}</span>${q.musteri ? `<span>${esc(q.musteri)}</span>` : ''}${(() => { const n = ms.reduce((t, m) => t + (m.ekler?.length || 0), 0); return n ? `<span>📎 ${n} ek</span>` : ''; })()}</div>
       <div class="tiny" style="margin-top:3px">${esc([q.urun, soruKonu(q.konu)].filter(Boolean).join(' · ').slice(0, 110))}</div></div></div>`;
 }
 async function viewSorular() {
@@ -3272,6 +3272,33 @@ async function viewSorular() {
   });
   draw();
 }
+const ekResim = (e) => /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(e.ad || e.url || '') || /^image\//.test(e.tip || '');
+function soruEkler(ekler) {
+  if (!Array.isArray(ekler) || !ekler.length) return '';
+  return `<div class="sa-ekler">${ekler.map((e) => (e.url && ekResim(e)
+    ? `<a href="${esc(e.url)}" target="_blank" rel="noopener" class="sa-ek"><img src="${esc(e.url)}" alt="${esc(e.ad || 'görsel')}" loading="lazy" data-ekurl="${esc(e.url)}"></a>`
+    : `<a href="${esc(e.url || '#')}" ${e.url ? 'target="_blank" rel="noopener"' : ''} class="sa-ek dosya" ${e.ek_id ? `data-ekid="${esc(e.ek_id)}" data-resim="${ekResim(e) ? 1 : 0}"` : ''}>${icon('download')}<span>${esc(e.ad || 'dosya')}</span></a>`)).join('')}</div>`;
+}
+// eki programin sunucusu uzerinden (platform anahtariyla) indirir
+async function soruEkAl(qid, ek) {
+  const r = await api.raw('functions/v1/musteri-sorulari', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mod: 'ek', id: qid, ...ek }) });
+  if (!r.ok) { let h = ''; try { h = (await r.json()).hata; } catch { /* */ } throw new Error(h || `Ek açılamadı (${r.status})`); }
+  return r.blob();
+}
+function soruEkBagla(q, root) {
+  // Koctas ekleri anahtarsiz acilmaz: gorseller otomatik yuklenir, dosyalar tiklaninca indirilir
+  $$('[data-ekid]', root).forEach(async (a) => {
+    const ac = async () => { const b = await soruEkAl(q.id, { ek_id: a.dataset.ekid }); return URL.createObjectURL(b); };
+    if (a.dataset.resim === '1') {
+      try { const u = await ac(); a.outerHTML = `<a href="${u}" target="_blank" class="sa-ek"><img src="${u}" alt=""></a>`; } catch { /* dosya olarak kalir */ }
+    } else a.addEventListener('click', async (e) => { e.preventDefault(); try { const u = await ac(); const x = document.createElement('a'); x.href = u; x.download = a.textContent.trim() || 'ek'; document.body.appendChild(x); x.click(); x.remove(); } catch (err) { fail(err); } });
+  });
+  // Hepsiburada gorseli dogrudan acilmazsa sunucu uzerinden dene
+  $$('img[data-ekurl]', root).forEach((img) => img.addEventListener('error', async () => {
+    if (img.dataset.denendi) return; img.dataset.denendi = '1';
+    try { const u = URL.createObjectURL(await soruEkAl(q.id, { url: img.dataset.ekurl })); img.src = u; img.parentElement.href = u; } catch { img.replaceWith(Object.assign(document.createElement('span'), { className: 'tiny', textContent: 'Görsel açılamadı' })); }
+  }, { once: false }));
+}
 function soruDetay(q, yenile) {
   if (!q) return;
   const msj = Array.isArray(q.mesajlar) && q.mesajlar.length ? q.mesajlar : [{ kim: 'Müşteri', ad: q.musteri, metin: q.soru, tarih: q.soru_tarih }, ...(q.cevap ? [{ kim: 'Satıcı', metin: q.cevap, tarih: q.cevap_tarih }] : [])];
@@ -3288,7 +3315,7 @@ function soruDetay(q, yenile) {
         <div style="min-width:0"><div style="font-weight:700">${esc(q.urun || soruKonu(q.konu) || '')}</div>
           <div class="tiny">${[q.urun_kod ? `Kod ${esc(q.urun_kod)}` : '', q.urun && q.konu ? esc(soruKonu(q.konu)) : '', q.musteri ? esc(q.musteri) : ''].filter(Boolean).join(' · ')}</div>
           <div style="margin-top:4px">${plBadge(q.platform)} <span class="badge ${SORU_RENK[q.durum] ?? ''}">${esc(q.durum)}</span> ${q.durum === 'Bekliyor' ? soruKalan(q.son_tarih) : ''} ${q.link ? `<a href="${esc(q.link)}" target="_blank" rel="noopener" class="tiny">Ürünü platformda aç ↗</a>` : ''}</div></div></div>
-      <div class="soru-akis">${msj.map((m) => `<div class="sa-m ${m.kim === 'Satıcı' ? 'ben' : m.kim === 'Koçtaş' ? 'op' : ''}"><div class="sa-h">${esc(m.kim === 'Satıcı' ? 'Siz' : m.ad && m.kim !== 'Müşteri' ? m.ad : m.kim)} · ${esc(soruZaman(m.tarih))}</div><div class="sa-t">${esc(m.metin || '')}</div></div>`).join('')}</div>
+      <div class="soru-akis">${msj.map((m) => `<div class="sa-m ${m.kim === 'Satıcı' ? 'ben' : m.kim === 'Koçtaş' ? 'op' : ''}"><div class="sa-h">${esc(m.kim === 'Satıcı' ? 'Siz' : m.ad && m.kim !== 'Müşteri' ? m.ad : m.kim)} · ${esc(soruZaman(m.tarih))}</div><div class="sa-t">${esc(m.metin || '')}</div>${soruEkler(m.ekler)}</div>`).join('')}</div>
       ${q.platform === 'Trendyol' && q.durum === 'Onayda' ? '<p class="tiny">Cevabınız Trendyol onayından sonra yayınlanır.</p>' : ''}
       ${acik && !tekCevap ? `<div class="field" style="margin-top:12px"><label>Cevabınız</label><textarea class="input" id="sr-m" rows="4" maxlength="2000" placeholder="Müşteriye cevabınızı yazın…"></textarea><div class="tiny" id="sr-say">0 / 2000${min > 1 ? ` · en az ${min} karakter` : ''}</div></div>
         ${q.platform === 'Koçtaş' ? `<div class="field"><label>Kime</label><select class="input" id="sr-kime">${koctasMusteriVar ? '<option value="CUSTOMER">Müşteriye</option>' : ''}<option value="OPERATOR">Koçtaş’a</option></select></div>` : ''}
@@ -3296,6 +3323,7 @@ function soruDetay(q, yenile) {
         <p class="tiny" style="margin:4px 0 0">Cevap doğrudan ${esc(q.platform)}’a gönderilir ve müşteri görür${q.platform === 'Trendyol' || q.platform === 'N11' ? '; gönderdikten sonra değiştirilemez' : ''}.</p>` : ''}`,
     foot: `<button class="btn" data-close>Kapat</button>${yanitsizBtn}${acik && !tekCevap ? `<button class="btn primary" id="sr-ok">Cevabı gönder</button>` : ''}`,
     onMount: (m) => {
+      soruEkBagla(q, m.el);
       const isaret = async (btn, geri) => {
         try {
           const r = await busy(btn, async () => (await api.raw('functions/v1/musteri-sorulari', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mod: 'yanitsiz', id: q.id, geri }) })).json());
@@ -5896,7 +5924,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.08';
+const APP_V = '2.09';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

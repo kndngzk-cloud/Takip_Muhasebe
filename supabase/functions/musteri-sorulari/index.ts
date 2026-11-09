@@ -23,7 +23,7 @@ async function yetkili(req: Request, body: Record<string, unknown>): Promise<str
 const iso = (v: unknown) => { if (v == null || v === "") return null; if (typeof v === "string" && /^\d{2}\/\d{2}\/\d{4}/.test(v)) { const [d, m, y] = v.slice(0, 10).split("/"); return new Date(`${y}-${m}-${d}T${v.slice(11) || "12:00:00"}+03:00`).toISOString(); } const d = typeof v === "number" ? new Date(v) : new Date(String(v)); return isNaN(+d) ? null : d.toISOString(); };
 
 /* Hepsiburada User-Agent'i birebir istiyor; fetch kendi ekini koydugu icin istek TLS uzerinden elle yazilir */
-async function ham(method: string, u: string, headers: Record<string, string>, govde?: Uint8Array): Promise<{ status: number; text: string }> {
+async function ham(method: string, u: string, headers: Record<string, string>, govde?: Uint8Array): Promise<{ status: number; text: string; bytes: Uint8Array; tip: string }> {
   const url = new URL(u);
   const conn = await Deno.connectTls({ hostname: url.hostname, port: 443 });
   try {
@@ -47,7 +47,7 @@ async function ham(method: string, u: string, headers: Record<string, string>, g
       }
       const b = new Uint8Array(n); let k = 0; for (const p of out) { b.set(p, k); k += p.length; } g = b;
     }
-    return { status: Number(/^HTTP\/1\.[01] (\d+)/.exec(bh)?.[1] || 0), text: new TextDecoder().decode(g) };
+    return { status: Number(/^HTTP\/1\.[01] (\d+)/.exec(bh)?.[1] || 0), text: new TextDecoder().decode(g), bytes: g, tip: /content-type:\s*([^\r\n]+)/i.exec(bh)?.[1]?.trim() || "application/octet-stream" };
   } finally { try { conn.close(); } catch { /* */ } }
 }
 function multipart(alanlar: Record<string, string>) {
@@ -64,6 +64,20 @@ async function n11Soap(a: Record<string, string>, islem: string, ic: string) {
   const durum = xmlDeger(t, "status");
   if (!r.ok || (durum && durum !== "success")) throw new Error(`N11 ${islem}: ${xmlDeger(t, "errorMessage") || xmlDeger(t, "faultstring") || r.status}`);
   return t;
+}
+
+/* mesaj eklerini (gorsel/dosya) bulur: alan adlari platformdan platforma degistigi icin url'ler taranir */
+function ekleriBul(m: Record<string, any>): { url?: string; ad?: string; ek_id?: string; tip?: string }[] {
+  const out: { url?: string; ad?: string; ek_id?: string; tip?: string }[] = [];
+  const gez = (v: unknown, yol: string, d: number) => {
+    if (v == null || d > 4) return;
+    if (typeof v === "string") { if (/^https?:\/\//i.test(v) && /attach|file|image|img|media|photo|document|url|link|path/i.test(yol) && !/product/i.test(yol)) out.push({ url: v, ad: decodeURIComponent(v.split("?")[0].split("/").pop() || "dosya") }); return; }
+    if (Array.isArray(v)) { v.forEach((x) => gez(x, yol, d + 1)); return; }
+    if (typeof v === "object") for (const [k, x] of Object.entries(v as Record<string, unknown>)) if (k !== "content" && k !== "body") gez(x, yol + "." + k, d + 1);
+  };
+  gez(m, "", 0);
+  const tek = new Map(out.map((e) => [e.url, e]));
+  return [...tek.values()].slice(0, 10);
 }
 
 type Soru = { platform: string; soru_id: string; urun?: string | null; urun_kod?: string | null; gorsel?: string | null; link?: string | null; musteri?: string | null; konu?: string | null; soru?: string | null; soru_tarih?: string | null; durum: string; cevap?: string | null; cevap_tarih?: string | null; son_tarih?: string | null; siparis_no?: string | null; mesajlar?: unknown; ham?: unknown };
@@ -133,7 +147,8 @@ function hbMap(s: Record<string, any>): Soru {
       const son = saticiMsj[saticiMsj.length - 1];
       return ({ platform: "Hepsiburada", soru_id: String(s.issueNumber ?? s.number ?? s.id), urun: s.product?.name, urun_kod: s.product?.stockCode || s.product?.sku || null, gorsel: s.product?.imageUrl, link: s.product?.sku ? `https://www.hepsiburada.com/-p-${s.product.sku}` : null,
         konu: s.subject?.description ?? null, soru: ilk?.content ?? s.lastContent ?? null, soru_tarih: iso(s.createdAt), durum: HB_DURUM(String(s.status ?? "")), cevap: son?.content ?? null, cevap_tarih: iso(son?.createdAt), son_tarih: iso(s.expireDate), siparis_no: s.orderNumber || null,
-        mesajlar: konus.length > 1 ? konus.map((c) => ({ kim: /merchant|seller|satıcı|satici/i.test(String(c.from ?? c.type ?? "")) ? "Satıcı" : "Müşteri", metin: c.content, tarih: iso(c.createdAt) })) : null, ham: { status: s.status, from: konus.map((c) => c.from ?? c.type) } });
+        mesajlar: konus.length > 1 || konus.some((c) => ekleriBul(c).length) ? konus.map((c) => ({ kim: /merchant|seller|satıcı|satici/i.test(String(c.from ?? c.type ?? "")) ? "Satıcı" : "Müşteri", metin: c.content, tarih: iso(c.createdAt), ekler: ekleriBul(c) })) : null,
+        ham: { status: s.status, from: konus.map((c) => c.from ?? c.type), alanlar: [...new Set(konus.flatMap((c) => Object.keys(c)))], ust: Object.keys(s) } });
 }
 async function hbCevap(a: Record<string, string>, id: string, metin: string) {
   const m = multipart({ Answer: metin });
@@ -188,7 +203,7 @@ async function koctasCek(a: Record<string, string>, gun: number): Promise<Soru[]
       out.push({ platform: "Koçtaş", soru_id: String(t.id), urun: ent ? `${ent.type === "MMP_ORDER" ? "Sipariş" : ent.type === "MMP_OFFER" ? "Ürün" : "Konu"}: ${ent.label ?? ent.id}` : null, siparis_no: ent?.type === "MMP_ORDER" ? String(ent.id) : null,
         musteri: (t.current_participants ?? []).find((p: Record<string, any>) => p.type === "CUSTOMER")?.display_name ?? ilk?.from?.display_name ?? null, konu: t.topic?.value ?? null, soru: ilk?.body ?? null, soru_tarih: iso(t.date_created),
         durum: bekliyor ? "Bekliyor" : sonSatici ? "Cevaplandı" : "Bilgi", cevap: sonSatici?.body ?? null, cevap_tarih: iso(sonSatici?.date_created),
-        mesajlar: msj.map((m) => ({ kim: kim(m), ad: m.from?.display_name, metin: m.body, tarih: iso(m.date_created) })), ham: { entities: t.entities, son: t.metadata } });
+        mesajlar: msj.map((m) => ({ kim: kim(m), ad: m.from?.display_name, metin: m.body, tarih: iso(m.date_created), ekler: [...((m.attachments ?? []) as Record<string, any>[]).map((e) => ({ ek_id: String(e.id), ad: e.name, tip: e.type })), ...ekleriBul({ ...m, attachments: undefined })] })), ham: { entities: t.entities, son: t.metadata } });
     }
     token = j.next_page_token; if (!token) break;
   }
@@ -211,6 +226,30 @@ Deno.serve(async (req) => {
     if (!kim) return json({ hata: "Yetkisiz" }, 401);
     const ent = await rest(`entegrasyonlar?select=platform,ayar,aktif,son_yanit&platform=in.(${encodeURIComponent('"Koçtaş","Hepsiburada","Trendyol","N11"')})`) as Record<string, any>[];
     const ayar = Object.fromEntries(ent.filter((e) => e.ayar && Object.keys(e.ayar).length).map((e) => [e.platform, e.ayar]));
+
+    if (body.mod === "ek") {
+      // musteri eki: platform anahtariyla indirilip uygulamaya aktarilir (Koctas ekleri anahtarsiz acilmaz)
+      const [s] = await rest(`platform_sorular?id=eq.${Number(body.id)}&select=platform,mesajlar`) as Record<string, any>[];
+      if (!s) return json({ hata: "Soru bulunamadı." }, 404);
+      const ekler = ((s.mesajlar ?? []) as Record<string, any>[]).flatMap((m) => m.ekler ?? []) as Record<string, string>[];
+      const e = ekler.find((x) => (body.ek_id && x.ek_id === String(body.ek_id)) || (body.url && x.url === body.url));
+      if (!e) return json({ hata: "Ek bulunamadı." }, 404);
+      const a = ayar[s.platform]; if (!a) return json({ hata: "Bağlantı tanımlı değil." }, 400);
+      let tip = "application/octet-stream", bayt: Uint8Array;
+      if (s.platform === "Koçtaş" && e.ek_id) {
+        const r = await fetch(`https://koctas.mirakl.net/api/inbox/threads/${encodeURIComponent(e.ek_id)}/download`, { headers: { Authorization: a.api_key } });
+        if (!r.ok) return json({ hata: `Koçtaş: ${r.status}` }, 502);
+        tip = r.headers.get("content-type") || tip; bayt = new Uint8Array(await r.arrayBuffer());
+      } else if (s.platform === "Hepsiburada" && e.url && /^https:\/\/[^/]*hepsiburada\.(com|net)\//i.test(e.url)) {
+        const r = await ham("GET", e.url, hbHd(a));
+        if (r.status < 200 || r.status >= 300) return json({ hata: `Hepsiburada: ${r.status}` }, 502);
+        tip = r.tip; bayt = r.bytes;
+      } else if (e.url) {
+        const r = await fetch(e.url); if (!r.ok) return json({ hata: `${r.status}` }, 502);
+        tip = r.headers.get("content-type") || tip; bayt = new Uint8Array(await r.arrayBuffer());
+      } else return json({ hata: "Ek açılamadı." }, 400);
+      return new Response(bayt, { headers: { ...CORS, "Content-Type": tip, "Cache-Control": "private, max-age=3600" } });
+    }
 
     if (body.mod === "yanitsiz") {
       // Koctas'in "yanit gerekmiyor" isaretinin API'si yok: programda isaretlenir, yeni mesaj gelirse yeniden bekleyene duser
