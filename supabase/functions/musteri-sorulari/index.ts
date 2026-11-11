@@ -27,7 +27,7 @@ async function ham(method: string, u: string, headers: Record<string, string>, g
   const url = new URL(u);
   const conn = await Deno.connectTls({ hostname: url.hostname, port: 443 });
   try {
-    const bas = [`${method} ${url.pathname}${url.search} HTTP/1.1`, `Host: ${url.hostname}`, "Connection: close", ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`)];
+    const bas = [`${method} ${url.pathname}${url.search} HTTP/1.1`, `Host: ${url.hostname}`, "Connection: close", "Accept-Encoding: identity", ...Object.entries(headers).filter(([k]) => k.toLowerCase() !== "accept-encoding").map(([k, v]) => `${k}: ${v}`)];
     if (govde) bas.push(`Content-Length: ${govde.length}`);
     const b0 = new TextEncoder().encode(bas.join("\r\n") + "\r\n\r\n");
     const tum0 = new Uint8Array(b0.length + (govde?.length || 0)); tum0.set(b0); if (govde) tum0.set(govde, b0.length);
@@ -47,6 +47,9 @@ async function ham(method: string, u: string, headers: Record<string, string>, g
       }
       const b = new Uint8Array(n); let k = 0; for (const p of out) { b.set(p, k); k += p.length; } g = b;
     }
+    // sunucu yine de sikistirilmis gonderirse acilir (hata mesajlari bozuk karakter olarak gorunmesin)
+    const enc = /content-encoding:\s*(gzip|deflate)/i.exec(bh)?.[1]?.toLowerCase();
+    if (enc && g.length) { try { g = new Uint8Array(await new Response(new Blob([g]).stream().pipeThrough(new DecompressionStream(enc as CompressionFormat))).arrayBuffer()); } catch { /* */ } }
     return { status: Number(/^HTTP\/1\.[01] (\d+)/.exec(bh)?.[1] || 0), text: new TextDecoder().decode(g), bytes: g, tip: /content-type:\s*([^\r\n]+)/i.exec(bh)?.[1]?.trim() || "application/octet-stream" };
   } finally { try { conn.close(); } catch { /* */ } }
 }
@@ -140,7 +143,7 @@ async function hbCek(a: Record<string, string>, gun: number, _o: Set<string>, be
   return out;
 }
 function hbMap(s: Record<string, any>): Soru {
-      const konus = (s.conversations ?? []) as Record<string, any>[];
+      const konus = ((s.conversations ?? []) as Record<string, any>[]).filter((c, i, d) => !(i > 0 && String(c.content ?? "").trim() && String(c.content ?? "").trim() === String(d[i - 1].content ?? "").trim() && String(c.from ?? c.type ?? "") === String(d[i - 1].from ?? d[i - 1].type ?? "") && !ekleriBul(c).length));
       const musteriMsj = konus.filter((c) => !/merchant|seller|satıcı|satici/i.test(String(c.from ?? c.type ?? "")));
       const saticiMsj = konus.filter((c) => /merchant|seller|satıcı|satici/i.test(String(c.from ?? c.type ?? "")));
       const ilk = musteriMsj[0] ?? konus[0];
@@ -150,10 +153,26 @@ function hbMap(s: Record<string, any>): Soru {
         mesajlar: konus.length > 1 || konus.some((c) => ekleriBul(c).length) ? konus.map((c) => ({ kim: /merchant|seller|satıcı|satici/i.test(String(c.from ?? c.type ?? "")) ? "Satıcı" : "Müşteri", metin: c.content, tarih: iso(c.createdAt), ekler: ekleriBul(c) })) : null,
         ham: { status: s.status, from: konus.map((c) => c.from ?? c.type), alanlar: [...new Set(konus.flatMap((c) => Object.keys(c)))], ust: Object.keys(s) } });
 }
+// hata govdesi okunabilir metin degilse (HTML/ikili) gosterilmez
+const okunur = (t: string) => { const x = t.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); return !x || /[\uFFFD\u0000-\u0008]/.test(x) ? "" : x.slice(0, 300); };
+async function hbCevapGitti(a: Record<string, string>, id: string, metin: string) {
+  const r = await ham("GET", `${HB}/${encodeURIComponent(id)}`, hbHd(a)).catch(() => null);
+  if (!r || r.status < 200 || r.status >= 300) return false;
+  try { const j = JSON.parse(r.text); const k = ((j.data ?? j).conversations ?? []) as Record<string, any>[]; const sat = k.filter((c) => /merchant|seller/i.test(String(c.from ?? c.type ?? ""))); return sat.some((c) => String(c.content ?? "").trim() === metin.trim()); } catch { return false; }
+}
 async function hbCevap(a: Record<string, string>, id: string, metin: string) {
-  const m = multipart({ Answer: metin });
-  const r = await ham("POST", `${HB}/${encodeURIComponent(id)}/answer`, { ...hbHd(a), "Content-Type": m.tip }, m.govde);
-  if (r.status < 200 || r.status >= 300) throw new Error(`Hepsiburada: ${r.status} ${r.text.slice(0, 300)}`);
+  // Hepsiburada bazen 504 (zaman asimi) donuyor: cevabin gidip gitmedigi kontrol edilir, gitmediyse bir kez daha denenir
+  let son = "";
+  for (let deneme = 0; deneme < 2; deneme++) {
+    const m = multipart({ Answer: metin });
+    const r = await ham("POST", `${HB}/${encodeURIComponent(id)}/answer`, { ...hbHd(a), "Content-Type": m.tip }, m.govde).catch((e) => ({ status: 0, text: String(e?.message || e) }));
+    if (r.status >= 200 && r.status < 300) return;
+    if (r.status && r.status < 500) throw new Error(`Hepsiburada: ${r.status} ${okunur(r.text)}`.trim());
+    son = `${r.status || "bağlantı hatası"}`;
+    await new Promise((ok) => setTimeout(ok, 2500));
+    if (await hbCevapGitti(a, id, metin)) return;
+  }
+  throw new Error(`Hepsiburada şu an yanıt vermiyor (${son}). Cevabınız gönderilmedi; birkaç dakika sonra tekrar deneyin.`);
 }
 
 /* ---------------- N11 ---------------- */
