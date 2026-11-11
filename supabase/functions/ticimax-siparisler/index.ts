@@ -152,6 +152,18 @@ function ticimax(alan: string, etiket: string) {
   };
 }
 
+/* Programda kargoya verilen site siparisi Ticimax'ta da "Kargoya verildi" yapilir (musteri sitede ve e-postada gorur) */
+async function tmxKargoyaVerildi(a: Record<string, string>, alan: string, tmxId: string) {
+  const site = String(a.site || alan).replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  const url = `https://${site.startsWith("www.") ? site : "www." + site}/Servis/SiparisServis.svc`;
+  const xe = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const zarf = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:t="http://tempuri.org/"><s:Body><t:SetSiparisKargoyaVerildi><t:UyeKodu>${xe(a.yetki_kodu)}</t:UyeKodu><t:siparisId>${Number(tmxId)}</t:siparisId></t:SetSiparisKargoyaVerildi></s:Body></s:Envelope>`;
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: '"http://tempuri.org/ISiparisServis/SetSiparisKargoyaVerildi"' }, body: zarf });
+  const t = await r.text();
+  const hata = /<(?:\w+:)?faultstring[^>]*>([\s\S]*?)</.exec(t)?.[1] || /<(?:\w+:)?ErrorMessage>([^<]+)</.exec(t)?.[1];
+  if (!r.ok || hata) throw new Error(`Ticimax kargoya verildi: ${hata || r.status}`);
+}
+
 const PLATFORM: Record<string, (a: Record<string, string>, g: number, b?: number) => Promise<Sip[]>> = { "gradde.com.tr": ticimax("gradde.com.tr", "gradde.com.tr"), "eviyeshop.com": ticimax("eviyeshop.com", "eviyeshop.com") };
 
 Deno.serve(async (req) => {
@@ -202,6 +214,25 @@ Deno.serve(async (req) => {
             }
           }
         }
+        // programda sevk edilmis ama sitede hala kargoya verilmemis gorunen siparisler Ticimax'ta guncellenir
+        let kargoGun = 0;
+        if (!kuru) {
+          try {
+            const acik = await rest(`platform_siparisler?select=id,siparis_no,paket_no,siparis_id,ham&platform=eq.${encodeURIComponent(e.platform)}&durum=eq.${encodeURIComponent("Aktarıldı")}&sevk_tarihi=is.null&siparis_id=not.is.null&paket_no=not.is.null`) as Record<string, any>[];
+            const erken = acik.filter((x) => [0, 1, 2, 3, 4, 5].includes(Number(x.ham?.durum)));
+            if (erken.length) {
+              const sev = await rest(`siparisler?select=id,sevk_tarihi&durum=eq.${encodeURIComponent("Sevk Edildi")}&id=in.(${erken.map((x) => x.siparis_id).join(",")})`) as Record<string, any>[];
+              const sm = new Map(sev.map((x) => [x.id, x.sevk_tarihi]));
+              for (const x of erken.filter((x) => sm.has(x.siparis_id)).slice(0, 15)) {
+                try {
+                  await tmxKargoyaVerildi(a, e.platform, x.paket_no);
+                  await rest(`platform_siparisler?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify({ sevk_tarihi: sm.get(x.siparis_id), platform_durum: "Kargoya Verildi", ham: { ...(x.ham || {}), durum: 6 } }) });
+                  kargoGun++;
+                } catch (err) { hatalar.push(`${x.siparis_no}: ${String((err as Error).message || err).slice(0, 200)}`); }
+              }
+            }
+          } catch (err) { hatalar.push(`kargo durumu: ${String((err as Error).message || err).slice(0, 200)}`); }
+        }
         let iadeSay = 0;
         if (!kuru && IADE[e.platform]) {
           const plq = `platform=eq.${encodeURIComponent(e.platform)}`;
@@ -220,9 +251,9 @@ Deno.serve(async (req) => {
           const bekleyen = IADE[e.platform].filter((i) => i.durum === "Talep bekliyor" || i.durum === "İade talebi").map((i) => `"${i.no}"`);
           await rest(`platform_siparisler?${plq}&iade_durum=in.(${encodeURIComponent('"Talep bekliyor","İade talebi"')})${bekleyen.length ? `&siparis_no=not.in.(${encodeURIComponent(bekleyen.join(","))})` : ""}`, { method: "PATCH", body: JSON.stringify({ iade_durum: null }) }).catch(() => {});
         }
-        const durumMetni = `Siparişler: ${liste.length} çekildi${iadeSay ? ` · ${iadeSay} iade işlendi` : ""} · ${yeni} yeni · ${aktarilan} aktarıldı${baglanan ? ` · ${baglanan} elle girilmiş siparişe bağlandı` : ""}${eslesmedi ? ` · ${eslesmedi} ürün eşleşmedi` : ""}${hatalar.length ? ` · ${hatalar.length} hata` : ""}`;
+        const durumMetni = `Siparişler: ${liste.length} çekildi${kargoGun ? ` · ${kargoGun} sipariş sitede kargoya verildi yapıldı` : ""}${iadeSay ? ` · ${iadeSay} iade işlendi` : ""} · ${yeni} yeni · ${aktarilan} aktarıldı${baglanan ? ` · ${baglanan} elle girilmiş siparişe bağlandı` : ""}${eslesmedi ? ` · ${eslesmedi} ürün eşleşmedi` : ""}${hatalar.length ? ` · ${hatalar.length} hata` : ""}`;
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(e.son_yanit || {}), siparis: { zaman: new Date().toISOString(), durum: durumMetni, hatalar: hatalar.slice(0, 5), teshis: TESHIS[e.platform] ?? null } } }) });
-        sonuc[e.platform] = { teshis: TESHIS[e.platform], iade: (IADE[e.platform] ?? []).length, cekilen: liste.length, yeni, aktarilan, baglanan, guncellenen, eslesmedi, hatalar: hatalar.slice(0, 5) };
+        sonuc[e.platform] = { teshis: TESHIS[e.platform], iade: (IADE[e.platform] ?? []).length, kargo_guncellenen: kargoGun, cekilen: liste.length, yeni, aktarilan, baglanan, guncellenen, eslesmedi, hatalar: hatalar.slice(0, 5) };
       } catch (err) {
         const m = String((err as Error).message || err).slice(0, 400);
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_yanit: { ...(e.son_yanit || {}), siparis: { zaman: new Date().toISOString(), durum: `Sipariş hatası: ${m}` } } }) }).catch(() => {});
