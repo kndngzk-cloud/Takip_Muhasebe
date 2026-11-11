@@ -3349,6 +3349,8 @@ function soruDetay(q, yenile) {
   });
 }
 
+// "5 Li Set", "5'li", "3lü paket" gibi adlardan paket adedini tahmin eder
+const paketAdet = (ad) => { const m = /(?:^|[^0-9])(\d{1,2})\s*['’]?\s*(?:l[iıuü]|adet|pcs)(?![a-zçğıöşü])/i.exec(ad || ''); const n = m ? +m[1] : 1; return n >= 2 && n <= 50 ? n : 1; };
 async function plDetay(p, data) {
   data ||= await api.get('platform_siparisler', 'select=id,siparis_id&siparis_id=not.is.null').catch(() => []);
   if (p.siparis_id && p.durum === 'Aktarıldı') { go(`#/siparis/${p.siparis_id}`); return; }
@@ -3366,7 +3368,9 @@ async function plDetay(p, data) {
       <div class="section-title">Ürünler</div>
       <div id="pl-sat">${satirlar.map((s, i) => `<div class="card" style="padding:10px 12px;margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;gap:8px"><div><b>${esc(s.ad)}</b><div class="tiny">Platform kodu: ${esc(s.kod || '–')} · ${fmtN(s.miktar)} adet</div></div><div class="num">${fmtTL(s.tutar)}</div></div>
-          ${acik ? `<div class="field picker" style="margin:8px 0 0"><label>Bizdeki ürün</label><input class="input pl-u" data-i="${i}" placeholder="Ürün seçin…" autocomplete="off"></div>` : ''}
+          ${acik ? `<div style="display:grid;grid-template-columns:1fr 92px;gap:8px;margin:8px 0 0"><div class="field picker" style="margin:0"><label>Bizdeki ürün</label><input class="input pl-u" data-i="${i}" placeholder="Ürün seçin…" autocomplete="off"></div>
+            <div class="field" style="margin:0"><label>Pakette</label><input class="input pl-c" data-i="${i}" type="number" min="1" step="1" inputmode="numeric" value="${paketAdet(s.ad)}"></div></div>
+            <div class="tiny pl-ct" data-i="${i}" style="margin-top:4px"></div>` : ''}
         </div>`).join('')}</div>
       ${platformKart(p, false)}
       ${p.durum === 'Onay bekliyor' ? `<div class="tiny" style="margin-top:8px;color:var(--red)"><b>${esc(p.platform)} panelinden siparişi onaylayın.</b> Onaylanıp ödeme alınınca sipariş 2 dakika içinde programa kendiliğinden aktarılır. Süresi içinde onaylanmazsa platform siparişi iptal eder.</div>` : ''}
@@ -3374,6 +3378,8 @@ async function plDetay(p, data) {
     foot: `<button class="btn" data-close>Kapat</button>${acik ? `<button class="btn" id="pl-bag">Elle girilmiş siparişe bağla</button><button class="btn primary" id="pl-ak">Programa aktar</button>` : ''}`,
     onMount: (m) => {
       platformKartBagla(m.el, () => { m.close(); render(); });
+      const ctYaz = (i) => { const s = satirlar[i], c = num($(`.pl-c[data-i="${i}"]`, m.el)?.value) || 1; const el = $(`.pl-ct[data-i="${i}"]`, m.el); if (el) el.textContent = c > 1 ? `${fmtN(s.miktar)} paket × ${fmtN(c)} = stoktan ${fmtN(num(s.miktar) * c)} adet düşer` : ''; };
+      $$('.pl-c', m.el).forEach((inp) => { ctYaz(+inp.dataset.i); inp.addEventListener('input', () => { satirlar[+inp.dataset.i].secildi = !!satirlar[+inp.dataset.i].bul; ctYaz(+inp.dataset.i); }); });
       $$('.pl-u', m.el).forEach((inp) => {
         const s = satirlar[+inp.dataset.i];
         const mevcut = s.bul ? urunler.find((u) => u.id === s.bul) : null;
@@ -3383,7 +3389,7 @@ async function plDetay(p, data) {
       $('#pl-ak', m.el)?.addEventListener('click', async (e) => {
         try {
           await busy(e.currentTarget, async () => {
-            for (const s of satirlar.filter((x) => x.secildi)) await api.rpc('platform_urun_sec', { p_id: p.id, p_kod: s.kod || '', p_ad: s.ad || '', p_urun_id: s.bul });
+            for (const s of satirlar.filter((x) => x.secildi)) await api.rpc('platform_urun_sec', { p_id: p.id, p_kod: s.kod || '', p_ad: s.ad || '', p_urun_id: s.bul, p_carpan: Math.max(1, num($(`.pl-c[data-i="${satirlar.indexOf(s)}"]`, m.el)?.value) || 1) });
             const r = await api.rpc('platform_siparis_aktar', { p_id: p.id, p_zorla: true });
             if (r?.eslesmedi) throw new Error(`“${r.eslesmedi}” için bizdeki ürünü seçin`);
             m.close(); cache.dirty('urunler', 'cariler');
@@ -5924,7 +5930,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.09';
+const APP_V = '2.10';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
