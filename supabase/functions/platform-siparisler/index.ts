@@ -158,7 +158,7 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
     if (!its.length) continue;
     const i0 = its[0]; const sa = i0.shippingAddress || {}; const inv = i0.invoice || {};
     const brut = r2(its.reduce((t, x) => t + para(x.totalPrice), 0));
-    const komTahmin = r2(its.reduce((t, x) => t + para(x.commission), 0) * 1.2); // komisyon KDV haric gelir
+    const komTahmin = r2(its.reduce((t, x) => t + para(x.commission) * (Number(x.quantity) || 1), 0) * 1.2); // komisyon birim basina ve KDV haric gelir (3 adette 3 kati)
     // kesin kesintiler muhasebe servisinden (siparis numarasi ile)
     let kom: number | null = komTahmin, kargo: number | null = null, net: number | null = null, kesin = false;
     try {
