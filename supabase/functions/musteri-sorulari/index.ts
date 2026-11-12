@@ -177,7 +177,7 @@ async function hbCevap(a: Record<string, string>, id: string, metin: string) {
 
 /* ---------------- N11 ---------------- */
 const tarihTR = (ms: number) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Istanbul", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(ms));
-async function n11Cek(a: Record<string, string>, gun: number, oncekiler: Set<string>): Promise<Soru[]> {
+async function n11Cek(a: Record<string, string>, gun: number, oncekiler: Set<string>, bekleyen: string[] = []): Promise<Soru[]> {
   const out: Soru[] = [];
   // n11 soru listesini dakikada bir kez veriyor: tek istek, tum durumlar
   const t = await n11Soap(a, "GetProductQuestionList", `<productQuestionSearch><startDate>${tarihTR(Date.now() - gun * 86400000)}</startDate><endDate>${tarihTR(Date.now() + 86400000)}</endDate></productQuestionSearch><pagingData><currentPage>0</currentPage><pageSize>100</pageSize></pagingData>`);
@@ -203,6 +203,19 @@ async function n11Cek(a: Record<string, string>, gun: number, oncekiler: Set<str
       } catch { /* detay olmadan da yazilir */ }
     }
     out.push(s);
+  }
+  // panelden cevaplanan soru listeden duser: programda hala bekleyen gorunenler tek tek sorulur
+  const gelen = new Set(out.map((x) => x.soru_id));
+  for (const id of bekleyen.filter((x) => !gelen.has(x)).slice(0, 15)) {
+    try {
+      const d = (await n11Soap(a, "GetProductQuestionDetail", `<productQuestionId>${xmlEsc(id)}</productQuestionId>`)).replace(/<result>[\s\S]*?<\/result>/, "");
+      const cevap = (xmlDeger(d, "answer") || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || null;
+      const ct = iso(xmlDeger(d, "answeredDate")); const st = xmlDeger(d, "status");
+      const cevapli = !!(cevap || ct || (st && /closed|answered|cevap/i.test(st)));
+      const s: Soru = { platform: "N11", soru_id: id, durum: cevapli ? "Cevaplandı" : "Bekliyor", ham: { liste_disi: true, status: st } };
+      if (cevap) s.cevap = cevap; if (ct) s.cevap_tarih = ct;
+      out.push(s);
+    } catch { /* */ }
   }
   return out;
 }
