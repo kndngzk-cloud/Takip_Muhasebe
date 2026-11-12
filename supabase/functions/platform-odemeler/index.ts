@@ -421,12 +421,13 @@ Deno.serve(async (req) => {
         const dref = (k: Kalem) => `${ref}:${k.vade}${k.para_birimi && k.para_birimi !== "TRY" ? ":" + k.para_birimi : ""}`;
         // yatmis gunler bekleyen olarak yeniden yazilmasin
         const yatanG = new Set(yatan.map((k) => k.vade));
-        // elle ya da daha once tahsil edildi isaretlenmis gunler bekleyen olarak yeniden yazilmasin (kasa kaydi silinmesin)
-        const tahsil = new Set(((await rest(`nakit_girisleri?select=dis_ref&otomatik=is.true&durum=eq.${encodeURIComponent("Tahsil edildi")}&dis_ref=like.${encodeURIComponent(REF(e.platform) + ":")}*&vade=gte.${ekle(bugun, -20)}`)) as { dis_ref: string }[]).map((x) => x.dis_ref));
+        // elle ya da daha once tahsil edildi / yatti isaretlenmis gunler bekleyen olarak yeniden yazilmasin (kasa kaydi silinmesin)
+        const tahsil = new Set(((await rest(`nakit_girisleri?select=dis_ref&otomatik=is.true&or=(${encodeURIComponent("durum.eq.Tahsil edildi,yatti_tarihi.not.is.null")})&dis_ref=like.${encodeURIComponent(REF(e.platform) + ":")}*&vade=gte.${ekle(bugun, -20)}`)) as { dis_ref: string }[]).map((x) => x.dis_ref));
         const kalemler = tum.filter((k) => !yatanG.has(k.vade) && !tahsil.has(`${REF(e.platform)}:${k.vade}${k.para_birimi && k.para_birimi !== "TRY" ? ":" + k.para_birimi : ""}`));
         // yatan gunler daha once "listede yok" diye iptal edildiyse de duzeltilir (asagidaki upsert)
-        // gercekte yatan tutarlar: o gunun bekleyen (ya da "listede yok" diye iptal edilmis) kaydi tahsil edildi yapilir, tutar duzeltilir
-        for (const k of yatan) await rest(`nakit_girisleri?dis_ref=eq.${encodeURIComponent(dref(k))}&otomatik=is.true&durum=in.(${encodeURIComponent("Bekliyor,İptal")})`, { method: "PATCH", body: JSON.stringify({ durum: "Tahsil edildi", tahsil_tarihi: k.vade, tutar: k.tutar, aciklama: k.aciklama + HESAP(e.platform) }) });
+        // gercekte yatan tutarlar: o gunun bekleyen (ya da "listede yok" diye iptal edilmis) kaydi "hesaba yatti" isaretlenir, tutar duzeltilir.
+        // Tahsil edildi YAPILMAZ: kullanici "Kasaya isle" ile hangi kasaya/hesaba girdigini secer, para kasaya o zaman yazilir.
+        for (const k of yatan) await rest(`nakit_girisleri?dis_ref=eq.${encodeURIComponent(dref(k))}&otomatik=is.true&kasa_hareket_id=is.null&durum=in.(${encodeURIComponent("Bekliyor,İptal")})`, { method: "PATCH", body: JSON.stringify({ durum: "Bekliyor", yatti_tarihi: k.vade, tutar: k.tutar, aciklama: k.aciklama + HESAP(e.platform) }) });
         // otomatik veri geldiyse ayni platformun elle girilmis gelecek kayitlari silinir (yerine otomatikler yazilir)
         if (kalemler.length) await rest(`nakit_girisleri?otomatik=is.false&tur=eq.Platform&kaynak=ilike.${encodeURIComponent(kaynak)}&durum=eq.Bekliyor&vade=gte.${bugun}`, { method: "DELETE" });
         // gelecek odemeler: dis_ref ile ekle / guncelle
@@ -438,11 +439,11 @@ Deno.serve(async (req) => {
         }
         // artik listede olmayan gelecek otomatik kayitlar (tutar sifirlandi / iptal)
         const gelecekRef = new Set(kalemler.map(dref));
-        const eski = await rest(`nakit_girisleri?select=id,dis_ref&otomatik=is.true&dis_ref=like.${encodeURIComponent(ref + ":")}*&durum=eq.Bekliyor&vade=gte.${bugun}`);
+        const eski = await rest(`nakit_girisleri?select=id,dis_ref&otomatik=is.true&dis_ref=like.${encodeURIComponent(ref + ":")}*&durum=eq.Bekliyor&yatti_tarihi=is.null&vade=gte.${bugun}`);
         const yatanRef = new Set(yatan.map(dref));
         for (const x of eski) if (!gelecekRef.has(x.dis_ref) && !yatanRef.has(x.dis_ref)) await rest(`nakit_girisleri?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify({ durum: "İptal", aciklama: "Platform listesinde artık yok" }) });
-        // yatan odemeler
-        for (const d of odenen) await rest(`nakit_girisleri?dis_ref=like.${encodeURIComponent(`${ref}:${d}`)}*&durum=eq.Bekliyor`, { method: "PATCH", body: JSON.stringify({ durum: "Tahsil edildi", tahsil_tarihi: d }) });
+        // yatan odemeler: "hesaba yatti" isaretlenir, kasaya isleme kullanicida
+        for (const d of odenen) await rest(`nakit_girisleri?dis_ref=like.${encodeURIComponent(`${ref}:${d}`)}*&durum=eq.Bekliyor&yatti_tarihi=is.null`, { method: "PATCH", body: JSON.stringify({ yatti_tarihi: d }) });
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_calisma: new Date().toISOString(), son_durum: `Tamam · ${kalemler.length} ödeme günü`, son_adet: kalemler.length, son_yanit: JSON.parse(JSON.stringify(ham)) }) });
         // PayTR: tek tek kart odemeleri (tahsilat eslestirme icin). Ilk calismada son 60 gun, sonra son 9 gun.
         let islemNot = "";

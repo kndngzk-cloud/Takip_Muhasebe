@@ -5530,16 +5530,17 @@ const nakitKalem = (n) => ({ ...n, _n: true, yon: 'Tahsilat', kategori: n.tur ==
 const AY_AD = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
 function nakitRow(n) {
-  const gec = n.durum === 'Bekliyor' && n.vade < today();
+  const yatti = n.durum === 'Bekliyor' && n.yatti_tarihi;
+  const gec = n.durum === 'Bekliyor' && !yatti && n.vade < today();
   const kim = n.cari_unvan || n.kesideci;
   const baslik = n.tur === 'Platform' ? esc(n.kaynak || 'Platform') : n.cari_id ? `<a href="#/cari/${n.cari_id}">${esc(kim || n.tur)}</a>` : `${esc(kim || n.tur)}`;
   const alt = n.tur === 'Platform' ? [n.aciklama] : [n.belge_no ? `No ${n.belge_no}` : '', n.kaynak, n.aciklama];
   return `<div class="row" data-nid="${n.id}">
     <div class="main-col"><div class="t"><span class="badge ${n.tur === 'Platform' ? 'b-purple' : 'b-blue'}" style="margin-right:6px">${esc(n.tur)}</span>${baslik}</div>
-      <div class="st">${alt.filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${n.durum !== 'Bekliyor' ? nakitBadge(n.durum) : ''}${n.cari_hareket_id ? '<span class="badge">cariye işlendi</span>' : ''}${n.otomatik ? '<span class="badge b-green">otomatik</span>' : ''}</div><div>${notIk('nakit_girisleri', n.id)}</div></div>
+      <div class="st">${alt.filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${n.durum !== 'Bekliyor' ? nakitBadge(n.durum) : ''}${n.cari_hareket_id ? '<span class="badge">cariye işlendi</span>' : ''}${n.otomatik ? '<span class="badge b-green">otomatik</span>' : ''}${yatti ? `<span class="badge b-green">✓ hesaba yattı ${fmtD(n.yatti_tarihi)} · kasaya işlenmedi</span>` : ''}</div><div>${notIk('nakit_girisleri', n.id)}</div></div>
     <div class="end"><div class="amt">${fmtPB(n.tutar, n.para_birimi)}</div>
       <div class="tiny ${gec ? 'pos' : ''}">${n.durum === 'Tahsil edildi' ? `✓ ${fmtD(n.tahsil_tarihi)}` : n.durum === 'Ciro edildi' ? `ciro: ${esc(n.ciro_edilen || '')}` : `${gec ? 'GECİKTİ · ' : ''}vade ${fmtD(n.vade)}`}</div>
-      ${n.durum === 'Bekliyor' ? `<button class="btn sm orange" data-nok="${n.id}" style="margin-top:6px">${n.tur === 'Platform' ? 'Yattı' : 'Tahsil edildi'}</button>` : ''}</div>
+      ${n.durum === 'Bekliyor' ? `<button class="btn sm ${yatti ? 'green' : 'orange'}" data-nok="${n.id}" style="margin-top:6px">${yatti ? 'Kasaya işle' : n.tur === 'Platform' ? 'Yattı' : 'Tahsil edildi'}</button>` : ''}</div>
   </div>`;
 }
 function bindNakitRows(root, rows) {
@@ -5930,7 +5931,7 @@ function nakitDurum(n, durum) {
   modal({
     title: `${n.tur} · ${durum}`,
     body: `<p class="small muted" style="margin-top:0">${esc(n.cari_unvan || n.kesideci || n.kaynak || '')} · <b>${fmtPB(n.tutar, n.para_birimi)}</b> · vade ${fmtD(n.vade)}</p>
-      ${tah || ciro ? `<div class="field"><label>${tah ? (n.tur === 'Platform' ? 'Hesaba yattığı tarih' : 'Tahsil tarihi') : 'Ciro tarihi'}</label><input class="input" type="date" id="nd-t" value="${today()}"></div>` : ''}
+      ${tah || ciro ? `<div class="field"><label>${tah ? (n.tur === 'Platform' ? 'Hesaba yattığı tarih' : 'Tahsil tarihi') : 'Ciro tarihi'}</label><input class="input" type="date" id="nd-t" value="${(tah && n.yatti_tarihi) || today()}"></div>` : ''}
       ${ciro ? '<div class="field"><label>Kime ciro edildi?</label><input class="input" id="nd-k" placeholder="Örn. tedarikçi adı"></div>' : ''}
       ${kars && n.cari_id ? `<label class="check"><input type="checkbox" id="nd-b" checked> ${esc(n.cari_unvan || '')} carisine ${fmtTL(tl)} borç olarak geri yaz</label>` : ''}
       ${durum === 'Bekliyor' ? `<p class="small">Kayıt tekrar “bekliyor” durumuna alınacak.${n.kasa_hareket_id ? ' Kasaya işlenen tutar geri alınır.' : ''}</p>` : ''}
@@ -5973,7 +5974,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.11';
+const APP_V = '2.12';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
