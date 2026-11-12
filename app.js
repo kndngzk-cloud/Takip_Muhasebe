@@ -26,23 +26,50 @@ const kurHatirla = (pb, k) => { try { const o = JSON.parse(localStorage.getItem(
 function dovizHtml(id, pb = 'TRY', kur = '') {
   return `<div class="grid2">
     <div class="field"><label>Para birimi</label><select class="input" id="${id}-pb">${Object.keys(PB).map((k) => `<option value="${k}" ${k === pb ? 'selected' : ''}>${PB_AD[k]}</option>`).join('')}</select></div>
-    <div class="field"><label id="${id}-kl">Kur (1 ${pb === 'TRY' ? 'birim' : pb} = ? ₺)</label><input class="input" id="${id}-kur" inputmode="decimal" value="${pb === 'TRY' ? '' : (kur === '' ? '' : fmtN(kur))}" placeholder="${pb === 'TRY' ? 'TL için gerekmez' : 'örn. 41,25'}" ${pb === 'TRY' ? 'disabled' : ''}></div>
-  </div>`;
+    <div class="field"><label id="${id}-kl">Kur (1 ${pb === 'TRY' ? 'birim' : pb} = ? ₺)</label><input class="input" id="${id}-kur" inputmode="decimal" value="${pb === 'TRY' ? '' : (kur === '' ? '' : fmtN(kur))}" placeholder="${pb === 'TRY' ? 'TL için gerekmez' : 'örn. 41,25'}" ${pb === 'TRY' ? 'disabled' : ''}><div class="hint" id="${id}-th"></div></div>
+  </div>
+  <label class="check" id="${id}-tw" style="margin:-4px 0 10px;${pb === 'TRY' ? 'display:none' : ''}"><input type="checkbox" id="${id}-tcmb" ${kurOto() ? 'checked' : ''}> <span>Kuru her zaman TCMB'den otomatik getir <span class="tiny">(döviz satış kuru)</span></span></label>`;
 }
+/* "kuru TCMB'den otomatik getir" tercihi cihazda saklanir; acikken doviz secilince kur TCMB'den gelir */
+const fmtK = (v) => num(v).toLocaleString('tr-TR', { maximumFractionDigits: 4 }); // kur: TCMB 4 basamak verir
+const kurOto = () => { try { return localStorage.getItem('ssc_kur_tcmb') === '1'; } catch { return false; } };
+const kurOtoAyarla = (v) => { try { localStorage.setItem('ssc_kur_tcmb', v ? '1' : '0'); } catch {} };
+/* TCMB kurunu tazeleyip dondurur (ayarlar gunde iki kez guncellenir; uygulama uzun suredir aciksa yeniden okunur) */
+async function tcmbKurTaze(pb) { try { await cache.ayarlar(true); } catch {} return tcmbKur(pb); }
 /* get(): {pb, kur} ; kur TRY icin 1, gecersizse NaN */
 function bindDoviz(root, id, onChange = () => {}) {
   const sel = $(`#${id}-pb`, root), inp = $(`#${id}-kur`, root), lab = $(`#${id}-kl`, root);
   const get = () => { const pb = sel.value; return { pb, kur: pb === 'TRY' ? 1 : parseNum(inp.value) }; };
   let onceki = get();
+  const tw = $(`#${id}-tw`, root), cb = $(`#${id}-tcmb`, root), th = $(`#${id}-th`, root);
+  // kur alaninin altinda guncel TCMB kuru ve tek dokunusla kullanma baglantisi
+  const ipucu = () => {
+    if (!th) return; const pb = sel.value, k = tcmbKur(pb), t = state?.ayarlar?.doviz_kur?.tarih;
+    th.innerHTML = pb === 'TRY' || !k ? '' : `TCMB${t ? ' ' + esc(String(t).includes('-') ? fmtD(t) : t) : ''}: <b>${fmtK(k)}</b> ${Math.abs(parseNum(inp.value) - k) < 0.00005 ? '' : '· <a href="#" data-tk>bu kuru kullan</a>'}`;
+    const a = th.querySelector('[data-tk]'); if (a) a.onclick = (e) => { e.preventDefault(); tcmbYaz(); };
+  };
+  const tcmbYaz = async () => {
+    const pb = sel.value; if (pb === 'TRY') return;
+    const k = await tcmbKurTaze(pb);
+    if (sel.value !== pb) return;
+    if (!k) { toast('TCMB kuru henüz alınamadı, kuru elle girin', 'err'); return; }
+    inp.value = fmtK(k); const yeni = get(); onChange(yeni, onceki); onceki = yeni; ipucu();
+  };
   sel.onchange = () => {
     const pb = sel.value;
     inp.disabled = pb === 'TRY'; inp.placeholder = pb === 'TRY' ? 'TL için gerekmez' : 'örn. 41,25';
-    inp.value = pb === 'TRY' ? '' : (sonKur(pb) ? fmtN(sonKur(pb)) : '');
+    inp.value = pb === 'TRY' ? '' : (kurOto() && tcmbKur(pb) ? fmtK(tcmbKur(pb)) : sonKur(pb) ? fmtK(sonKur(pb)) : '');
     lab.textContent = `Kur (1 ${pb === 'TRY' ? 'birim' : pb} = ? ₺)`;
-    const yeni = get(); onChange(yeni, onceki); onceki = yeni;
-    if (pb !== 'TRY' && !inp.value) inp.focus();
+    if (tw) tw.style.display = pb === 'TRY' ? 'none' : '';
+    const yeni = get(); onChange(yeni, onceki); onceki = yeni; ipucu();
+    if (pb !== 'TRY' && kurOto()) tcmbYaz(); // en guncel kur sunucudan tazelenir
+    else if (pb !== 'TRY' && !inp.value) inp.focus();
   };
-  inp.oninput = () => { const yeni = get(); onChange(yeni, onceki); onceki = yeni; };
+  inp.oninput = () => { const yeni = get(); onChange(yeni, onceki); onceki = yeni; ipucu(); };
+  if (cb) cb.onchange = () => { kurOtoAyarla(cb.checked); if (cb.checked) tcmbYaz(); };
+  ipucu();
+  // yeni kayitta (kur bos) tercih aciksa TCMB kuru hemen gelir; kayitli kur degistirilmez
+  if (kurOto() && sel.value !== 'TRY' && !inp.value.trim()) tcmbYaz();
   return { get, check() { const d = get(); if (d.pb !== 'TRY' && !(d.kur > 0)) { toast(`${d.pb} için kur girin`, 'err'); inp.focus(); return null; } if (d.pb !== 'TRY') kurHatirla(d.pb, d.kur); return d; } };
 }
 const fmtTL = (v) => num(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₺';
@@ -801,7 +828,7 @@ function sevkEt(id, fis) {
 
 async function printFis(s, kal) {
   let mal = [];
-  if (isAdmin() && s.durum !== 'İptal') { try { mal = await api.rpc('siparis_maliyet', { p_siparis_id: s.id }); } catch { mal = []; } }
+  if (isAdmin() && s.durum !== 'İptal') { try { mal = (await api.rpc('siparis_maliyet', { p_siparis_id: s.id })) || []; } catch { mal = []; } }
   gorselPaylas(`Fiş ${s.fis_no}`, `Fis-${s.fis_no}.png`, fisCanvas(s, kal), mal.length ? { secenek: { label: 'Ürün maliyetlerini ve kârı ekle <span class="tiny">(kendi kaydınız için; müşteriye giden çıktıda olmaz)</span>', ciz: (on) => fisCanvas(s, kal, on ? mal : null) } } : {});
 }
 /* uzun gorseli A4 sayfalara boler (cv.kir: satir sinirlari, satir ortadan kesilmesin) */
@@ -1035,12 +1062,15 @@ function cinCanvas(c, kal, fab, ek = null) {
     y += 40; kir.push(y - 34);
     x.fillStyle = '#16213a'; x.font = F(800, 26); x.fillText(`MALİYET (KDV hariç, ₺${ek.kur ? ` · kur ${fmtN(ek.kur)}` : ''})`, pad, y); y += 46;
     const mk = kal.filter((k) => malBy[k.id]);
+    // dovizli sipariste birim maliyetin doviz karsiligi da yazilir (maliyet kuruyla)
+    const mD = pb !== 'TRY' && num(ek.kur) > 0, bD = (m) => (m.birim_maliyet !== null ? P(num(m.birim_maliyet) / num(ek.kur)) : '–');
     R = kolonYerlestir(x, [
-      { sag: 740, t: [['DEPOYA', H22], ...mk.map((k) => { const m = malBy[k.id]; return [m.dahil ? 'dahil' : fmtN(num(m.miktar) || (num(k.miktar) - num(k.devreden))), F(500, 24)]; })] },
-      { sag: 950, t: [['BİRİM MALİYET', H22], ...mk.map((k) => [malBy[k.id].birim_maliyet !== null ? fmtTL(malBy[k.id].birim_maliyet) : '–', F(500, 24)])] },
-      { sag: W - pad, t: [['TOPLAM', H22], ...mk.map((k) => [fmtTL(num(malBy[k.id].fob_tl) + num(malBy[k.id].masraf_tl)), F(700, 24)])] }], 44);
+      { sag: mD ? 620 : 740, t: [['DEPOYA', H22], ...mk.map((k) => { const m = malBy[k.id]; return [m.dahil ? 'dahil' : fmtN(num(m.miktar) || (num(k.miktar) - num(k.devreden))), F(500, 24)]; })] },
+      { sag: mD ? 810 : 950, t: [['BİRİM MALİYET', H22], ...mk.map((k) => [malBy[k.id].birim_maliyet !== null ? fmtTL(malBy[k.id].birim_maliyet) : '–', F(500, 24)])] },
+      ...(mD ? [{ sag: 970, t: [[`BİRİM (${PB[pb]})`, H22], ...mk.map((k) => [bD(malBy[k.id]), F(600, 24)])] }] : []),
+      { sag: W - pad, t: [['TOPLAM', H22], ...mk.map((k) => [fmtTL(num(malBy[k.id].fob_tl) + num(malBy[k.id].masraf_tl)), F(700, 24)])] }], 36);
     adW = Math.min(560, R.sol - pad);
-    baslikSat(['ÜRÜN', 'DEPOYA', 'BİRİM MALİYET', 'TOPLAM']);
+    baslikSat(mD ? ['ÜRÜN', 'DEPOYA', 'BİRİM MALİYET', `BİRİM (${PB[pb]})`, 'TOPLAM'] : ['ÜRÜN', 'DEPOYA', 'BİRİM MALİYET', 'TOPLAM']);
     let top = 0;
     kal.forEach((k) => {
       const m = malBy[k.id]; if (!m) return; kir.push(y - 26);
@@ -1049,8 +1079,9 @@ function cinCanvas(c, kal, fab, ek = null) {
       x.textAlign = 'right'; x.font = F(500, 24);
       x.fillText(m.dahil ? 'dahil' : fmtN(adet), R.sag[0], y);
       x.fillText(m.birim_maliyet !== null ? fmtTL(m.birim_maliyet) : '–', R.sag[1], y);
+      if (mD) { x.fillStyle = '#2f5fb3'; x.font = F(600, 24); x.fillText(bD(m), R.sag[2], y); x.fillStyle = '#16213a'; }
       const t = num(m.fob_tl) + num(m.masraf_tl); top += t;
-      x.font = F(700, 24); x.fillText(fmtTL(t), R.sag[2], y); x.textAlign = 'left';
+      x.font = F(700, 24); x.fillText(fmtTL(t), R.sag[mD ? 3 : 2], y); x.textAlign = 'left';
       cizgi(); y += 50;
     });
     y += 16; tr('Toplam maliyet', fmtTL(top), true);
@@ -1151,7 +1182,10 @@ async function alisFisiGoster(id) {
 }
 
 function fisCanvas(s, kal, mal = null) {
-  const W = 1240, pad = 70, rowH = 52;
+  // dovizli sipariste birim fiyat ve tutarin doviz karsiligi da yazilir
+  const dvz = s.para_birimi && s.para_birimi !== 'TRY' && num(s.kur) > 0;
+  const dF = (k) => (k.doviz_fiyat !== null && k.doviz_fiyat !== undefined ? num(k.doviz_fiyat) : num(k.birim_fiyat) / num(s.kur));
+  const W = 1240, pad = 70, rowH = dvz ? 80 : 52;
   const H = 560 + kal.length * rowH + (s.aciklama ? 80 : 0) + 260 + (mal ? 420 + mal.length * 52 : 0);
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
@@ -1171,8 +1205,8 @@ function fisCanvas(s, kal, mal = null) {
   y = 370;
   const R = kolonYerlestir(c, [
     { sag: 750, t: [['MİKTAR', F(700, 24)], ...kal.map((k) => [`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, F(500, 28)])] },
-    { sag: 990, t: [['BİRİM FİYAT', F(700, 24)], ...kal.map((k) => [fmtTL(k.birim_fiyat), F(500, 28)])] },
-    { sag: W - pad, t: [['TUTAR', F(700, 24)], ...kal.map((k) => [fmtTL(k.tutar), F(700, 28)])] }]);
+    { sag: 990, t: [['BİRİM FİYAT', F(700, 24)], ...kal.map((k) => [fmtTL(k.birim_fiyat), F(500, 28)]), ...(dvz ? kal.map((k) => [fmtPB(dF(k), s.para_birimi), F(600, 24)]) : [])] },
+    { sag: W - pad, t: [['TUTAR', F(700, 24)], ...kal.map((k) => [fmtTL(k.tutar), F(700, 28)]), ...(dvz ? kal.map((k) => [fmtPB(dF(k) * num(k.miktar), s.para_birimi), F(600, 24)]) : [])] }]);
   const cols = [pad, ...R.sag]; const adW = Math.min(520, R.sol - pad);
   c.fillStyle = '#f1f4f9'; c.fillRect(pad - 10, y - 30, W - 2 * pad + 20, 60);
   c.fillStyle = '#5b6578'; c.font = F(700, 24);
@@ -1188,8 +1222,11 @@ function fisCanvas(s, kal, mal = null) {
     c.textAlign = 'right'; c.font = F(500, 28);
     c.fillText(`${fmtN(k.miktar)} ${k.urunler?.birim || ''}`, cols[1], y);
     c.fillText(fmtTL(k.birim_fiyat), cols[2], y);
-    c.font = F(700, 28); c.fillText(fmtTL(k.tutar), cols[3], y); c.textAlign = 'left';
-    c.strokeStyle = '#e3e7ef'; c.lineWidth = 2; c.beginPath(); c.moveTo(pad - 10, y + 26); c.lineTo(W - pad + 10, y + 26); c.stroke();
+    c.font = F(700, 28); c.fillText(fmtTL(k.tutar), cols[3], y);
+    if (dvz) { c.fillStyle = '#2f5fb3'; c.font = F(600, 24); c.fillText(fmtPB(dF(k), s.para_birimi), cols[2], y + 30); c.fillText(fmtPB(dF(k) * num(k.miktar), s.para_birimi), cols[3], y + 30); c.fillStyle = '#16213a'; }
+    c.textAlign = 'left';
+    const cy = y + (dvz ? 54 : 26);
+    c.strokeStyle = '#e3e7ef'; c.lineWidth = 2; c.beginPath(); c.moveTo(pad - 10, cy); c.lineTo(W - pad + 10, cy); c.stroke();
     y += rowH;
   });
   y += 30;
@@ -4290,13 +4327,19 @@ async function viewCinForm(id) {
 function cinKurForm(c, kur) {
   const m = modal({
     title: `${cinNo(c.no, c.kod)} · maliyet kuru`,
-    body: `<div class="field"><label>1 ${c.para_birimi} = ? ₺</label><input class="input" id="ck-k" inputmode="decimal" value="${c.kur ? fmtN(c.kur) : kur ? fmtN(Math.round(kur * 10000) / 10000) : ''}"></div>
+    body: `<div class="field"><label>1 ${c.para_birimi} = ? ₺</label><input class="input" id="ck-k" inputmode="decimal" value="${c.kur ? fmtN(c.kur) : kur ? fmtN(Math.round(kur * 10000) / 10000) : ''}"><div class="hint" id="ck-th"></div></div>
       <p class="tiny">Boş bırakırsanız otomatik kur kullanılır: önce ödenen fabrika taksitlerinin ortalaması, o da yoksa güncel TCMB kuru. Gümrük beyannamesindeki kuru biliyorsanız buraya girin; birim maliyetler ve (teslim alındıysa) stok maliyeti hemen güncellenir.</p>`,
     foot: `<button class="btn" data-close>Vazgeç</button>${c.kur ? '<button class="btn" id="ck-oto">Otomatiğe dön</button>' : ''}<button class="btn primary" id="ck-ok">Kaydet</button>`
   });
   const kaydet = (v) => busy($('#ck-ok'), async () => { await api.update('cin_siparisler', `id=eq.${c.id}`, { kur: v }); m.close(); cache.dirty('urunler'); toast('Kur kaydedildi', 'ok'); render(); }).catch(fail);
   $('#ck-ok').onclick = () => { const v = parseNum($('#ck-k').value); if ($('#ck-k').value.trim() && !(v > 0)) return toast('Geçerli bir kur girin', 'err'); kaydet($('#ck-k').value.trim() ? v : null); };
   $('#ck-oto') && ($('#ck-oto').onclick = () => kaydet(null));
+  // guncel TCMB kuru: tek dokunusla alana yazilir
+  tcmbKurTaze(c.para_birimi).then((k) => {
+    const th = $('#ck-th'); if (!th || !k) return;
+    th.innerHTML = `TCMB: <b>${fmtK(k)}</b> · <a href="#" id="ck-tk">bu kuru yaz</a>`;
+    $('#ck-tk').onclick = (e) => { e.preventDefault(); $('#ck-k').value = fmtK(k); };
+  });
 }
 
 /* ---------- Detay ---------- */
@@ -5930,7 +5973,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.10';
+const APP_V = '2.11';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
