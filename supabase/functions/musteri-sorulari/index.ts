@@ -172,9 +172,15 @@ async function n11Cek(a: Record<string, string>, gun: number, oncekiler: Set<str
     if (detay < 15 && (!oncekiler.has(id) || s.durum === "Bekliyor")) {
       detay++;
       try {
-        const d = await n11Soap(a, "GetProductQuestionDetail", `<productQuestionId>${xmlEsc(id)}</productQuestionId>`);
+        const d0 = await n11Soap(a, "GetProductQuestionDetail", `<productQuestionId>${xmlEsc(id)}</productQuestionId>`);
+        // ilk <status> istegin sonucudur ("success"): sorunun kendi alanlari icin <result> blogu atlanir
+        const d = d0.replace(/<result>[\s\S]*?<\/result>/, "");
         s.musteri = xmlDeger(d, "fullName"); s.soru_tarih = iso(xmlDeger(d, "questionDate")); s.cevap_tarih = iso(xmlDeger(d, "answeredDate"));
-        const st = xmlDeger(d, "status"); if (st && /closed/i.test(st) && s.cevap) s.durum = "Cevaplandı";
+        // panelden verilen cevap listede gelmeyebilir: detaydaki cevap, cevap tarihi ya da kapali durum cevaplandi sayilir
+        const dc = (xmlDeger(d, "answer") || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        if (dc && !s.cevap) s.cevap = dc;
+        const st = xmlDeger(d, "status");
+        if (s.cevap || s.cevap_tarih || (st && /closed|answered|cevap/i.test(st))) s.durum = "Cevaplandı";
       } catch { /* detay olmadan da yazilir */ }
     }
     out.push(s);
