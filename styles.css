@@ -484,3 +484,11 @@ details.gum[open] summary { margin-bottom: 10px; }
 .soru-akis .sa-ek.dosya { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 6px 10px; border-radius: 8px; background: rgba(0,0,0,.05); max-width: 220px; }
 .soru-akis .sa-ek.dosya span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .soru-akis .sa-ek.dosya svg { width: 14px; height: 14px; flex: none; }
+
+/* cari risk limiti alarmi */
+.risk-alarm { display: flex; gap: 12px; align-items: flex-start; background: var(--red); color: #fff; border-radius: 14px; padding: 14px 16px; margin: 10px 0 14px; box-shadow: 0 6px 18px rgba(220, 38, 38, .35); animation: risk-nabiz 1.6s ease-in-out infinite; font-size: 14px; line-height: 1.45; }
+.risk-alarm svg { flex: 0 0 26px; width: 26px; height: 26px; stroke: #fff; }
+.risk-alarm b:first-child { font-size: 16px; letter-spacing: .3px; }
+.risk-alarm a { color: #fff; text-decoration: underline; font-weight: 700; }
+@keyframes risk-nabiz { 0%, 100% { box-shadow: 0 6px 18px rgba(220, 38, 38, .35); } 50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, .25), 0 6px 22px rgba(220, 38, 38, .5); } }
+@media (prefers-reduced-motion: reduce) { .risk-alarm { animation: none; } }

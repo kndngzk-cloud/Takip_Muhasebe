@@ -91,6 +91,7 @@ const eq = (v) => 'eq.' + encodeURIComponent(v);
 const balCls = (v) => (num(v) > 0.005 ? 'pos' : num(v) < -0.005 ? 'neg' : 'zero');
 
 const ICON = {
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
   calc: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 18h8"/>',
   home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   order: '<path d="M6 2h9l5 5v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>',
@@ -465,7 +466,7 @@ async function render() {
   const r = ROUTES.find(([re]) => re.test(h)) || ROUTES[0];
   const m = h.match(r[0]) || [];
   shell(r[1]);
-  try { await r[2](...m.slice(1)); if ($('#h-soru')) soruAnaSayfa(); if ($('#h-yedek')) cihazYedek(); }
+  try { await r[2](...m.slice(1)); if ($('#h-soru')) soruAnaSayfa(); if ($('#h-yedek')) cihazYedek(); if ($('#h-risk')) riskAnaSayfa(); }
   catch (e) { if (seq === renderSeq) { $('#view').innerHTML = `<div class="card empty">Bir hata oluştu: ${esc(e.message)}<br><br><button class="btn" data-fn="render">Tekrar dene</button></div>`; } fail(e); }
   window.scrollTo(0, 0);
 }
@@ -553,6 +554,7 @@ async function viewHome() {
       <div class="kpi purple"><div class="l">Bekleyen sipariş</div><div class="v num">${oz.bekleyen_siparis}</div><div class="s">sevk edilmeyi bekliyor</div></div>
       <div class="kpi ${eksi.length ? 'red' : 'green'}"><div class="l">Eksi stok</div><div class="v num">${eksi.length}</div><div class="s">ürün</div></div>
     </div>
+    <div id="h-risk"></div>
     <div id="h-yedek"></div>
     <div id="h-soru"></div>
     ${plSon.length ? `<div class="section-title" style="color:var(--red)">Sizden işlem bekleyen platform siparişleri <a href="#/platform-siparisler">Tümü</a></div>
@@ -1313,6 +1315,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
       <div class="field picker"><label>Cari</label>
         <input class="input" id="f-cari" placeholder="Cari ara veya yeni ekle…" autocomplete="off" ${editId ? 'readonly style="background:var(--surface-2)"' : ''}>
         <div class="hint" id="cari-info"></div></div>
+      <div id="f-risk"></div>
       <div class="grid2">
         <div class="field"><label>Fatura tipi</label><div class="seg" id="f-tip"><button type="button" data-v="R" class="r">R</button><button type="button" data-v="GR" class="gr">GR</button></div></div>
         <div class="field" id="kdv-f"><label>KDV oranı (%)</label><input class="input" id="f-kdv" inputmode="decimal" value="${fmtN(f.kdv)}"></div>
@@ -1363,9 +1366,13 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
     } else { f.pb = yeni.pb; f.kur = yeni.kur; drawTotals(); }
   });
 
+  // risk: bu siparisin tutari carinin acik borcuna eklenir (duzenlemede eski tutar zaten icinde oldugu icin farki)
+  const riskEk = () => { if (f.cari?.tip === 'Perakende') return 0; const t = parseNum(($('#totals .tr.big span:last-child')?.textContent || '').replace('₺', '')) || 0; return t - (editId && es ? num(es.genel_toplam) : 0); };
+  const drawRisk = () => { const el = $('#f-risk'); if (!el) return; el.innerHTML = f.cari ? riskAlarm(f.cari, riskEk(), riskDurum(f.cari).asim ? 'RİSK LİMİTİ AŞILDI' : 'BU SİPARİŞLE RİSK LİMİTİ AŞILIYOR') : ''; };
   const setCari = async (c) => {
     f.cari = c;
     $('#f-cari').value = c.unvan;
+    drawRisk();
     $('#cari-info').innerHTML = `${c.tip === 'Perakende' ? '<span class="badge">Perakende · otomatik tahsilat</span>' : '<span class="badge b-blue">Toptan</span>'} ${esc(c.sehir || '')} · Bakiye <b class="${balCls(c.bakiye)}">${fmtTL(c.bakiye)}</b> (R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)})`;
     if (c.tip === 'Perakende') { $('#f-mf').checked = false; if (!$('#f-gon').value && ayar.perakende_gonderimler?.[0]) $('#f-gon').value = ayar.perakende_gonderimler[0]; }
     else $('#f-mf').checked = true;
@@ -1446,6 +1453,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
       <div class="tr big"><span>Genel toplam</span><span>${fmtTL(ara + kdv)}</span></div>
       ${dv ? `<div class="tiny">${fmtPB((araD - iskD) * (1 + kdvO), f.pb)} × ${fmtN(f.kur)} = ${fmtTL(ara + kdv)} cariye TL olarak işlenir</div>` : ''}
       ${f.cari?.tip === 'Perakende' ? '<div class="tiny">Perakende cari: aynı tutarda tahsilat otomatik girilir, bakiye sıfır kalır.</div>' : ''}`;
+    drawRisk();
   };
   $('#f-kdv').oninput = drawTotals;
   /* siparis alti iskonto: yuzde ya da siparisin para biriminde tutar (sunucudaki hesapla ayni) */
@@ -1496,6 +1504,8 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
   $('#save').onclick = async (e) => {
     const lines = f.lines.filter((l) => l.urun);
     if (!f.cari) return toast('Önce cari seçin', 'err');
+    { const ek = riskEk(); const r = riskDurum(f.cari, ek);
+      if (r.asim && !(await confirmBox('Risk limiti aşılıyor', `${f.cari.unvan}: bu siparişle açık borç ${fmtTL(r.toplam)} olacak. Risk limiti ${fmtTL(r.limit)}, aşım ${fmtTL(r.fark)}. Yine de kaydedilsin mi?`, 'Yine de kaydet', true))) return; }
     if (!lines.length) return toast('En az bir ürün ekleyin', 'err');
     const bad = lines.find((l) => !(num(l.miktar) > 0) || l.fiyat === '' || num(l.fiyat) < 0);
     if (bad) return toast(`${bad.urun.ad}: miktar ve fiyatı kontrol edin`, 'err');
@@ -1957,9 +1967,22 @@ function urunForm(u = null, preset = null, onSaved = null) {
 /* ------------------------------------------------------------------ */
 /* CARILER                                                             */
 /* ------------------------------------------------------------------ */
+/* ---------- Cari risk limiti ----------
+   Risk = bakiye + sevk bekleyen siparisler (musterinin toplam acik borcu). Limit cari duzenlemede girilir;
+   asilinca cari listesinde, cari sayfasinda, ana sayfada ve sipariste kirmizi uyari gosterilir. */
+function riskDurum(c, ek = 0) {
+  const limit = c && c.risk_limiti !== null && c.risk_limiti !== undefined && c.risk_limiti !== '' ? num(c.risk_limiti) : null;
+  const toplam = num(c?.risk_toplam ?? (num(c?.bakiye) + num(c?.sevk_bekleyen))) + num(ek);
+  return { limit, toplam, asim: limit !== null && toplam > limit + 0.005, fark: limit === null ? 0 : toplam - limit, oran: limit ? toplam / limit : 0 };
+}
+function riskAlarm(c, ek = 0, baslik = 'RİSK LİMİTİ AŞILDI') {
+  const r = riskDurum(c, ek); if (!r.asim) return '';
+  return `<div class="risk-alarm" role="alert">${icon('alert')}<div><b>${baslik}</b>
+    <div>${esc(c.unvan)} · Açık borç${ek ? ' (bu siparişle)' : ''} <b>${fmtTL(r.toplam)}</b> · Limit <b>${fmtTL(r.limit)}</b> · Aşım <b>${fmtTL(r.fark)}</b></div></div></div>`;
+}
 function cariRow(c) {
   return `<div class="row" data-go="#/cari/${c.id}">
-    <div class="main-col"><div class="t">${esc(c.unvan)}</div>
+    <div class="main-col"><div class="t">${esc(c.unvan)}${riskDurum(c).asim ? ' <span class="badge b-red">RİSK AŞILDI</span>' : ''}</div>
       <div class="st"><span class="tiny">${esc(c.kod)}</span>${c.sehir ? `<span class="tiny">· ${esc(c.sehir)}</span>` : ''}${c.tip === 'Perakende' ? '<span class="badge">Perakende</span>' : ''}</div>${notSatir('cariler', c.id)}</div>
     <div class="end"><div class="amt ${balCls(c.bakiye)}">${fmtTL(c.bakiye)}</div>
       ${num(c.bakiye_r) || num(c.bakiye_gr) ? `<div class="tiny">R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}</div>` : ''}
@@ -2023,7 +2046,9 @@ async function viewCariDetay(id) {
         ${Math.abs(num(c.sevk_bekleyen)) > 0.005 ? `<div class="stat"><div class="l">Sevk bekleyen</div><div class="v" style="color:var(--orange)">${fmtTL(c.sevk_bekleyen)}</div><div class="tiny">${c.sevk_bekleyen_sayi} sipariş · bakiyeye dahil değil</div></div>` : ''}
       </div>
       <p class="tiny" style="margin:8px 0 0">Pozitif bakiye: müşteri size borçlu. Negatif: siz müşteriye borçlusunuz. Sevk edilmemiş siparişler sevk edilince bakiyeye girer; önceden alınan ödemeler bakiyede görünür.</p>
+      ${riskDurum(c).limit !== null && !riskDurum(c).asim ? `<p class="tiny" style="margin:6px 0 0">Risk limiti ${fmtTL(c.risk_limiti)} · kullanılan %${fmtN(Math.round(riskDurum(c).oran * 100))}</p>` : ''}
     </div>
+    ${riskAlarm(c)}
     ${notKart('cariler', c.id)}
     <div class="btn-row" style="margin-bottom:6px">
       <button class="btn orange" id="b-tah">${icon('cash')}Tahsilat</button>
@@ -2189,7 +2214,8 @@ function cariForm(c = null, preset = null, onSaved = null) {
         <div class="field"><label>E-posta</label><input class="input" id="c-ep" type="email" value="${esc(d.eposta || '')}"></div></div>
       <div class="field"><label>Adres</label><input class="input" id="c-adr" value="${esc(d.adres || '')}"></div>
       <div class="grid2"><div class="field"><label>Vergi no / TCKN</label><input class="input" id="c-vn" value="${esc(d.vergi_no || '')}"></div>
-        <div></div></div>
+        <div class="field"><label>Risk limiti (₺)</label><input class="input" id="c-risk" inputmode="decimal" placeholder="Limit yok" value="${d.risk_limiti !== null && d.risk_limiti !== undefined && d.risk_limiti !== '' ? fmtN(d.risk_limiti) : ''}">
+          <div class="hint">Açık borç (bakiye + sevk bekleyen siparişler) bunu aşarsa uyarı verilir</div></div></div>
       ${notAlan('c-not', 'cariler', c?.id)}
       ${c ? `<label class="check"><input type="checkbox" id="c-akt" ${d.aktif ? 'checked' : ''}> Aktif</label>` : ''}`,
     foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="c-ok">Kaydet</button>`,
@@ -2200,6 +2226,8 @@ function cariForm(c = null, preset = null, onSaved = null) {
       $('#c-ok', m.el).onclick = async (e) => {
         const v = (s) => $(s, m.el).value.trim() || null;
         const row = { unvan: $('#c-un', m.el).value.trim(), tip, yetkili: v('#c-yet'), telefon: v('#c-tel'), sehir: v('#c-seh'), eposta: v('#c-ep'), adres: v('#c-adr'), vergi_no: v('#c-vn') };
+        const rk = $('#c-risk', m.el).value.trim(); row.risk_limiti = rk ? parseNum(rk) : null;
+        if (row.risk_limiti !== null && !(row.risk_limiti >= 0)) return toast('Risk limitini kontrol edin', 'err');
         if (c) row.aktif = $('#c-akt', m.el).checked;
         if (!row.unvan) return toast('Ünvan girin', 'err');
         try {
@@ -3281,6 +3309,14 @@ async function soruSayac() {
     const r = await api.get('platform_sorular', 'select=id&durum=eq.Bekliyor');
     el.forEach((e) => { e.innerHTML = r.length ? ` <span class="badge b-red" style="margin-left:6px">${r.length}</span>` : ''; });
   } catch { /* tablo yoksa sessiz */ }
+}
+async function riskAnaSayfa() {
+  try {
+    const ls = (await cache.cariler()).filter((c) => c.aktif && riskDurum(c).asim).sort((a, b) => riskDurum(b).fark - riskDurum(a).fark);
+    const el = $('#h-risk'); if (!el || !ls.length) return;
+    el.innerHTML = `<div class="risk-alarm" role="alert">${icon('alert')}<div><b>${ls.length} cari risk limitini aştı</b>
+      ${ls.slice(0, 8).map((c) => `<div><a href="#/cari/${c.id}">${esc(c.unvan)}</a> · ${fmtTL(riskDurum(c).toplam)} / limit ${fmtTL(c.risk_limiti)} · <b>aşım ${fmtTL(riskDurum(c).fark)}</b></div>`).join('')}</div></div>`;
+  } catch { /* sessiz */ }
 }
 /* ---------- Bu cihaza gunluk yedek ----------
    Bilgisayardaki gibi telefonda/tablette de: uygulama acilinca o gunun yedegi bu cihaza kaydedilmemisse
@@ -6070,7 +6106,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.14';
+const APP_V = '2.15';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
