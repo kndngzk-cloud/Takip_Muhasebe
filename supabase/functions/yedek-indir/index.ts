@@ -35,6 +35,9 @@ Deno.serve(async (req) => {
     if (!dosyalar.includes(dosya)) return json({ hata: "Dosya yok" }, 404);
     const f = await fetch(`${URL_}/storage/v1/object/yedekler/${dosya}`, { headers: H });
     if (!f.ok) return json({ hata: `İndirme: ${f.status}` }, 502);
+    // bilgisayara (iCloud'daki GRADDE Yedekler klasorune) inen en son yedegin tarihi: telefonda ayni yedek tekrar istenmesin
+    const g = dosya.slice(6, 16);
+    await fetch(`${URL_}/rest/v1/ayarlar?id=eq.1&or=(son_mac_yedek.is.null,son_mac_yedek.lt.${g})`, { method: "PATCH", headers: { ...H, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ son_mac_yedek: g }) }).catch(() => {});
     return new Response(f.body, { headers: { "Content-Type": f.headers.get("Content-Type") || "application/octet-stream", "Content-Disposition": `attachment; filename="${dosya}"` } });
   } catch (e) {
     return json({ hata: String((e as Error).message || e) }, 500);

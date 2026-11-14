@@ -442,6 +442,21 @@ Deno.serve(async (req) => {
         const eski = await rest(`nakit_girisleri?select=id,dis_ref&otomatik=is.true&dis_ref=like.${encodeURIComponent(ref + ":")}*&durum=eq.Bekliyor&yatti_tarihi=is.null&vade=gte.${bugun}`);
         const yatanRef = new Set(yatan.map(dref));
         for (const x of eski) if (!gelecekRef.has(x.dis_ref) && !yatanRef.has(x.dis_ref)) await rest(`nakit_girisleri?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify({ durum: "İptal", aciklama: "Platform listesinde artık yok" }) });
+        // tarihi gecmis, hala bekleyen tahmini kayitlar: platform odemeyi baska gune kaydirip yatirdiysa (yatan listesinde o gun yok)
+        // kayit "beklemede" kalip mukerrer tahsilata yol acmasin diye iptal edilir. Sadece yatan listesinin kapsadigi gunlere bakilir.
+        if (yatan.length) {
+          // ayni tutar 1-4 gun sonra yattiysa (ve o gunun kaydi varsa) eski tarihli kayit mukerrerdir; gecikmis ama henuz yatmamis odemeye dokunulmaz
+          const ilk = ekle(yatan.map((k) => k.vade).sort()[0], -4), odenenG = new Set(odenen);
+          const gecmis = await rest(`nakit_girisleri?select=id,dis_ref,vade,tutar&otomatik=is.true&dis_ref=like.${encodeURIComponent(ref + ":")}*&durum=eq.Bekliyor&yatti_tarihi=is.null&kasa_hareket_id=is.null&vade=gte.${ilk}&vade=lt.${bugun}`) as { id: number; dis_ref: string; vade: string; tutar: number }[];
+          for (const x of gecmis) {
+            if (yatanRef.has(x.dis_ref) || odenenG.has(x.vade)) continue;
+            const y = yatan.find((k) => k.vade > x.vade && k.vade <= ekle(x.vade, 4) && Math.abs(k.tutar - Number(x.tutar)) < 0.02);
+            if (!y) continue;
+            const [yk] = await rest(`nakit_girisleri?select=id&dis_ref=eq.${encodeURIComponent(dref(y))}&durum=neq.${encodeURIComponent("İptal")}`) as { id: number }[];
+            // yatan gunun kendi kaydi varsa eski kayit iptal; yoksa eski kayit o gun yatti olarak isaretlenir (odeme kaybolmaz)
+            await rest(`nakit_girisleri?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify(yk ? { durum: "İptal", aciklama: `Mükerrer: platform bu ödemeyi ${y.vade.split("-").reverse().join(".")} tarihinde yatırdı` } : { yatti_tarihi: y.vade }) });
+          }
+        }
         // yatan odemeler: "hesaba yatti" isaretlenir, kasaya isleme kullanicida
         for (const d of odenen) await rest(`nakit_girisleri?dis_ref=like.${encodeURIComponent(`${ref}:${d}`)}*&durum=eq.Bekliyor&yatti_tarihi=is.null`, { method: "PATCH", body: JSON.stringify({ yatti_tarihi: d }) });
         await rest(`entegrasyonlar?platform=eq.${encodeURIComponent(e.platform)}`, { method: "PATCH", body: JSON.stringify({ son_calisma: new Date().toISOString(), son_durum: `Tamam · ${kalemler.length} ödeme günü`, son_adet: kalemler.length, son_yanit: JSON.parse(JSON.stringify(ham)) }) });

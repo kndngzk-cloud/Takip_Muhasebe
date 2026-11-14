@@ -2856,7 +2856,7 @@ async function viewAyarlar() {
         ${ad ? `<button class="btn" id="s-now">${icon('inbox')}Şimdi yedek al</button>` : ''}
         <button class="btn green" id="s-bk">${icon('download')}Anlık Excel indir</button>
       </div>
-      ${ad ? `<label class="check" style="margin-top:12px"><input type="checkbox" id="s-cy" ${cihazYedekAcik() ? 'checked' : ''}> <span>Bu cihaza da günlük yedek kaydet <span class="tiny">(uygulama açılınca o günün yedeği bu cihazda yoksa ana sayfada tek dokunuşla kaydetmeniz hatırlatılır; Excel + JSON)</span></span></label>` : ''}
+      ${ad ? `<label class="check" style="margin-top:12px"><input type="checkbox" id="s-cy" ${cihazYedekAcik() ? 'checked' : ''}> <span>Bu cihaza da günlük yedek kaydet <span class="tiny">(bilgisayar o günün yedeğini iCloud'daki Belgeler › GRADDE Yedekler klasörüne indirmediyse, uygulama açılınca ana sayfada tek dokunuşla aynı klasöre kaydetmeniz hatırlatılır; Excel + JSON)</span></span></label>` : ''}
     </div>
     <div class="card" id="bld-kart">
       <h2>Bildirimler</h2>
@@ -3319,8 +3319,10 @@ async function cihazYedek() {
   try {
     const ls = await yedekDosyalari(); const son = ls.find((n) => n.endsWith('.xlsx')); if (!son) return;
     const gun = son.slice(6, 16); if (cihazYedekSon() >= gun || !$('#h-yedek')) return;
+    // bilgisayar bu yedegi iCloud'daki GRADDE Yedekler klasorune zaten indirdiyse telefonda tekrar istenmez (ayni klasor)
+    const ay = await cache.ayarlar(true).catch(() => ({})); if ((ay?.son_mac_yedek || '') >= gun || !$('#h-yedek')) return;
     el.innerHTML = `<div class="card" style="border-left:4px solid var(--accent);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:180px"><b>${fmtD(gun)} yedeği bu cihaza kaydedilmedi</b><div class="tiny">Excel + JSON birlikte · “Dosyalar'a Kaydet” → GRADDE Yedekler klasörünü seçin</div></div>
+      <div style="flex:1;min-width:180px"><b>${fmtD(gun)} yedeği bu cihaza kaydedilmedi</b><div class="tiny">Bilgisayar bugün açılmadığı için iCloud'daki yedek klasörüne gelmedi · Kaydet → “Dosyalar'a Kaydet” → iCloud Drive › Belgeler › GRADDE Yedekler</div></div>
       <div class="btn-row" style="margin:0"><button class="btn sm" id="hy-sonra">Sonra</button><button class="btn sm primary" id="hy-kaydet">${icon('download')}Kaydet</button></div></div>`;
     $('#hy-sonra').onclick = () => { try { sessionStorage.setItem('ssc_yedek_sonra', '1'); } catch {} el.innerHTML = ''; };
     let hazir = null; yedekGetir(gun).then((d) => { hazir = d; }).catch(() => {});
@@ -6068,7 +6070,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.13';
+const APP_V = '2.14';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
