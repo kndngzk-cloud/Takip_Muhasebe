@@ -465,7 +465,7 @@ async function render() {
   const r = ROUTES.find(([re]) => re.test(h)) || ROUTES[0];
   const m = h.match(r[0]) || [];
   shell(r[1]);
-  try { await r[2](...m.slice(1)); if ($('#h-soru')) soruAnaSayfa(); }
+  try { await r[2](...m.slice(1)); if ($('#h-soru')) soruAnaSayfa(); if ($('#h-yedek')) cihazYedek(); }
   catch (e) { if (seq === renderSeq) { $('#view').innerHTML = `<div class="card empty">Bir hata oluştu: ${esc(e.message)}<br><br><button class="btn" data-fn="render">Tekrar dene</button></div>`; } fail(e); }
   window.scrollTo(0, 0);
 }
@@ -553,6 +553,7 @@ async function viewHome() {
       <div class="kpi purple"><div class="l">Bekleyen sipariş</div><div class="v num">${oz.bekleyen_siparis}</div><div class="s">sevk edilmeyi bekliyor</div></div>
       <div class="kpi ${eksi.length ? 'red' : 'green'}"><div class="l">Eksi stok</div><div class="v num">${eksi.length}</div><div class="s">ürün</div></div>
     </div>
+    <div id="h-yedek"></div>
     <div id="h-soru"></div>
     ${plSon.length ? `<div class="section-title" style="color:var(--red)">Sizden işlem bekleyen platform siparişleri <a href="#/platform-siparisler">Tümü</a></div>
     <div class="list" id="h-pl">${plSon.map(plRow).join('')}</div>` : ''}
@@ -2855,6 +2856,7 @@ async function viewAyarlar() {
         ${ad ? `<button class="btn" id="s-now">${icon('inbox')}Şimdi yedek al</button>` : ''}
         <button class="btn green" id="s-bk">${icon('download')}Anlık Excel indir</button>
       </div>
+      ${ad ? `<label class="check" style="margin-top:12px"><input type="checkbox" id="s-cy" ${cihazYedekAcik() ? 'checked' : ''}> <span>Bu cihaza da günlük yedek kaydet <span class="tiny">(uygulama açılınca o günün yedeği bu cihazda yoksa ana sayfada tek dokunuşla kaydetmeniz hatırlatılır; Excel + JSON)</span></span></label>` : ''}
     </div>
     <div class="card" id="bld-kart">
       <h2>Bildirimler</h2>
@@ -2882,6 +2884,7 @@ async function viewAyarlar() {
     } catch (err) { fail(err); }
   });
   $('#s-bk').onclick = (e) => busy(e.currentTarget, yedekAl).catch(fail);
+  if ($('#s-cy')) $('#s-cy').onchange = (e) => { try { localStorage.setItem('ssc_cihaz_yedek_ac', e.target.checked ? '1' : '0'); } catch {} toast(e.target.checked ? 'Bu cihazda yedek hatırlatması açık' : 'Bu cihazda yedek hatırlatması kapalı', 'ok'); };
   $('#s-it-ok')?.addEventListener('click', async (e) => {
     const it = {}; let bad = false;
     $$('.s-it').forEach((i) => { if (!i.value.trim()) return; const v = parseNum(i.value); if (isNaN(v) || v < 0) bad = true; else it[i.dataset.k] = v; });
@@ -3278,6 +3281,54 @@ async function soruSayac() {
     const r = await api.get('platform_sorular', 'select=id&durum=eq.Bekliyor');
     el.forEach((e) => { e.innerHTML = r.length ? ` <span class="badge b-red" style="margin-left:6px">${r.length}</span>` : ''; });
   } catch { /* tablo yoksa sessiz */ }
+}
+/* ---------- Bu cihaza gunluk yedek ----------
+   Bilgisayardaki gibi telefonda/tablette de: uygulama acilinca o gunun yedegi bu cihaza kaydedilmemisse
+   ana sayfada hatirlatilir; tek dokunusla Excel + JSON birlikte Dosyalar'a kaydedilir. Hangi yedegin bu cihaza
+   kaydedildigi cihazda tutulur. Ayarlar > Yedekler'den cihaz bazinda acilip kapatilir. */
+const cihazMobil = () => /iPad|iPhone|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const cihazYedekAcik = () => { try { const v = localStorage.getItem('ssc_cihaz_yedek_ac'); return v === null ? cihazMobil() : v === '1'; } catch { return false; } };
+const cihazYedekSon = (v) => { try { if (v === undefined) return localStorage.getItem('ssc_cihaz_yedek') || ''; localStorage.setItem('ssc_cihaz_yedek', v); } catch { return ''; } };
+async function yedekDosyalari() {
+  const r = await api.raw('storage/v1/object/list/yedekler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefix: '', limit: 100, sortBy: { column: 'name', order: 'desc' } }) });
+  const lj = await r.json(); if (!Array.isArray(lj)) throw new Error(lj?.message || lj?.error || 'liste okunamadı');
+  return lj.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json)$/.test(n)).sort().reverse();
+}
+async function yedekGetir(gun) {
+  const dosyalar = [];
+  for (const ad of [`yedek-${gun}.xlsx`, `yedek-${gun}.json`]) {
+    const r = await api.raw(`storage/v1/object/yedekler/${encodeURIComponent(ad)}`); if (!r.ok) continue;
+    dosyalar.push(new File([await r.blob()], ad, { type: ad.endsWith('.json') ? 'application/json' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  }
+  if (!dosyalar.length) throw new Error('Yedek dosyası okunamadı');
+  return dosyalar;
+}
+// dosyalar onceden indirilir: iPhone paylasim penceresi dokunustan hemen sonra acilmali
+async function yedekCihazaKaydet(gun, hazir) {
+  const dosyalar = hazir || await yedekGetir(gun);
+  if (navigator.canShare && navigator.canShare({ files: dosyalar })) {
+    try { await navigator.share({ files: dosyalar, title: `GRADDE yedek ${fmtD(gun)}` }); }
+    catch (e) { if (e.name === 'AbortError') return false; throw e; }
+  } else {
+    for (const f of dosyalar) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+  }
+  cihazYedekSon(gun); return true;
+}
+async function cihazYedek() {
+  const el = $('#h-yedek'); if (!el || !isAdmin() || !cihazYedekAcik() || sessionStorage.getItem('ssc_yedek_sonra')) return;
+  try {
+    const ls = await yedekDosyalari(); const son = ls.find((n) => n.endsWith('.xlsx')); if (!son) return;
+    const gun = son.slice(6, 16); if (cihazYedekSon() >= gun || !$('#h-yedek')) return;
+    el.innerHTML = `<div class="card" style="border-left:4px solid var(--accent);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px"><b>${fmtD(gun)} yedeği bu cihaza kaydedilmedi</b><div class="tiny">Excel + JSON birlikte · “Dosyalar'a Kaydet” → GRADDE Yedekler klasörünü seçin</div></div>
+      <div class="btn-row" style="margin:0"><button class="btn sm" id="hy-sonra">Sonra</button><button class="btn sm primary" id="hy-kaydet">${icon('download')}Kaydet</button></div></div>`;
+    $('#hy-sonra').onclick = () => { try { sessionStorage.setItem('ssc_yedek_sonra', '1'); } catch {} el.innerHTML = ''; };
+    let hazir = null; yedekGetir(gun).then((d) => { hazir = d; }).catch(() => {});
+    $('#hy-kaydet').onclick = async () => {
+      try { if (!hazir) hazir = await yedekGetir(gun); if (await yedekCihazaKaydet(gun, hazir)) { el.innerHTML = ''; toast('Yedek bu cihaza kaydedildi', 'ok'); } }
+      catch (e) { if (e.name === 'NotAllowedError') toast('Dosyalar hazırlandı, Kaydet\'e bir kez daha dokunun', 'ok'); else fail(e); }
+    };
+  } catch { /* yedek listesi okunamazsa sessiz */ }
 }
 async function soruAnaSayfa() {
   try {
@@ -6017,7 +6068,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.12';
+const APP_V = '2.13';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
