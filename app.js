@@ -539,6 +539,8 @@ async function viewHome() {
     api.get('v_platform_siparisler', `select=*&or=(durum.in.(${encodeURIComponent('Bekliyor,Onay bekliyor,Eşleşmedi,Hata')}),iade_durum.eq.${encodeURIComponent('Talep bekliyor')},and(iade_durum.eq.${encodeURIComponent('İade talebi')},iade_teslim.is.null),and(hata.not.is.null,iade_islendi.is.true,iade_durum.eq.${encodeURIComponent('Kabul edildi')}))&order=tarih.asc&limit=30`).catch(() => [])
   ]);
   const eksi = urun.filter((u) => u.aktif && u.stok_takibi !== false && (num(u.sevk_sonrasi_stok) < 0 || num(u.real_stok) < 0));
+  const bekSt = bek.filter((s) => !yoldaMi(s)), bekYl = bek.filter(yoldaMi);
+  const bekTop = (a) => fmtTL(a.reduce((t, s) => t + num(s.genel_toplam), 0));
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
   $('#view').innerHTML = `
     <div class="quick">
@@ -547,11 +549,16 @@ async function viewHome() {
       <button class="q-orange" data-fn="tahsilat">${icon('cash')}Tahsilat</button>
       <button class="q-purple" data-nav="#/stok">${icon('box')}Stok Durumu</button>
     </div>
+    <div class="section-title">Bekleyen siparişler</div>
+    <div class="kpis kpis-2">
+      <a class="kpi purple" href="#h-bek-st" data-kay="h-bek-st"><div class="l">Sevk bekleyen (stoktan)</div><div class="v num">${bekSt.length}</div><div class="s">${bekTop(bekSt)} · depodan gönderilecek</div></a>
+      <a class="kpi" style="border-top-color:var(--accent)" href="#h-bek-yl" data-kay="h-bek-yl"><div class="l">İthalat bekleyen (yolda)</div><div class="v num">${bekYl.length}</div><div class="s">${bekTop(bekYl)} · mal gelince sevk edilecek</div></a>
+    </div>
     <div class="section-title">Özet</div>
     <div class="kpis">
       <div class="kpi"><div class="l">Bu ay satış</div><div class="v num">${fmtTL(oz.bu_ay_satis)}</div><div class="s">KDV dahil, iptaller hariç</div></div>
       <div class="kpi orange"><div class="l">Açık alacak</div><div class="v num">${fmtTL(oz.acik_alacak)}</div><div class="s">R ${fmtTL(oz.acik_alacak_r)} · GR ${fmtTL(oz.acik_alacak_gr)}</div></div>
-      <div class="kpi purple"><div class="l">Bekleyen sipariş</div><div class="v num">${oz.bekleyen_siparis}</div><div class="s">sevk edilmeyi bekliyor</div></div>
+      <div class="kpi purple"><div class="l">Yoldaki ithalat</div><div class="v num">${cinAktif.length}</div><div class="s">aktif ithalat siparişi</div></div>
       <div class="kpi ${eksi.length ? 'red' : 'green'}"><div class="l">Eksi stok</div><div class="v num">${eksi.length}</div><div class="s">ürün</div></div>
     </div>
     <div id="h-risk"></div>
@@ -559,10 +566,10 @@ async function viewHome() {
     <div id="h-soru"></div>
     ${plSon.length ? `<div class="section-title" style="color:var(--red)">Sizden işlem bekleyen platform siparişleri <a href="#/platform-siparisler">Tümü</a></div>
     <div class="list" id="h-pl">${plSon.map(plRow).join('')}</div>` : ''}
-    ${(() => { const st = bek.filter((s) => !yoldaMi(s)), yl = bek.filter(yoldaMi); const top = (a) => fmtTL(a.reduce((t, s) => t + num(s.genel_toplam), 0));
-      return `<div class="section-title">Sevk bekleyen siparişler (stoktan) <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${st.length} sipariş · ${top(st)}</span> <a href="#/siparisler" data-sipf="Beklemede">Tümü</a></div>
+    ${(() => { const st = bekSt, yl = bekYl, top = bekTop;
+      return `<div class="section-title" id="h-bek-st">Sevk bekleyen siparişler (stoktan) <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${st.length} sipariş · ${top(st)}</span> <a href="#/siparisler" data-sipf="Beklemede">Tümü</a></div>
     <div class="list">${st.length ? st.slice(0, 50).map((s) => siparisRow(s, true)).join('') : '<div class="empty">Stoktan sevk bekleyen sipariş yok 🎉</div>'}</div>
-    ${yl.length ? `<div class="section-title">İthalat bekleyen siparişler (yolda) <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${yl.length} sipariş · ${top(yl)}</span> <a href="#/siparisler" data-sipf="Yolda">Tümü</a></div>
+    ${yl.length ? `<div class="section-title" id="h-bek-yl">İthalat bekleyen siparişler (yolda) <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${yl.length} sipariş · ${top(yl)}</span> <a href="#/siparisler" data-sipf="Yolda">Tümü</a></div>
     <div class="list">${yl.slice(0, 50).map((s) => siparisRow(s, true)).join('')}</div>` : ''}`; })()}
     <div class="section-title">En çok alacaklı olduğumuz cariler <a href="#" id="tum-alacak">Tümü</a></div>
     <div class="list">${alacak10.length ? alacak10.map(cariRow).join('') : '<div class="empty">Açık alacak yok</div>'}</div>
@@ -571,6 +578,7 @@ async function viewHome() {
     <div class="section-title">Yoldaki ithalat siparişleri <a href="#/cin">Tümü</a></div>
     <div class="list">${cinAktif.length ? cinAktif.map(cinRow).join('') : '<div class="empty">Aktif ithalat siparişi yok</div>'}</div>`;
   bindRows();
+  $$('[data-kay]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); const h = $('#' + a.dataset.kay); if (h) h.scrollIntoView({ behavior: 'smooth', block: 'start' }); else toast('Bekleyen sipariş yok', 'ok'); }));
   $('#h-pl') && $$('[data-pl]', $('#h-pl')).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; plDetay(plSon.find((x) => x.id === +el.dataset.pl)); }));
   bindPlanRows($('#h-plan'), plan14, null);
   bindNakitRows($('#h-plan'), nakit14);
@@ -6106,7 +6114,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.15';
+const APP_V = '2.16';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

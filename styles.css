@@ -492,3 +492,7 @@ details.gum[open] summary { margin-bottom: 10px; }
 .risk-alarm a { color: #fff; text-decoration: underline; font-weight: 700; }
 @keyframes risk-nabiz { 0%, 100% { box-shadow: 0 6px 18px rgba(220, 38, 38, .35); } 50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, .25), 0 6px 22px rgba(220, 38, 38, .5); } }
 @media (prefers-reduced-motion: reduce) { .risk-alarm { animation: none; } }
+
+/* ana sayfa: stoktan / ithalat bekleyen siparis kutulari */
+.kpis.kpis-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+a.kpi { display: block; color: inherit; text-decoration: none; }
