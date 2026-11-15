@@ -224,6 +224,19 @@ async function n11Cevap(a: Record<string, string>, id: string, metin: string) {
 }
 
 /* ---------------- Koctas (Mirakl mesajlari) ---------------- */
+// musteri Koctas bildirimini e-postayla yanitlarsa govde HTML gelir: duz metne cevrilir, &#231; gibi kodlar harfe donusur
+const VARLIK: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+const varlikCoz = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (h, k: string) => k[0] === "#" ? (() => { const n = k[1] === "x" || k[1] === "X" ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10); try { return String.fromCodePoint(n); } catch { return h; } })() : VARLIK[k.toLowerCase()] ?? h);
+function htmlMetin(v: unknown): string | null {
+  if (v == null) return null;
+  let s = String(v);
+  if (/<\/?(html|body|div|p|br|span|font|table|blockquote)\b/i.test(s)) {
+    s = s.replace(/<(head|style|script)\b[\s\S]*?<\/\1>/gi, "")
+      .replace(/<br\s*\/?>/gi, "\n").replace(/<\/(div|p|li|tr|h\d|blockquote)>/gi, "\n").replace(/<[^>]+>/g, "")
+      .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  }
+  return varlikCoz(s).replace(/ /g, " ").trim();
+}
 async function koctasCek(a: Record<string, string>, gun: number): Promise<Soru[]> {
   const out: Soru[] = [];
   let token = "";
@@ -232,7 +245,7 @@ async function koctasCek(a: Record<string, string>, gun: number): Promise<Soru[]
     if (!r.ok) throw new Error(`Koçtaş mesajlar: ${r.status} ${(await r.text()).slice(0, 200)}`);
     const j = await r.json();
     for (const t of j.data ?? []) {
-      const msj = ((t.messages ?? []) as Record<string, any>[]).slice().sort((x, y) => String(x.date_created).localeCompare(String(y.date_created)));
+      const msj = ((t.messages ?? []) as Record<string, any>[]).slice().sort((x, y) => String(x.date_created).localeCompare(String(y.date_created))).map((m) => ({ ...m, body: htmlMetin(m.body) }));
       const kim = (m: Record<string, any>) => /SHOP/.test(m.from?.type ?? "") ? "Satıcı" : /OPERATOR/.test(m.from?.type ?? "") ? "Koçtaş" : "Müşteri";
       const ilk = msj.find((m) => kim(m) !== "Satıcı") ?? msj[0];
       const sonSatici = [...msj].reverse().find((m) => kim(m) === "Satıcı");
