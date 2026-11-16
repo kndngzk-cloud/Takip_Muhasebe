@@ -247,6 +247,8 @@ textarea.input { min-height: 70px; resize: vertical; }
 .icon-btn { border: 0; background: transparent; color: var(--text-3); padding: 8px; border-radius: 9px; cursor: pointer; display: inline-flex; }
 .icon-btn:hover { background: var(--red-soft); color: var(--red); }
 .icon-btn svg { width: 20px; height: 20px; }
+.h-prt { display: inline-flex; align-items: center; gap: 4px; }
+.h-prt svg { width: 14px; height: 14px; flex: none; }
 .totals { display: grid; gap: 6px; }
 .totals .tr { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
 .totals .tr.big { font-size: 19px; font-weight: 800; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
