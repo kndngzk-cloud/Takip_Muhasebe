@@ -2226,9 +2226,10 @@ function cariForm(c = null, preset = null, onSaved = null) {
           <div class="hint">Açık borç (bakiye + sevk bekleyen siparişler) bunu aşarsa uyarı verilir</div></div></div>
       ${notAlan('c-not', 'cariler', c?.id)}
       ${c ? `<label class="check"><input type="checkbox" id="c-akt" ${d.aktif ? 'checked' : ''}> Aktif</label>` : ''}`,
-    foot: `<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="c-ok">Kaydet</button>`,
+    foot: `${c && isAdmin() ? `<button class="btn red" id="c-sil" style="margin-right:auto">${icon('trash')} Sil</button>` : ''}<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="c-ok">Kaydet</button>`,
     onMount: (m) => {
       let tip = d.tip;
+      if ($('#c-sil', m.el)) $('#c-sil', m.el).onclick = (e) => cariSil(c, m).catch(fail);
       const st = () => $$('#c-tip button', m.el).forEach((b) => b.classList.toggle('on', b.dataset.v === tip));
       st(); $('#c-tip', m.el).onclick = (e) => { const b = e.target.closest('button'); if (b) { tip = b.dataset.v; st(); } };
       $('#c-ok', m.el).onclick = async (e) => {
@@ -2246,6 +2247,23 @@ function cariForm(c = null, preset = null, onSaved = null) {
       };
     }
   });
+}
+
+/* Cari silme (yonetici): hareketi / siparisi olmayan cari silinir; olan cari silinmez, pasif yapilabilir
+   (gecmis kayitlar ve bakiyeler bozulmasin diye) */
+async function cariSil(c, m) {
+  const say = async (t, q = '') => (await api.get(t, `select=id&cari_id=eq.${c.id}${q}&limit=1`).catch(() => [])).length;
+  const [sip, har, nak, plan] = await Promise.all([say('siparisler'), say('cari_hareketler'), say('nakit_girisleri'), say('odeme_plani')]);
+  if (sip || har) {
+    const neler = [sip && 'siparişleri', har && 'cari hareketleri'].filter(Boolean).join(' ve ');
+    if (!await confirmBox('Bu cari silinemez', `<b>${esc(c.unvan)}</b> carisinin ${neler} var; silinirse geçmiş kayıtlar ve raporlar bozulur.<br><br>Bunun yerine <b>pasif</b> yapabilirsiniz: listelerde ve cari seçiminde görünmez, geçmiş kayıtları korunur.${c.aktif === false ? '<br><br>Cari zaten pasif.' : ''}`, c.aktif === false ? 'Tamam' : 'Pasif yap')) return;
+    if (c.aktif === false) return;
+    await api.update('cariler', `id=eq.${c.id}`, { aktif: false });
+    m.close(); cache.dirty('cariler'); toast(`${c.unvan} pasif yapıldı`, 'ok'); go('#/cariler'); return;
+  }
+  if (!await confirmBox('Cari silinsin mi?', `<b>${esc(c.unvan)}</b> kalıcı olarak silinecek. Siparişi ve hareketi olmadığı için hiçbir kayıt bozulmaz.${nak || plan ? '<br><br>Bu cariye bağlı çek / ödeme planı kayıtları silinmez, sadece cari bağlantısı kalkar.' : ''}`, 'Sil', true)) return;
+  await api.del('cariler', `id=eq.${c.id}`);
+  m.close(); cache.dirty('cariler'); toast('Cari silindi', 'ok'); go('#/cariler');
 }
 
 /* Ortak: cari secimi gerektiren formlar icin */
@@ -6197,7 +6215,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.20';
+const APP_V = '2.21';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
