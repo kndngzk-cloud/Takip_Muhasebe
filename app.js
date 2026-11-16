@@ -809,7 +809,7 @@ function maliyetKart(s, rows, kal) {
   const o = maliyetOzet(rows), ad = (r) => kal.find((k) => k.id === r.kalem_id)?.urunler?.ad || '';
   const kr = (v) => `<span style="color:${v < 0 ? 'var(--red)' : 'var(--green)'};font-weight:700">${fmtTL(v)}</span>`;
   return `<div class="card not-kart" style="border-left:4px solid var(--accent)"><h2 style="margin-bottom:4px">Maliyet ve kâr <span class="badge">${o.tah ? 'Tahmini' : 'Gerçek'} · ${esc(s.maliyet_yontemi || 'FIFO')}</span></h2>
-    <p class="tiny" style="margin:0 0 10px">Sadece siz görürsünüz; müşteri çıktısına girmez. KDV hariç.${o.tah ? ' Sevk edilmediği için tahmini: ithalata bağlıysa ithalat maliyeti, değilse depodaki partiler (yoksa son alış maliyeti).' : ''}</p>
+    <p class="tiny" style="margin:0 0 10px">Sadece siz görürsünüz; müşteri çıktısına girmez. KDV hariç.${num(s.nakliye_tutar) > 0 ? ` <b>Fiyata dahil nakliye ${fmtTL(s.nakliye_tutar)}${s.nakliye_tip === 'adet' ? ` (ürün başına ${fmtTL(s.nakliye_deger)})` : ''} satıştan düşüldü; satış sütunu net tutardır.</b>` : ''}${o.tah ? ' Sevk edilmediği için tahmini: ithalata bağlıysa ithalat maliyeti, değilse depodaki partiler (yoksa son alış maliyeti).' : ''}</p>
     <div class="table-wrap"><table class="tbl stack"><thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim maliyet</th><th class="r">Maliyet</th><th class="r">Satış</th><th class="r">Kâr</th></tr></thead><tbody>
     ${rows.map((r) => `<tr><td class="w">${esc(ad(r))}${num(r.maliyetsiz) > 0 ? `<div class="tiny" style="color:var(--orange)">${fmtN(num(r.maliyetsiz))} birimin maliyeti yok</div>` : ''}${r.kaynak === 'Tahmini (ithalat)' ? '<div class="tiny">ithalat maliyeti</div>' : ''}</td>
       <td class="r" data-l="Miktar">${fmtN(r.miktar)}</td><td class="r" data-l="Birim maliyet">${r.birim_maliyet !== null ? fmtTL(r.birim_maliyet) : '–'}</td>
@@ -1304,14 +1304,14 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
   }
   const cinMik = {}; cinKal.filter((k) => !k.dahil_urun_ids?.length).forEach((k) => { cinMik[k.urun_id] = (cinMik[k.urun_id] || 0) + num(k.miktar) - num(k.devreden); });
   const sablonlar = cin ? MUSTERI_SABLON_CIN : MUSTERI_SABLON;
-  const f = { iskTip: '%', isk: '', pb: 'TRY', kur: 1, yon: ayar.maliyet_yontemi || 'FIFO', cari: null, tip: 'R', gonderim: '', tarih: today(), kdv: num(ayar.kdv_orani) * 100, aciklama: '', sevk: false, fiyatKaydet: true, lines: [], mf: {}, orig: {} };
+  const f = { nakTip: '', nakB: 'toplam', nak: '', iskTip: '%', isk: '', pb: 'TRY', kur: 1, yon: ayar.maliyet_yontemi || 'FIFO', cari: null, tip: 'R', gonderim: '', tarih: today(), kdv: num(ayar.kdv_orani) * 100, aciklama: '', sevk: false, fiyatKaydet: true, lines: [], mf: {}, orig: {} };
   let es = null, ekal = [];
   if (editId) {
     [[es], ekal] = await Promise.all([api.get('v_siparisler', `select=*&id=eq.${editId}`), api.get('siparis_kalemleri', `select=*&siparis_id=eq.${editId}&order=id.asc`)]);
     if (!es) { $('#view').innerHTML = '<div class="card empty">Sipariş bulunamadı</div>'; return; }
     if (es.durum === 'İptal') { $('#view').innerHTML = '<div class="card empty">İptal edilmiş sipariş düzenlenemez</div>'; return; }
     topbar(`Fiş ${es.fis_no} · düzenle`, { back: true });
-    Object.assign(f, { pb: es.para_birimi || 'TRY', kur: num(es.kur) || 1, yon: es.maliyet_yontemi || f.yon, tip: es.fatura_tipi, tarih: es.tarih, kdv: es.fatura_tipi === 'R' ? num(es.kdv_orani) * 100 : f.kdv, aciklama: es.aciklama || '', iskTip: es.iskonto_tip || '%', isk: num(es.iskonto_deger) > 0 ? num(es.iskonto_deger) : '' });
+    Object.assign(f, { pb: es.para_birimi || 'TRY', kur: num(es.kur) || 1, yon: es.maliyet_yontemi || f.yon, tip: es.fatura_tipi, tarih: es.tarih, kdv: es.fatura_tipi === 'R' ? num(es.kdv_orani) * 100 : f.kdv, aciklama: es.aciklama || '', iskTip: es.iskonto_tip || '%', isk: num(es.iskonto_deger) > 0 ? num(es.iskonto_deger) : '', nakTip: es.nakliye_tip ? '1' : '', nakB: es.nakliye_tip || 'toplam', nak: num(es.nakliye_deger) > 0 ? num(es.nakliye_deger) : '' });
     ekal.forEach((k) => { f.orig[k.urun_id] = (f.orig[k.urun_id] || 0) + num(k.miktar); });
   }
   const avail = (u) => num(u.sevk_sonrasi_stok) + (f.orig[u.id] || 0) + (cin ? num(u.yolda) - num(u.bekleyen_yolda) : 0); // ithalata bagli bekleyenler yoldaki maldan duser
@@ -1346,6 +1346,10 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
       <div class="field"><label>Sipariş altı iskonto <span class="tiny" style="font-weight:500">isteğe bağlı · KDV'den önce düşülür</span></label>
         <div style="display:flex;gap:8px"><div class="seg" id="f-isk-t" style="flex:0 0 auto"><button type="button" data-v="%">%</button><button type="button" data-v="tutar">Tutar</button></div>
         <input class="input" id="f-isk" inputmode="decimal" placeholder="İskonto yok" style="flex:1"></div></div>
+      <div class="field"><label>Nakliye <span class="tiny" style="font-weight:500">fiyata dahil mi? · dahilse kâr hesabında satıştan düşülür, faturayı değiştirmez</span></label>
+        <div class="seg" id="f-nak-d"><button type="button" data-v="">Nakliye hariç</button><button type="button" data-v="1">Nakliye dahil</button></div>
+        <div id="f-nak-w" style="gap:8px;margin-top:8px"><div class="seg" id="f-nak-t" style="flex:0 0 auto"><button type="button" data-v="adet">Ürün başına</button><button type="button" data-v="toplam">Toplam</button></div>
+        <input class="input" id="f-nak" inputmode="decimal" placeholder="₺ · KDV hariç" style="flex:1"></div></div>
       <div class="totals" id="totals"></div>
       <div class="field" style="margin-top:12px"><label>Açıklama <span class="tiny" style="font-weight:500">fişte görünür</span></label><textarea class="input" id="f-acik" placeholder="İsteğe bağlı"></textarea></div>
       ${notAlan('f-not', 'siparisler', editId)}
@@ -1459,18 +1463,35 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
       <div class="tr"><span class="muted">Ara toplam${dv ? ' (TL)' : ''}</span><span>${f.pb !== 'TRY' && !(f.kur > 0) ? '<span class="tiny" style="color:var(--red)">kur girin</span>' : fmtTL(ara)}</span></div>
       ${f.tip === 'R' ? `<div class="tr"><span class="muted">KDV (%${fmtN(kdvO * 100)})</span><span>${fmtTL(kdv)}</span></div>` : '<div class="tr"><span class="muted">KDV</span><span class="tiny">GR — KDV eklenmez</span></div>'}
       <div class="tr big"><span>Genel toplam</span><span>${fmtTL(ara + kdv)}</span></div>
+      ${nakTL() > 0 ? `<div class="tr" style="margin-top:6px"><span class="muted">Nakliye (fiyata dahil${f.nakB === 'adet' ? `, ${fmtN(nakAdet())} × ${fmtTL(f.nak)}` : ''})</span><span class="neg">−${fmtTL(nakTL())}</span></div>
+        <div class="tr"><span class="muted"><b>Net satış</b> · kâr bunun üzerinden hesaplanır</span><span><b>${fmtTL(ara - nakTL())}</b></span></div>
+        ${nakTL() > ara + 0.001 ? '<div class="tiny" style="color:var(--red)">Nakliye ara toplamdan büyük olamaz</div>' : ''}` : ''}
       ${dv ? `<div class="tiny">${fmtPB((araD - iskD) * (1 + kdvO), f.pb)} × ${fmtN(f.kur)} = ${fmtTL(ara + kdv)} cariye TL olarak işlenir</div>` : ''}
       ${f.cari?.tip === 'Perakende' ? '<div class="tiny">Perakende cari: aynı tutarda tahsilat otomatik girilir, bakiye sıfır kalır.</div>' : ''}`;
     drawRisk();
   };
   $('#f-kdv').oninput = drawTotals;
+  /* nakliye: fiyata dahilse urun basina (x toplam adet) ya da toplam tutar; KDV haric TL, kar hesabinda satistan dusulur */
+  const nakAdet = () => f.lines.filter((l) => l.urun).reduce((a, l) => a + num(l.miktar), 0);
+  const nakTL = () => (!f.nakTip || f.nak === '' ? 0 : Math.round((f.nakB === 'adet' ? num(f.nak) * nakAdet() : num(f.nak)) * 100) / 100);
+  const setNak = () => {
+    $$('#f-nak-d button').forEach((b) => b.classList.toggle('on', b.dataset.v === f.nakTip));
+    $$('#f-nak-t button').forEach((b) => b.classList.toggle('on', b.dataset.v === f.nakB));
+    $('#f-nak-w').style.display = f.nakTip ? 'flex' : 'none';
+    $('#f-nak').placeholder = f.nakB === 'adet' ? 'Ürün başına ₺ · KDV hariç' : 'Toplam ₺ · KDV hariç';
+    drawTotals();
+  };
+  $('#f-nak-d').onclick = (e) => { const b = e.target.closest('button'); if (b) { f.nakTip = b.dataset.v; setNak(); if (f.nakTip) $('#f-nak').focus(); } };
+  $('#f-nak-t').onclick = (e) => { const b = e.target.closest('button'); if (b) { f.nakB = b.dataset.v; setNak(); } };
+  $('#f-nak').value = f.nak === '' ? '' : fmtN(f.nak);
+  $('#f-nak').oninput = (e) => { const v = parseNum(e.target.value); f.nak = isNaN(v) || v <= 0 ? '' : v; drawTotals(); };
   /* siparis alti iskonto: yuzde ya da siparisin para biriminde tutar (sunucudaki hesapla ayni) */
   const iskHesap = (brut, kur) => (f.isk === '' || !(num(f.isk) > 0) ? 0 : f.iskTip === '%' ? Math.round(brut * num(f.isk)) / 100 : Math.round(num(f.isk) * kur * 100) / 100);
   const setIskTip = (t) => { f.iskTip = t; $$('#f-isk-t button').forEach((b) => b.classList.toggle('on', b.dataset.v === t)); $('#f-isk').placeholder = t === '%' ? 'İskonto yok · örn. 5' : `İskonto yok · tutar ${PB[f.pb] || ''}`; drawTotals(); };
   $('#f-isk-t').onclick = (e) => { const b = e.target.closest('button'); if (b) setIskTip(b.dataset.v); };
   $('#f-isk').value = f.isk === '' ? '' : fmtN(f.isk);
   $('#f-isk').oninput = (e) => { const v = parseNum(e.target.value); f.isk = isNaN(v) || v <= 0 ? '' : v; drawTotals(); };
-  setIskTip(f.iskTip);
+  setIskTip(f.iskTip); setNak();
   $('#add-line').onclick = () => { if (f.lines[f.lines.length - 1]?.urun) f.lines.push({ urun: null, miktar: '', fiyat: '' }); drawLines(); setTimeout(() => $$('#lines .l-urun').pop()?.focus(), 30); };
 
   if (editId) {
@@ -1523,6 +1544,8 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
     const tlF = (l) => Math.round(num(l.fiyat) * dv.kur * 100) / 100;
     if (f.isk !== '' && f.iskTip === '%' && num(f.isk) >= 100) return toast('İskonto oranı 100\'den küçük olmalı', 'err');
     if (f.isk !== '' && iskHesap(lines.reduce((a, l) => a + Math.round(num(l.miktar) * tlF(l) * 100) / 100, 0), dv.kur) > lines.reduce((a, l) => a + Math.round(num(l.miktar) * tlF(l) * 100) / 100, 0)) return toast('İskonto sipariş tutarından büyük olamaz', 'err');
+    if (f.nakTip && f.nak === '') return toast('Nakliye dahil seçildi: nakliye tutarını yazın (ya da “Nakliye hariç” seçin)', 'err');
+    { const t = $('#totals').innerText; if (/Nakliye ara toplamdan büyük/.test(t)) return toast('Nakliye ara toplamdan büyük olamaz', 'err'); }
     const eksik = lines.filter((l) => num(l.miktar) > avail(l.urun));
     // stok yetersiz olsa da kaydedilir (sonradan tedarik edilecek); sadece bilgi verilir
     const sevk = !editId && $('#f-sevk').checked;
@@ -1544,6 +1567,7 @@ async function viewSiparisYeni(cariId, editId = null, cinId = null) {
         const res = editId ? await api.rpc('siparis_guncelle', { p_siparis_id: +editId, ...ortak }) : await api.rpc('siparis_kaydet', { p_cari_id: f.cari.id, ...ortak });
         if (dv.pb !== 'TRY' || (editId && es.para_birimi !== 'TRY')) await api.rpc('siparis_doviz', { p_siparis_id: res.id, p_para_birimi: dv.pb, p_kur: dv.kur, p_fiyatlar: lines.map((l) => num(l.fiyat)) });
         if (f.isk !== '' || (editId && num(es.iskonto_tutar) > 0)) Object.assign(res, await api.rpc('siparis_iskonto', { p_siparis_id: res.id, p_tip: f.isk !== '' ? f.iskTip : null, p_deger: f.isk !== '' ? num(f.isk) : null }));
+        if (f.nakTip || (editId && es.nakliye_tip)) await api.update('siparisler', `id=eq.${res.id}`, f.nakTip ? { nakliye_tip: f.nakB, nakliye_deger: num(f.nak), nakliye_tutar: nakTL() } : { nakliye_tip: null, nakliye_deger: null, nakliye_tutar: null });
         if (cin) await api.update('siparisler', `id=eq.${res.id}`, { cin_siparis_id: cin.id });
         const plan = !editId && $('#f-plan')?.value;
         if (plan === 'elle') {
@@ -6215,7 +6239,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.21';
+const APP_V = '2.22';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
