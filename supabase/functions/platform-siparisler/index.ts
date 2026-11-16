@@ -151,6 +151,15 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
     } catch (e) { notlar.push("teslim edilemedi: " + String(e)); }
     IADE.Hepsiburada = Object.values(iadeler).map((o) => ({ ...o, adet: o.durum === "Kabul edildi" || o.durum === "Teslim edilemedi" ? o.adet : null }));
   }
+  // programda hala kargolanmamis gorunen ama hicbir listede cikmayan siparisler (or. panelde kargo firmasi degistirilince paket
+  // yeniden olusur ve listelerden duser): tek tek sorulur ki kargo firmasi / durum degisikligi programa gelsin
+  if (!bitGun) {
+    try {
+      const gor = new Set([...Object.keys(kalemler), ...Object.keys(sevk), ...iptal, ...Object.keys(paket)]);
+      const acik = await rest(`platform_siparisler?select=siparis_no&platform=eq.Hepsiburada&durum=eq.${encodeURIComponent("Aktarıldı")}&sevk_tarihi=is.null&platform_durum=not.in.(Cancelled,Delivered,Shipped)&tarih=gte.${new Date(Date.now() - 12 * 86400000).toISOString()}&order=tarih.desc&limit=15`) as { siparis_no: string }[];
+      for (const { siparis_no: no } of acik) if (!gor.has(no)) { try { const d = await al(`${oms}/orders/merchantid/${mid}/ordernumber/${encodeURIComponent(no)}`); const its = (d.items ?? []) as Record<string, any>[]; if (its.length) kalemler[no] = its; } catch (e) { notlar.push(String(e)); } }
+    } catch (e) { notlar.push("tekil: " + String(e)); }
+  }
   // kargolanmis ama acik listede olmayan siparislerin detayi
   for (const no of [...Object.keys(sevk), ...iptal, ...Object.keys(paket)]) if (!kalemler[no]) { try { const d = await al(`${oms}/orders/merchantid/${mid}/ordernumber/${encodeURIComponent(no)}`); kalemler[no] = d.items ?? []; } catch (e) { notlar.push(String(e)); } }
   const out: Sip[] = [];
@@ -181,7 +190,7 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
       satirlar: its.map((x) => ({ kod: x.merchantSKU || x.merchantSku || x.sku || "", ad: x.name || x.productName || "", miktar: Number(x.quantity) || 1, tutar: para(x.totalPrice) })),
       brut, komisyon: kom, kargo_kesinti: kargo, net, kesinti_kesin: kesin,
       kargo_firma: i0.cargoCompany || i0.cargoCompanyModel?.name || null, kargo_takip: sv?.barkod || paket[no] || i0.barcode || i0.packageNumber || null,
-      kargo_link: sv?.barkod ? `https://www.hepsijet.com/gonderi-takibi/${sv.barkod}` : null, barkod: sv?.barkod || paket[no] || i0.barcode || null,
+      kargo_link: sv?.barkod ? (/aras/i.test(String(i0.cargoCompany || i0.cargoCompanyModel?.name || "")) ? `https://kargotakip.araskargo.com.tr/mainpage.aspx?code=${sv.barkod}` : `https://www.hepsijet.com/gonderi-takibi/${sv.barkod}`) : null, barkod: sv?.barkod || paket[no] || i0.barcode || null,
       sevk_tarihi: sv?.tarih ?? null, teslim_tarihi: teslim[no] ?? null, paket_no: paketNo[no] ?? i0.packageNumber ?? null, son_kargo: sonTarih[no] ?? iso(i0.dueDate ?? i0.DueDate ?? i0.lastShippingDate), iptal: iptal.has(no),
       ham: { durum: i0.status, notlar: notlar.slice(0, 3) },
     });
