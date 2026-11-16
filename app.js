@@ -2717,25 +2717,35 @@ async function sermayeHesap() {
   const yl = oz.yolda || [];
   const ylFab = yl.reduce((a, c) => a + num(c.fabrika_tl), 0), ylMas = yl.reduce((a, c) => a + num(c.masraf_tl), 0);
   const stok = num(oz.stok?.deger), yolda = ylFab + ylMas, alacak = num(oz.alacak?.toplam), kasaTop = kasa.reduce((a, k) => a + kasaTL(k), 0);
-  return { oz, kasa, yl, ylFab, ylMas, stok, yolda, alacak, kasaTop, borc: num(oz.borc?.toplam), toplam: stok + yolda + alacak + kasaTop };
+  const cek = (oz.portfoy || []).reduce((a, x) => a + num(x.tl), 0);
+  const plOdeme = (oz.platform || []).reduce((a, x) => a + num(x.tl), 0), plTeslim = (oz.platform_teslim || []).reduce((a, x) => a + num(x.tl), 0), platform = plOdeme + plTeslim;
+  return { oz, kasa, yl, ylFab, ylMas, stok, yolda, alacak, kasaTop, cek, platform, plOdeme, plTeslim, borc: num(oz.borc?.toplam), toplam: stok + yolda + alacak + kasaTop + cek + platform };
 }
 async function raporSermaye(el) {
   const [h, urunler] = await Promise.all([sermayeHesap(), cache.urunler()]);
-  const { oz, kasa, yl, ylFab, ylMas, stok, yolda, alacak, kasaTop, borc, toplam } = h;
+  const { oz, kasa, yl, ylFab, ylMas, stok, yolda, alacak, kasaTop, cek, platform, plOdeme, plTeslim, borc, toplam } = h;
   const uBy = Object.fromEntries(urunler.map((u) => [u.id, u]));
   const ylUsd = yl.filter((c) => c.pb === 'USD').reduce((a, c) => a + num(c.fabrika_odenen), 0);
   const pay = (v) => (toplam > 0 ? ` · %${fmtN(Math.round((v / toplam) * 1000) / 10)}` : '');
   const urn = (oz.stok?.urunler || []).map((x) => ({ ...x, u: uBy[x.urun_id] })).sort((a, b) => num(b.deger) - num(a.deger));
   el.innerHTML = `
     <div class="card sermaye-top"><div class="l">Toplam sermaye</div><div class="v num">${fmtTL(toplam)}</div>
-      <div class="tiny">Stok + yoldaki ithalat + müşteri alacakları + kasa · ${fmtD(today())}</div>
-      <div class="sermaye-bar">${[[stok, 'var(--purple)'], [yolda, 'var(--accent)'], [alacak, 'var(--orange)'], [kasaTop, 'var(--green)']].filter(([v]) => v > 0).map(([v, r]) => `<span style="flex:${v};background:${r}"></span>`).join('')}</div></div>
+      <div class="tiny">Stok + yoldaki ithalat + müşteri alacakları + portföydeki çekler + platformlardan yatacak + kasa · ${fmtD(today())}</div>
+      <div class="sermaye-bar">${[[stok, 'var(--purple)'], [yolda, 'var(--accent)'], [alacak, 'var(--orange)'], [cek, '#b45309'], [platform, '#0891b2'], [kasaTop, 'var(--green)']].filter(([v]) => v > 0).map(([v, r]) => `<span style="flex:${v};background:${r}"></span>`).join('')}</div></div>
     <div class="kpis">
       ${kpi('Depodaki stok', fmtTL(stok), `${fmtN(oz.stok?.adet || 0)} adet · alış maliyetiyle (${esc(oz.yontem || 'FIFO')})${pay(stok)}`, 'purple')}
       ${kpi('Yoldaki ithalat (ödenen)', fmtTL(yolda), `${yl.length} sipariş · fabrikaya ${fmtTL(ylFab)}${ylUsd ? ` (${fmtPB(ylUsd, 'USD')})` : ''}${ylMas ? ` · masraf ${fmtTL(ylMas)}` : ''}${pay(yolda)}`)}
       ${kpi('Müşteri alacakları', fmtTL(alacak), `${oz.alacak?.cari || 0} cari${pay(alacak)}`, 'orange')}
+      ${kpi('Portföydeki çek / senet', fmtTL(cek), `${(oz.portfoy || []).map((x) => `${x.adet} ${esc(x.tur).toLocaleLowerCase('tr')}`).join(' · ') || 'yok'}${pay(cek)}`)}
+      ${kpi('Platformlardan yatacak', fmtTL(platform), `ödeme planında ${fmtTL(plOdeme)}${plTeslim ? ` · teslim bekleyen ${fmtTL(plTeslim)}` : ''}${pay(platform)}`)}
       ${kpi('Kasa / banka', fmtTL(kasaTop), `${kasa.length} hesap${pay(kasaTop)}`, 'green')}
     </div>
+    <div class="section-title">Platformlardan yatacak</div>
+    <div class="card" style="padding:0;overflow-x:auto"><table class="tbl sermaye-tbl"><thead><tr><th>Platform</th><th class="r">Tutar</th></tr></thead><tbody>
+      ${[...(oz.platform || []).map((x) => [x.kaynak, `${x.adet} ödeme günü${num(x.hesapta) ? ` · ${fmtTL(x.hesapta)} hesaba yattı, kasaya işlenmedi` : ''}`, x.tl]),
+         ...(oz.platform_teslim || []).map((x) => [x.platform + ' · teslim bekleyen', `${x.adet} sipariş · teslimden sonra hakedişe girer (net tahmini)`, x.tl])]
+        .sort((a, b) => num(b[2]) - num(a[2])).map(([a, d, t]) => `<tr><td><b>${esc(a)}</b><div class="tiny">${d}</div></td><td class="r"><b>${fmtTL(t)}</b></td></tr>`).join('') || '<tr><td colspan="2" class="empty">Bekleyen platform ödemesi yok</td></tr>'}
+    </tbody></table></div>
     ${borc > 0 ? `<div class="card tiny">Bilgi: ${oz.borc.cari} cariye toplam <b>${fmtTL(borc)}</b> borcumuz var (alacaklı cariler). Bu düşülünce net: <b>${fmtTL(toplam - borc)}</b>. Fabrikalara kalan, henüz ödenmemiş tutarlar sermayeye eklenmez.</div>` : ''}
     <div class="section-title">Yoldaki ithalat siparişleri <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">teslim alınana kadar ödenen para burada görünür; teslim alınınca stoğa geçer</span></div>
     <div class="card" style="padding:0;overflow-x:auto"><table class="tbl sermaye-tbl"><thead><tr><th>Sipariş</th><th class="r">Ödenen</th></tr></thead><tbody>
@@ -2747,7 +2757,9 @@ async function raporSermaye(el) {
       ${urn.length ? urn.map((x) => `<tr><td><b>${esc(x.u?.ad || '#' + x.urun_id)}</b><div class="tiny">${esc(x.u?.kod || '')}</div></td><td class="r">${fmtN(x.miktar)}</td><td class="r">${fmtTL(num(x.deger) / num(x.miktar))}</td><td class="r"><b>${fmtTL(x.deger)}</b></td></tr>`).join('') : '<tr><td colspan="4" class="empty">Depoda stok yok</td></tr>'}
     </tbody></table></div>
     ${num(oz.stok?.maliyetsiz_adet) > 0 ? `<p class="tiny">${fmtN(oz.stok.maliyetsiz_adet)} adet ürünün alış maliyeti girilmediği için değere katılmadı.</p>` : ''}
-    <p class="tiny">Stok değeri, her ürünün depoda kalan alış partilerinin maliyetiyle hesaplanır. Eksiye düşmüş stoklar (satılmış ama alışı girilmemiş) sıfır sayılır.</p>`;
+    <p class="tiny">Stok değeri, her ürünün depoda kalan alış partilerinin maliyetiyle hesaplanır. Eksiye düşmüş stoklar (satılmış ama alışı girilmemiş) sıfır sayılır.
+      Çekler: tahsil ya da ciro edilmemiş, Ödemeler'de "Bekliyor" duran çek ve senetler (müşteriden alınınca cari bakiyesinden düştükleri için alacakta ayrıca sayılmazlar).
+      Platform müşterileri perakende olduğu için bu tutarlar müşteri alacaklarında yer almaz, çift sayılmaz.</p>`;
   bindRows(el);
 }
 
@@ -6157,7 +6169,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.18';
+const APP_V = '2.19';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
