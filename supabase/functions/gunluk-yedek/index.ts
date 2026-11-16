@@ -1,4 +1,5 @@
-// Gunluk yedek: okunur ozet sayfalari + TUM tablolarin TUM sutunlari (.xlsx) ve eksiksiz JSON kopyasi
+// Gunluk yedek: okunur ozet sayfalari + TUM tablolarin TUM sutunlari (.xlsx), eksiksiz JSON kopyasi,
+// veritabani yapisi (.sql) ve programin kodu (.zip, GitHub deposundan)
 // "yedekler" klasorune yazilir,
 // 7 gunden eski yedekleri siler. Her gece pg_cron ile, istenirse uygulamadan
 // (yonetici) elle tetiklenir. Dis kutuphane kullanmaz.
@@ -7,6 +8,7 @@ const URL_ = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BUCKET = "yedekler";
 const SAKLA_GUN = 7;
+const KOD_ZIP = "https://codeload.github.com/kndngzk-cloud/Takip_Muhasebe/zip/refs/heads/main";
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -155,6 +157,19 @@ Deno.serve(async (req) => {
     if (!sr.ok) throw new Error(`Yapı yedeği: ${sr.status} ${await sr.text()}`);
     const su = await fetch(`${URL_}/storage/v1/object/${BUCKET}/${sdosya}`, { method: "POST", headers: { ...H, "x-upsert": "true", "Content-Type": "text/plain" }, body: await sr.json() as string });
     if (!su.ok) throw new Error(`Yapı yedeği yükleme: ${su.status} ${await su.text()}`);
+    // programin kodu (ekranlar + platform baglanti fonksiyonlari): GitHub deposunun o anki tam kopyasi.
+    // GitHub'a ulasilamazsa veri yedegi yine de tamamlanir.
+    const kdosya = `yedek-${gun(new Date())}.zip`;
+    let kod = "";
+    try {
+      const kr = await fetch(KOD_ZIP);
+      if (!kr.ok) throw new Error(`GitHub ${kr.status}`);
+      const zb = new Uint8Array(await kr.arrayBuffer());
+      if (zb.length < 1000 || zb[0] !== 0x50 || zb[1] !== 0x4b) throw new Error("zip değil");
+      const ku = await fetch(`${URL_}/storage/v1/object/${BUCKET}/${kdosya}`, { method: "POST", headers: { ...H, "x-upsert": "true", "Content-Type": "application/zip" }, body: zb });
+      if (!ku.ok) throw new Error(`yükleme ${ku.status} ${await ku.text()}`);
+      kod = kdosya;
+    } catch (err) { kod = `hata: ${String((err as Error).message || err).slice(0, 200)}`; }
 
     // 7 gunden eski yedekleri sil (bugun dahil son 7 gun kalir)
     const sinir = gun(new Date(Date.now() - (SAKLA_GUN - 1) * 86400000));
@@ -163,13 +178,13 @@ Deno.serve(async (req) => {
       body: JSON.stringify({ prefix: "", limit: 1000, sortBy: { column: "name", order: "asc" } }),
     });
     const liste: { name: string }[] = ls.ok ? await ls.json() : [];
-    const eski = liste.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json|sql)$/.test(n) && n.slice(6, 16) < sinir);
+    const eski = liste.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json|sql|zip)$/.test(n) && n.slice(6, 16) < sinir);
     if (eski.length) {
       await fetch(`${URL_}/storage/v1/object/${BUCKET}`, {
         method: "DELETE", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ prefixes: eski }),
       });
     }
-    return json({ dosya, json: jdosya, sema: sdosya, tablo: Object.keys(tam).length, tam_satir: Object.values(tam).reduce((a, r) => a + r.length, 0), satir: sheets.reduce((a, s) => a + s.rows.length, 0), silinen: eski });
+    return json({ dosya, json: jdosya, sema: sdosya, kod, tablo: Object.keys(tam).length, tam_satir: Object.values(tam).reduce((a, r) => a + r.length, 0), satir: sheets.reduce((a, s) => a + s.rows.length, 0), silinen: eski });
   } catch (e) {
     return json({ hata: String((e as Error).message || e) }, 500);
   }
