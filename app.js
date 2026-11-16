@@ -3017,7 +3017,7 @@ async function viewAyarlar() {
         ${ad ? `<button class="btn" id="s-now">${icon('inbox')}Şimdi yedek al</button>` : ''}
         <button class="btn green" id="s-bk">${icon('download')}Anlık Excel indir</button>
       </div>
-      ${ad ? `<label class="check" style="margin-top:12px"><input type="checkbox" id="s-cy" ${cihazYedekAcik() ? 'checked' : ''}> <span>Bu cihaza da günlük yedek kaydet <span class="tiny">(bilgisayar o günün yedeğini iCloud'daki Belgeler › GRADDE Yedekler klasörüne indirmediyse, uygulama açılınca ana sayfada tek dokunuşla aynı klasöre kaydetmeniz hatırlatılır; Excel + JSON)</span></span></label>` : ''}
+      ${ad ? `<label class="check" style="margin-top:12px"><input type="checkbox" id="s-cy" ${cihazYedekAcik() ? 'checked' : ''}> <span>Bu cihaza da günlük yedek kaydet <span class="tiny">(bilgisayar o günün yedeğini iCloud'daki Belgeler › GRADDE Yedekler klasörüne indirmediyse, uygulama açılınca ana sayfada tek dokunuşla aynı klasöre kaydetmeniz hatırlatılır; Excel + JSON + veritabanı yapısı)</span></span></label>` : ''}
     </div>
     <div class="card" id="bld-kart">
       <h2>Bildirimler</h2>
@@ -3058,16 +3058,16 @@ async function viewAyarlar() {
     try {
       const r = await api.raw('storage/v1/object/list/yedekler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefix: '', limit: 100, sortBy: { column: 'name', order: 'desc' } }) });
       const lj = await r.json(); if (!Array.isArray(lj)) throw new Error(lj?.message || lj?.error || 'liste okunamadı');
-      const hepsiYd = lj.filter((o) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json)$/.test(o.name));
-      const ls = hepsiYd.filter((o) => o.name.endsWith('.xlsx')).map((o) => ({ ...o, js: hepsiYd.find((j) => j.name === o.name.replace('.xlsx', '.json')) }));
+      const hepsiYd = lj.filter((o) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json|sql)$/.test(o.name));
+      const ls = hepsiYd.filter((o) => o.name.endsWith('.xlsx')).map((o) => ({ ...o, js: hepsiYd.find((j) => j.name === o.name.replace('.xlsx', '.json')), sq: hepsiYd.find((j) => j.name === o.name.replace('.xlsx', '.sql')) }));
       el.innerHTML = ls.length ? `<div class="list" style="box-shadow:none;border:1px solid var(--line);margin:0">${ls.map((o) => `<div class="row" style="cursor:default">
           <div class="main-col"><div class="t">${fmtD(o.name.slice(6, 16))}</div><div class="st">${esc(o.name)} · ${o.metadata?.size ? fmtN(Math.round(o.metadata.size / 1024)) + ' KB' : ''}</div></div>
-          <div class="btn-row" style="margin:0;flex-wrap:nowrap">${o.js ? `<button class="btn sm" data-yd="${esc(o.js.name)}" title="Programa geri yükleme için eksiksiz kopya">JSON</button>` : ''}<button class="btn sm" data-yd="${esc(o.name)}">${icon('download')}Excel</button></div></div>`).join('')}</div>`
+          <div class="btn-row" style="margin:0;flex-wrap:nowrap">${o.js ? `<button class="btn sm" data-yd="${esc(o.js.name)}" title="Programa geri yükleme için eksiksiz kopya">JSON</button>` : ''}${o.sq ? `<button class="btn sm" data-yd="${esc(o.sq.name)}" title="Veritabanı yapısı: tablolar, hesap fonksiyonları, kurallar (veri içermez)">Yapı</button>` : ''}<button class="btn sm" data-yd="${esc(o.name)}">${icon('download')}Excel</button></div></div>`).join('')}</div>`
         : '<p class="tiny">Henüz otomatik yedek yok; ilki bu gece alınacak.</p>';
       $$('[data-yd]', el).forEach((b) => b.onclick = () => busy(b, async () => {
         const name = b.dataset.yd;
         const blob = await (await api.raw(`storage/v1/object/yedekler/${encodeURIComponent(name)}`)).blob();
-        const file = new File([blob], name, { type: name.endsWith('.json') ? 'application/json' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const file = new File([blob], name, { type: name.endsWith('.json') ? 'application/json' : name.endsWith('.sql') ? 'text/plain' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
         if (ios && navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: name }); } catch (e) { if (e.name !== 'AbortError') throw e; } return; }
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
@@ -3461,13 +3461,13 @@ const cihazYedekSon = (v) => { try { if (v === undefined) return localStorage.ge
 async function yedekDosyalari() {
   const r = await api.raw('storage/v1/object/list/yedekler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefix: '', limit: 100, sortBy: { column: 'name', order: 'desc' } }) });
   const lj = await r.json(); if (!Array.isArray(lj)) throw new Error(lj?.message || lj?.error || 'liste okunamadı');
-  return lj.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json)$/.test(n)).sort().reverse();
+  return lj.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json|sql)$/.test(n)).sort().reverse();
 }
 async function yedekGetir(gun) {
   const dosyalar = [];
-  for (const ad of [`yedek-${gun}.xlsx`, `yedek-${gun}.json`]) {
+  for (const ad of [`yedek-${gun}.xlsx`, `yedek-${gun}.json`, `yedek-${gun}.sql`]) {
     const r = await api.raw(`storage/v1/object/yedekler/${encodeURIComponent(ad)}`); if (!r.ok) continue;
-    dosyalar.push(new File([await r.blob()], ad, { type: ad.endsWith('.json') ? 'application/json' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    dosyalar.push(new File([await r.blob()], ad, { type: ad.endsWith('.json') ? 'application/json' : ad.endsWith('.sql') ? 'text/plain' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   }
   if (!dosyalar.length) throw new Error('Yedek dosyası okunamadı');
   return dosyalar;
@@ -6239,7 +6239,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.22';
+const APP_V = '2.23';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

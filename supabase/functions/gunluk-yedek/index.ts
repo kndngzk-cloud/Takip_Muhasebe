@@ -149,6 +149,12 @@ Deno.serve(async (req) => {
       body: xlsx(sheets),
     });
     if (!up.ok) throw new Error(`Yükleme: ${up.status} ${await up.text()}`);
+    // veritabani yapisi (tablolar, fonksiyonlar, gorunumler, kurallar; veri ve anahtar icermez)
+    const sdosya = `yedek-${gun(new Date())}.sql`;
+    const sr = await fetch(`${URL_}/rest/v1/rpc/yedek_sema`, { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: "{}" });
+    if (!sr.ok) throw new Error(`Yapı yedeği: ${sr.status} ${await sr.text()}`);
+    const su = await fetch(`${URL_}/storage/v1/object/${BUCKET}/${sdosya}`, { method: "POST", headers: { ...H, "x-upsert": "true", "Content-Type": "text/plain" }, body: await sr.json() as string });
+    if (!su.ok) throw new Error(`Yapı yedeği yükleme: ${su.status} ${await su.text()}`);
 
     // 7 gunden eski yedekleri sil (bugun dahil son 7 gun kalir)
     const sinir = gun(new Date(Date.now() - (SAKLA_GUN - 1) * 86400000));
@@ -157,13 +163,13 @@ Deno.serve(async (req) => {
       body: JSON.stringify({ prefix: "", limit: 1000, sortBy: { column: "name", order: "asc" } }),
     });
     const liste: { name: string }[] = ls.ok ? await ls.json() : [];
-    const eski = liste.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json)$/.test(n) && n.slice(6, 16) < sinir);
+    const eski = liste.map((o) => o.name).filter((n) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json|sql)$/.test(n) && n.slice(6, 16) < sinir);
     if (eski.length) {
       await fetch(`${URL_}/storage/v1/object/${BUCKET}`, {
         method: "DELETE", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ prefixes: eski }),
       });
     }
-    return json({ dosya, json: jdosya, tablo: Object.keys(tam).length, tam_satir: Object.values(tam).reduce((a, r) => a + r.length, 0), satir: sheets.reduce((a, s) => a + s.rows.length, 0), silinen: eski });
+    return json({ dosya, json: jdosya, sema: sdosya, tablo: Object.keys(tam).length, tam_satir: Object.values(tam).reduce((a, r) => a + r.length, 0), satir: sheets.reduce((a, s) => a + s.rows.length, 0), silinen: eski });
   } catch (e) {
     return json({ hata: String((e as Error).message || e) }, 500);
   }

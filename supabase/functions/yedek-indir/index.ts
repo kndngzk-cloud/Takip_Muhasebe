@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
       method: "POST", headers: { ...H, "Content-Type": "application/json" },
       body: JSON.stringify({ prefix: "", limit: 1000, sortBy: { column: "name", order: "desc" } }),
     });
-    const dosyalar = (ls.ok ? await ls.json() : []).map((o: { name: string }) => o.name).filter((n: string) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json)$/.test(n));
+    const dosyalar = (ls.ok ? await ls.json() : []).map((o: { name: string }) => o.name).filter((n: string) => /^yedek-\d{4}-\d{2}-\d{2}\.(xlsx|json|sql)$/.test(n));
     const dosya = typeof body.dosya === "string" ? body.dosya : "";
     if (!dosya) return json({ dosyalar });
     if (!dosyalar.includes(dosya)) return json({ hata: "Dosya yok" }, 404);
