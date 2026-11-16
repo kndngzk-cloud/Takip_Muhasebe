@@ -136,8 +136,9 @@ function ticimax(alan: string, etiket: string) {
         kargo_firma: o.KargoFirmaTanim || null, kargo_takip: o.KargoTakipNo || null, kargo_link: o.KargoTakipLink || null, barkod: o.KargoTakipNo || null,
         sevk_tarihi: durum === 6 || durum === 7 ? (degis || d10(tarih)) : null, teslim_tarihi: durum === 7 ? degis : null,
         paket_no: o.ID ? String(o.ID) : null, son_kargo: iso(tmxT(o.KargoyaSonVerilmeTarihi)), iptal: durum === 8 || (erken && hatali),
-        bekle: erken && !odendi && !hatali,
-        ham: { durum, durum_ad: o.SiparisDurumu || null, odeme_tipi: odeme.OdemeTipi ?? null, kargo_tutari: tmxSay(o.KargoTutari) || null,
+        // hic odeme denemesi olmayan siparis (havale/EFT, telefonla girilen) beklemeden aktarilir; kart denemesi suren siparis odeme onayini bekler
+        bekle: erken && !odendi && !hatali && ods.length > 0,
+        ham: { durum, durum_ad: o.SiparisDurumu || null, odeme_tipi: odeme.OdemeTipi ?? null, odeme_bekleniyor: !odendi && !hatali ? Math.round((brut - tmxSay(o.OdenenTutar)) * 100) / 100 : null, kargo_tutari: tmxSay(o.KargoTutari) || null,
           fatura: { ad: fa.AliciAdi || null, firma: fa.FirmaAdi || null, vergi_dairesi: fa.VergiDairesi || null, vergi_no: fa.VergiNo || null, telefon: fa.AliciTelefon || null, adres: [fa.Adres, fa.Ilce, fa.Il].filter(Boolean).join(" ") || null },
           odemeler: dizi(o.Odemeler?.WebSiparisOdeme).map((p: any) => ({ tip: p.OdemeTipi, onay: p.Onaylandi, tutar: p.Tutar, taksit: p.TaksitSayisi, tarih: p.Tarih,
             // odeme referanslari (PayTR eslestirmesi icin); kart bilgisi alinmaz
@@ -207,7 +208,7 @@ Deno.serve(async (req) => {
             if (kuru) continue;
             try {
               if (k.siparis_id) { const r = await rest("rpc/platform_siparis_senkron", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r && Object.keys(r).length) guncellenen++; }
-              else if (durum === "Bekliyor" || durum === "Eşleşmedi" || durum === "Eski") { const r = await rest("rpc/platform_siparis_aktar", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r?.id) { if (r.elle) baglanan++; else { aktarilan++; if (!eski || eski.durum === "Onay bekliyor") olaylar.push({ baslik: `Yeni ${e.platform} siparişi`, metin: ozet(s), url: `#/siparis/${r.id}`, etiket: `s-${e.platform}-${k.siparis_no}` }); } } else if (r?.eslesmedi) { eslesmedi++; if (!eski || eski.durum !== "Eşleşmedi") olaylar.push({ baslik: `${e.platform} siparişi: ürün seçin`, metin: `${ozet(s)} — bu ürün programdaki hiçbir ürünle eşleşmedi`, url: "#/platform-siparisler", etiket: `e-${e.platform}-${k.siparis_no}` }); } }
+              else if (durum === "Bekliyor" || durum === "Eşleşmedi" || durum === "Eski") { const r = await rest("rpc/platform_siparis_aktar", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r?.id) { if (r.elle) baglanan++; else { aktarilan++; if (!eski || eski.durum === "Onay bekliyor") olaylar.push({ baslik: `Yeni ${e.platform} siparişi`, metin: ozet(s) + ((s as any).ham?.odeme_bekleniyor ? " · ödeme henüz alınmadı (havale/EFT bekleniyor)" : ""), url: `#/siparis/${r.id}`, etiket: `s-${e.platform}-${k.siparis_no}` }); } } else if (r?.eslesmedi) { eslesmedi++; if (!eski || eski.durum !== "Eşleşmedi") olaylar.push({ baslik: `${e.platform} siparişi: ürün seçin`, metin: `${ozet(s)} — bu ürün programdaki hiçbir ürünle eşleşmedi`, url: "#/platform-siparisler", etiket: `e-${e.platform}-${k.siparis_no}` }); } }
             } catch (err) {
               const msg = String((err as Error).message || err).slice(0, 300); hatalar.push(`${k.siparis_no}: ${msg}`);
               await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ durum: k.siparis_id ? durum : "Hata", hata: msg }) }).catch(() => {});
