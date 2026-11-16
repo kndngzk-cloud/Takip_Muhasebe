@@ -2726,41 +2726,69 @@ async function raporSermaye(el) {
   const { oz, kasa, yl, ylFab, ylMas, stok, yolda, alacak, kasaTop, cek, platform, plOdeme, plTeslim, borc, toplam } = h;
   const uBy = Object.fromEntries(urunler.map((u) => [u.id, u]));
   const ylUsd = yl.filter((c) => c.pb === 'USD').reduce((a, c) => a + num(c.fabrika_odenen), 0);
-  const pay = (v) => (toplam > 0 ? ` · %${fmtN(Math.round((v / toplam) * 1000) / 10)}` : '');
-  const urn = (oz.stok?.urunler || []).map((x) => ({ ...x, u: uBy[x.urun_id] })).sort((a, b) => num(b.deger) - num(a.deger));
+  const yz = (v) => (toplam > 0 ? (v / toplam) * 100 : 0);
+  const yzT = (v) => `%${fmtN(Math.round(yz(v) * 10) / 10)}`;
+  // kalemler: anahtar, ad, tutar, renk, alt bilgi
+  const K = [
+    ['stok', 'Depodaki stok', stok, '#7c5cdb', `${fmtN(oz.stok?.adet || 0)} adet · alış maliyetiyle (${esc(oz.yontem || 'FIFO')})`],
+    ['yolda', 'Yoldaki ithalat (ödenen)', yolda, '#3b82f6', `${yl.length} sipariş · fabrikaya ${fmtTL(ylFab)}${ylUsd ? ` (${fmtPB(ylUsd, 'USD')})` : ''}${ylMas ? ` · masraf ${fmtTL(ylMas)}` : ''}`],
+    ['alacak', 'Müşteri alacakları', alacak, '#f59e0b', `${oz.alacak?.cari || 0} cari`],
+    ['cek', 'Portföydeki çek / senet', cek, '#b45309', (oz.portfoy || []).map((x) => `${x.adet} ${esc(x.tur).toLocaleLowerCase('tr')}`).join(' · ') || 'yok'],
+    ['platform', 'Platformlardan yatacak', platform, '#0e9fbf', `ödeme planında ${fmtTL(plOdeme)}${plTeslim ? ` · teslim bekleyen ${fmtTL(plTeslim)}` : ''}`],
+    ['kasa', 'Kasa / banka', kasaTop, '#16a36a', `${kasa.length} hesap`]
+  ];
+  // halka grafik (SVG): her dilim kendi rengiyle, dokununca detay acilir
+  const R = 70, C = 2 * Math.PI * R;
+  let bas = 0;
+  const dilimler = K.filter((k) => k[2] > 0).map(([k, ad, v, renk]) => {
+    const uz = (v / toplam) * C, d = `<circle class="sm-dilim" data-sd="${k}" r="${R}" cx="90" cy="90" fill="none" stroke="${renk}" stroke-width="30" stroke-dasharray="${Math.max(uz - 2, 0.5)} ${C}" stroke-dashoffset="${-bas}" transform="rotate(-90 90 90)"><title>${esc(ad)} ${yzT(v)}</title></circle>`;
+    bas += uz; return d;
+  }).join('');
   el.innerHTML = `
-    <div class="card sermaye-top"><div class="l">Toplam sermaye</div><div class="v num">${fmtTL(toplam)}</div>
-      <div class="tiny">Stok + yoldaki ithalat + müşteri alacakları + portföydeki çekler + platformlardan yatacak + kasa · ${fmtD(today())}</div>
-      <div class="sermaye-bar">${[[stok, 'var(--purple)'], [yolda, 'var(--accent)'], [alacak, 'var(--orange)'], [cek, '#b45309'], [platform, '#0891b2'], [kasaTop, 'var(--green)']].filter(([v]) => v > 0).map(([v, r]) => `<span style="flex:${v};background:${r}"></span>`).join('')}</div></div>
-    <div class="kpis">
-      ${kpi('Depodaki stok', fmtTL(stok), `${fmtN(oz.stok?.adet || 0)} adet · alış maliyetiyle (${esc(oz.yontem || 'FIFO')})${pay(stok)}`, 'purple')}
-      ${kpi('Yoldaki ithalat (ödenen)', fmtTL(yolda), `${yl.length} sipariş · fabrikaya ${fmtTL(ylFab)}${ylUsd ? ` (${fmtPB(ylUsd, 'USD')})` : ''}${ylMas ? ` · masraf ${fmtTL(ylMas)}` : ''}${pay(yolda)}`)}
-      ${kpi('Müşteri alacakları', fmtTL(alacak), `${oz.alacak?.cari || 0} cari${pay(alacak)}`, 'orange')}
-      ${kpi('Portföydeki çek / senet', fmtTL(cek), `${(oz.portfoy || []).map((x) => `${x.adet} ${esc(x.tur).toLocaleLowerCase('tr')}`).join(' · ') || 'yok'}${pay(cek)}`)}
-      ${kpi('Platformlardan yatacak', fmtTL(platform), `ödeme planında ${fmtTL(plOdeme)}${plTeslim ? ` · teslim bekleyen ${fmtTL(plTeslim)}` : ''}${pay(platform)}`)}
-      ${kpi('Kasa / banka', fmtTL(kasaTop), `${kasa.length} hesap${pay(kasaTop)}`, 'green')}
+    <div class="card sm-ozet">
+      <div class="sm-grafik"><svg viewBox="0 0 180 180" role="img" aria-label="Sermaye dağılımı">${dilimler}
+        <text x="90" y="84" text-anchor="middle" class="sm-g-l">TOPLAM</text><text x="90" y="104" text-anchor="middle" class="sm-g-v">${fmtTL(Math.round(toplam)).replace(/,\d+/, '')}</text></svg></div>
+      <div class="sm-lejant">${K.map(([k, ad, v, renk]) => `<button class="sm-lj" data-sd="${k}"><i style="background:${renk}"></i><span>${esc(ad)}</span><b>${yzT(v)}</b><em>${fmtTL(v)}</em></button>`).join('')}</div>
     </div>
-    <div class="section-title">Platformlardan yatacak</div>
-    <div class="card" style="padding:0;overflow-x:auto"><table class="tbl sermaye-tbl"><thead><tr><th>Platform</th><th class="r">Tutar</th></tr></thead><tbody>
-      ${[...(oz.platform || []).map((x) => [x.kaynak, `${x.adet} ödeme günü${num(x.hesapta) ? ` · ${fmtTL(x.hesapta)} hesaba yattı, kasaya işlenmedi` : ''}`, x.tl]),
-         ...(oz.platform_teslim || []).map((x) => [x.platform + ' · teslim bekleyen', `${x.adet} sipariş · teslimden sonra hakedişe girer (net tahmini)`, x.tl])]
-        .sort((a, b) => num(b[2]) - num(a[2])).map(([a, d, t]) => `<tr><td><b>${esc(a)}</b><div class="tiny">${d}</div></td><td class="r"><b>${fmtTL(t)}</b></td></tr>`).join('') || '<tr><td colspan="2" class="empty">Bekleyen platform ödemesi yok</td></tr>'}
-    </tbody></table></div>
+    <div class="card sermaye-top"><div class="l">Toplam sermaye</div><div class="v num">${fmtTL(toplam)}</div>
+      <div class="tiny">${fmtD(today())} · ayrıntı için bir kaleme dokunun</div></div>
+    <div class="kpis">${K.map(([k, ad, v, renk, alt]) => `<button class="kpi sm-kpi" data-sd="${k}" style="border-top-color:${renk}"><div class="l">${esc(ad)}</div><div class="v num">${fmtTL(v)}</div>
+      <div class="sm-yuzde"><span style="width:${Math.min(100, yz(v))}%;background:${renk}"></span></div><div class="s"><b style="color:${renk}">${yzT(v)}</b> · ${alt} ›</div></button>`).join('')}</div>
     ${borc > 0 ? `<div class="card tiny">Bilgi: ${oz.borc.cari} cariye toplam <b>${fmtTL(borc)}</b> borcumuz var (alacaklı cariler). Bu düşülünce net: <b>${fmtTL(toplam - borc)}</b>. Fabrikalara kalan, henüz ödenmemiş tutarlar sermayeye eklenmez.</div>` : ''}
-    <div class="section-title">Yoldaki ithalat siparişleri <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">teslim alınana kadar ödenen para burada görünür; teslim alınınca stoğa geçer</span></div>
-    <div class="card" style="padding:0;overflow-x:auto"><table class="tbl sermaye-tbl"><thead><tr><th>Sipariş</th><th class="r">Ödenen</th></tr></thead><tbody>
-      ${yl.length ? yl.map((c) => `<tr data-go="#/cin/${c.id}" style="cursor:pointer"><td><b>${esc(cinNo(c.no, c.kod))}</b> <span class="badge">${esc(c.durum)}</span><div class="tiny">${esc(c.fabrika || '')}</div></td>
-        <td class="r"><b>${fmtTL(num(c.fabrika_tl) + num(c.masraf_tl))}</b><div class="tiny">fabrikaya ${fmtPB(c.fabrika_odenen, c.pb)} / ${fmtPB(c.toplam, c.pb)}</div>${num(c.masraf_tl) ? `<div class="tiny">masraf ${fmtTL(c.masraf_tl)}</div>` : ''}</td></tr>`).join('') : '<tr><td colspan="2" class="empty">Yolda ithalat siparişi yok</td></tr>'}
-    </tbody></table></div>
-    <div class="section-title">Depodaki stok (değere göre)</div>
-    <div class="card" style="padding:0;overflow-x:auto"><table class="tbl sermaye-tbl"><thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim maliyet</th><th class="r">Değer</th></tr></thead><tbody>
-      ${urn.length ? urn.map((x) => `<tr><td><b>${esc(x.u?.ad || '#' + x.urun_id)}</b><div class="tiny">${esc(x.u?.kod || '')}</div></td><td class="r">${fmtN(x.miktar)}</td><td class="r">${fmtTL(num(x.deger) / num(x.miktar))}</td><td class="r"><b>${fmtTL(x.deger)}</b></td></tr>`).join('') : '<tr><td colspan="4" class="empty">Depoda stok yok</td></tr>'}
-    </tbody></table></div>
-    ${num(oz.stok?.maliyetsiz_adet) > 0 ? `<p class="tiny">${fmtN(oz.stok.maliyetsiz_adet)} adet ürünün alış maliyeti girilmediği için değere katılmadı.</p>` : ''}
-    <p class="tiny">Stok değeri, her ürünün depoda kalan alış partilerinin maliyetiyle hesaplanır. Eksiye düşmüş stoklar (satılmış ama alışı girilmemiş) sıfır sayılır.
-      Çekler: tahsil ya da ciro edilmemiş, Ödemeler'de "Bekliyor" duran çek ve senetler (müşteriden alınınca cari bakiyesinden düştükleri için alacakta ayrıca sayılmazlar).
-      Platform müşterileri perakende olduğu için bu tutarlar müşteri alacaklarında yer almaz, çift sayılmaz.</p>`;
-  bindRows(el);
+    <p class="tiny">Stok değeri, depoda kalan alış partilerinin maliyetiyle hesaplanır; eksiye düşmüş stoklar sıfır sayılır. Çekler, müşteriden alınınca cari bakiyesinden düştüğü için alacakta ayrıca sayılmaz. Platform müşterileri perakende olduğu için platform tutarları alacakta yer almaz.</p>`;
+
+  // ---- detay pencereleri ----
+  const tablo = (bas, satirlar, bos) => `<div class="table-wrap" style="margin:0 -4px"><table class="tbl sermaye-tbl"><thead><tr>${bas.map(([t, r]) => `<th class="${r ? 'r' : ''}">${t}</th>`).join('')}</tr></thead><tbody>${satirlar.length ? satirlar.join('') : `<tr><td colspan="${bas.length}" class="empty">${bos}</td></tr>`}</tbody></table></div>`;
+  const ust = (k) => { const x = K.find((y) => y[0] === k); return `<div class="sm-d-ust" style="border-left-color:${x[3]}"><div class="v num">${fmtTL(x[2])}</div><div class="tiny">Sermayenin <b style="color:${x[3]}">${yzT(x[2])}</b>'i · ${x[4]}</div></div>`; };
+  const ac = async (k) => {
+    const x = K.find((y) => y[0] === k); let govde = '';
+    if (k === 'stok') {
+      const urn = (oz.stok?.urunler || []).map((y) => ({ ...y, u: uBy[y.urun_id] })).sort((a, b) => num(b.deger) - num(a.deger));
+      govde = tablo([['Ürün'], ['Miktar', 1], ['Birim maliyet', 1], ['Değer', 1]], urn.map((y) => `<tr><td><b>${esc(y.u?.ad || '#' + y.urun_id)}</b><div class="tiny">${esc(y.u?.kod || '')} · ${yzT(y.deger)}</div></td><td class="r">${fmtN(y.miktar)}</td><td class="r">${fmtTL(num(y.deger) / num(y.miktar))}</td><td class="r"><b>${fmtTL(y.deger)}</b></td></tr>`), 'Depoda stok yok')
+        + (num(oz.stok?.maliyetsiz_adet) > 0 ? `<p class="tiny">${fmtN(oz.stok.maliyetsiz_adet)} adet ürünün alış maliyeti girilmediği için değere katılmadı.</p>` : '');
+    } else if (k === 'yolda') {
+      govde = tablo([['Sipariş'], ['Ödenen', 1]], yl.map((c) => `<tr data-go="#/cin/${c.id}" style="cursor:pointer"><td><b>${esc(cinNo(c.no, c.kod))}</b> <span class="badge">${esc(c.durum)}</span><div class="tiny">${esc(c.fabrika || '')}</div></td>
+        <td class="r"><b>${fmtTL(num(c.fabrika_tl) + num(c.masraf_tl))}</b><div class="tiny">fabrikaya ${fmtPB(c.fabrika_odenen, c.pb)} / ${fmtPB(c.toplam, c.pb)}</div>${num(c.masraf_tl) ? `<div class="tiny">masraf ${fmtTL(c.masraf_tl)}</div>` : ''}</td></tr>`), 'Yolda ithalat siparişi yok')
+        + '<p class="tiny">Teslim alınmamış siparişler için fabrikaya ve masraflara ödenmiş paralar (ödendiği kurla). Teslim alınınca stoğa geçer.</p>';
+    } else if (k === 'alacak') {
+      const ls = await api.get('v_cariler', 'select=id,unvan,tip,bakiye,son_hareket&bakiye=gt.0.005&order=bakiye.desc&limit=2000');
+      govde = tablo([['Cari'], ['Bakiye', 1]], ls.map((c) => `<tr data-go="#/cari/${c.id}" style="cursor:pointer"><td><b>${esc(c.unvan)}</b><div class="tiny">${esc(c.tip || '')}${c.son_hareket ? ' · son hareket ' + fmtD(c.son_hareket) : ''}</div></td><td class="r"><b>${fmtTL(c.bakiye)}</b><div class="tiny">${yzT(c.bakiye)}</div></td></tr>`), 'Alacak yok');
+    } else if (k === 'cek') {
+      const ls = await api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&tur=neq.Platform&order=vade.asc&limit=1000`).catch(() => api.get('nakit_girisleri', `select=*&durum=eq.Bekliyor&tur=neq.Platform&order=vade.asc&limit=1000`));
+      govde = tablo([['Çek / senet'], ['Vade', 1], ['Tutar', 1]], ls.map((n) => `<tr><td><b>${esc(n.kesideci || n.cari_unvan || n.kaynak || n.tur || 'Çek')}</b><div class="tiny">${esc([n.tur, n.kaynak, n.belge_no].filter(Boolean).join(' · '))}</div></td>
+        <td class="r">${n.vade ? fmtD(n.vade) : '–'}${n.vade && n.vade < today() ? '<div class="tiny" style="color:var(--red)">vadesi geçti</div>' : ''}</td><td class="r"><b>${fmtPB(n.tutar, n.para_birimi || 'TRY')}</b></td></tr>`), 'Portföyde çek yok')
+        + '<p class="tiny">Ödemeler bölümünde "Bekliyor" duran, tahsil ya da ciro edilmemiş çek ve senetler.</p>';
+    } else if (k === 'platform') {
+      govde = tablo([['Platform'], ['Tutar', 1]], [...(oz.platform || []).map((y) => [y.kaynak, `${y.adet} ödeme günü${num(y.hesapta) ? ` · ${fmtTL(y.hesapta)} hesaba yattı, kasaya işlenmedi` : ''}`, y.tl]),
+        ...(oz.platform_teslim || []).map((y) => [y.platform + ' · teslim bekleyen', `${y.adet} sipariş · teslimden sonra hakedişe girer (net tahmini)`, y.tl])]
+        .sort((a, b) => num(b[2]) - num(a[2])).map(([a, d, t]) => `<tr><td><b>${esc(a)}</b><div class="tiny">${d}</div></td><td class="r"><b>${fmtTL(t)}</b><div class="tiny">${yzT(t)}</div></td></tr>`), 'Bekleyen platform ödemesi yok')
+        + '<p class="tiny">Gün gün dökümü Ödemeler bölümünde.</p>';
+    } else if (k === 'kasa') {
+      govde = tablo([['Hesap'], ['Bakiye', 1]], kasa.map((y) => `<tr><td><b>${esc(y.ad)}</b>${y.aciklama ? `<div class="tiny">${esc(y.aciklama)}</div>` : ''}</td><td class="r"><b>${fmtTL(kasaTL(y))}</b>${y.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(y.tutar, y.para_birimi)}</div>` : ''}</td></tr>`), 'Kasa hesabı yok');
+    }
+    modal({ title: x[1], body: ust(k) + govde, foot: '<button class="btn" data-close>Kapat</button>', wide: true, onMount: ({ el: m, close }) => { $$('[data-go]', m).forEach((r) => (r.onclick = () => { close(); go(r.dataset.go); })); } });
+  };
+  $$('[data-sd]', el).forEach((b) => (b.onclick = () => ac(b.dataset.sd).catch(fail)));
 }
 
 /* ---- 7) Nakit akisi tahmini (haftalik) ---- */
@@ -6169,7 +6197,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.19';
+const APP_V = '2.20';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
