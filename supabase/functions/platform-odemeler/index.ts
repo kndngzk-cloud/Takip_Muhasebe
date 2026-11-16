@@ -451,6 +451,12 @@ Deno.serve(async (req) => {
           for (const x of gecmis) {
             if (yatanRef.has(x.dis_ref) || odenenG.has(x.vade)) continue;
             const y = yatan.find((k) => k.vade > x.vade && k.vade <= ekle(x.vade, 4) && Math.abs(k.tutar - Number(x.tutar)) < 0.02);
+            // PayTR: gelecek odeme listesi gun gun eksiksizdir. Gecmis tarihli bir kayit ne yatanlarda ne gelecek listede yoksa
+            // o tutar baska bir gunun odemesine eklenmistir (hafta sonu / tatil kaymasi); kayit bekleyen kalip cift sayilmasin
+            if (!y && e.platform.startsWith("PayTR") && x.vade >= ekle(bugun, -9)) {
+              await rest(`nakit_girisleri?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify({ durum: "İptal", aciklama: "PayTR bu tarihte ödeme yapmadı; tutar başka bir günün ödemesine eklendi" }) });
+              continue;
+            }
             if (!y) continue;
             const [yk] = await rest(`nakit_girisleri?select=id&dis_ref=eq.${encodeURIComponent(dref(y))}&durum=neq.${encodeURIComponent("İptal")}`) as { id: number }[];
             // yatan gunun kendi kaydi varsa eski kayit iptal; yoksa eski kayit o gun yatti olarak isaretlenir (odeme kaybolmaz)
