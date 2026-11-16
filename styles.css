@@ -496,3 +496,11 @@ details.gum[open] summary { margin-bottom: 10px; }
 /* ana sayfa: stoktan / ithalat bekleyen siparis kutulari */
 .kpis.kpis-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 a.kpi { display: block; color: inherit; text-decoration: none; }
+
+/* sermaye raporu */
+.sermaye-top { text-align: center; }
+.sermaye-top .l { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.sermaye-top .v { font-size: 30px; font-weight: 800; margin: 4px 0; }
+.sermaye-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin-top: 12px; gap: 2px; }
+.sermaye-bar span { display: block; min-width: 4px; }
+.sermaye-tbl td.r, .sermaye-tbl th.r { white-space: nowrap; }
