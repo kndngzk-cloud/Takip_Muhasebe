@@ -452,9 +452,9 @@ Deno.serve(async (req) => {
             if (yatanRef.has(x.dis_ref) || odenenG.has(x.vade)) continue;
             const y = yatan.find((k) => k.vade > x.vade && k.vade <= ekle(x.vade, 4) && Math.abs(k.tutar - Number(x.tutar)) < 0.02);
             // PayTR: gelecek odeme listesi gun gun eksiksizdir. Gecmis tarihli bir kayit ne yatanlarda ne gelecek listede yoksa
-            // o tutar baska bir gunun odemesine eklenmistir (hafta sonu / tatil kaymasi); kayit bekleyen kalip cift sayilmasin
+            // PayTR o tutari planindan cikarmistir (bloke / iptal / baska gune kaydirma); kayit bekleyen kalip sermaye ve nakit tahminini sisirmesin
             if (!y && e.platform.startsWith("PayTR") && x.vade >= ekle(bugun, -9)) {
-              await rest(`nakit_girisleri?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify({ durum: "İptal", aciklama: "PayTR bu tarihte ödeme yapmadı; tutar başka bir günün ödemesine eklendi" }) });
+              await rest(`nakit_girisleri?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify({ durum: "İptal", aciklama: "PayTR bu tarihte ödeme yapmadı ve gelecek ödeme listesinde de yok (PayTR planından çıkardı); PayTR panelinden kontrol edin" }) });
               continue;
             }
             if (!y) continue;
