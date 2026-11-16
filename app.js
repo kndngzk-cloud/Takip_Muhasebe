@@ -558,7 +558,7 @@ async function viewHome() {
     <div class="kpis">
       <div class="kpi"><div class="l">Bu ay satış</div><div class="v num">${fmtTL(oz.bu_ay_satis)}</div><div class="s">KDV dahil, iptaller hariç</div></div>
       <div class="kpi orange"><div class="l">Açık alacak</div><div class="v num">${fmtTL(oz.acik_alacak)}</div><div class="s">R ${fmtTL(oz.acik_alacak_r)} · GR ${fmtTL(oz.acik_alacak_gr)}</div></div>
-      <a class="kpi purple" href="#/raporlar" id="h-sermaye"><div class="l">Toplam sermaye</div><div class="v num" id="h-sermaye-v">…</div><div class="s">stok + yolda + alacak + kasa ›</div></a>
+      <div class="kpi purple"><div class="l">Yoldaki ithalat</div><div class="v num">${cinAktif.length}</div><div class="s">aktif ithalat siparişi</div></div>
       <div class="kpi ${eksi.length ? 'red' : 'green'}"><div class="l">Eksi stok</div><div class="v num">${eksi.length}</div><div class="s">ürün</div></div>
     </div>
     <div id="h-risk"></div>
@@ -578,8 +578,6 @@ async function viewHome() {
     <div class="section-title">Yoldaki ithalat siparişleri <a href="#/cin">Tümü</a></div>
     <div class="list">${cinAktif.length ? cinAktif.map(cinRow).join('') : '<div class="empty">Aktif ithalat siparişi yok</div>'}</div>`;
   bindRows();
-  $('#h-sermaye').onclick = (e) => { e.preventDefault(); (state.ui.rapor ||= { bas: monthStart(), bit: today(), yontem: 'SIP', tur: 'kar' }).tur = 'sermaye'; go('#/raporlar'); };
-  sermayeHesap().then((h) => { if ($('#h-sermaye-v')) $('#h-sermaye-v').textContent = fmtTL(h.toplam); }).catch(() => { if ($('#h-sermaye-v')) $('#h-sermaye-v').textContent = '–'; });
   $$('[data-kay]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); const h = $('#' + a.dataset.kay); if (h) h.scrollIntoView({ behavior: 'smooth', block: 'start' }); else toast('Bekleyen sipariş yok', 'ok'); }));
   $('#h-pl') && $$('[data-pl]', $('#h-pl')).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; plDetay(plSon.find((x) => x.id === +el.dataset.pl)); }));
   bindPlanRows($('#h-plan'), plan14, null);
@@ -6159,7 +6157,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.17';
+const APP_V = '2.18';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
