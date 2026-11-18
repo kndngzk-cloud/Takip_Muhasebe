@@ -2874,8 +2874,11 @@ async function sermayeHesap() {
   return { oz, kasa, yl, ylFab, ylMas, stok, yolda, alacak, kasaTop, cek, platform, plOdeme, plTeslim, borc: num(oz.borc?.toplam), toplam: stok + yolda + alacak + kasaTop + cek + platform };
 }
 async function raporSermaye(el) {
-  const [h, urunler] = await Promise.all([sermayeHesap(), cache.urunler()]);
+  const [h, urunler, alC] = await Promise.all([sermayeHesap(), cache.urunler(),
+    api.get('v_cariler', 'select=id,unvan,tip,bakiye,ithalat_tahsil,son_hareket&or=(bakiye.gt.0.005,ithalat_tahsil.gt.0.005)&order=bakiye.desc&limit=2000').catch(() => [])]);
   const { oz, kasa, yl, ylFab, ylMas, stok, yolda, alacak, kasaTop, cek, platform, plOdeme, plTeslim, borc, toplam } = h;
+  // ana sayfadaki "Acik alacak" cari bakiyelerinin toplamidir; sermayede bekleyen ithalat siparisine verilen avans ayni carinin borcundan dusulur (net)
+  const alBrut = alC.filter((c) => num(c.bakiye) > 0.005).reduce((a, c) => a + num(c.bakiye), 0), alMahsup = Math.max(alBrut - alacak, 0);
   const uBy = Object.fromEntries(urunler.map((u) => [u.id, u]));
   const ylUsd = yl.filter((c) => c.pb === 'USD').reduce((a, c) => a + num(c.fabrika_odenen), 0);
   const yz = (v) => (toplam > 0 ? (v / toplam) * 100 : 0);
@@ -2884,7 +2887,7 @@ async function raporSermaye(el) {
   const K = [
     ['stok', 'Depodaki stok', stok, '#7c5cdb', `${fmtN(oz.stok?.adet || 0)} adet · alış maliyetiyle (${esc(oz.yontem || 'FIFO')})`],
     ['yolda', 'Yoldaki ithalat (ödenen)', yolda, '#3b82f6', `${yl.length} sipariş · fabrikaya ${fmtTL(ylFab)}${ylUsd ? ` (${fmtPB(ylUsd, 'USD')})` : ''}${ylMas ? ` · masraf ${fmtTL(ylMas)}` : ''}`],
-    ['alacak', 'Müşteri alacakları', alacak, '#f59e0b', `${oz.alacak?.cari || 0} cari`],
+    ['alacak', 'Müşteri alacakları', alacak, '#f59e0b', `${oz.alacak?.cari || 0} cari${alMahsup > 0.5 ? ` · cari bakiyeleri ${fmtTL(alBrut)}, ithalat avansı mahsup −${fmtTL(alMahsup)}` : ''}`],
     ['cek', 'Portföydeki çek / senet', cek, '#b45309', (oz.portfoy || []).map((x) => `${x.adet} ${esc(x.tur).toLocaleLowerCase('tr')}`).join(' · ') || 'yok'],
     ['platform', 'Platformlardan yatacak', platform, '#0e9fbf', `ödeme planında ${fmtTL(plOdeme)}${plTeslim ? ` · teslim bekleyen ${fmtTL(plTeslim)}` : ''}`],
     ['kasa', 'Kasa / banka', kasaTop, '#16a36a', `${kasa.length} hesap`]
@@ -2923,8 +2926,11 @@ async function raporSermaye(el) {
         <td class="r"><b>${fmtTL(num(c.fabrika_tl) + num(c.masraf_tl))}</b><div class="tiny">fabrikaya ${fmtPB(c.fabrika_odenen, c.pb)} / ${fmtPB(c.toplam, c.pb)}</div>${num(c.masraf_tl) ? `<div class="tiny">masraf ${fmtTL(c.masraf_tl)}</div>` : ''}</td></tr>`), 'Yolda ithalat siparişi yok')
         + '<p class="tiny">Teslim alınmamış siparişler için fabrikaya ve masraflara ödenmiş paralar (ödendiği kurla). Teslim alınınca stoğa geçer.</p>';
     } else if (k === 'alacak') {
-      const ls = await api.get('v_cariler', 'select=id,unvan,tip,bakiye,son_hareket&bakiye=gt.0.005&order=bakiye.desc&limit=2000');
-      govde = tablo([['Cari'], ['Bakiye', 1]], ls.map((c) => `<tr data-go="#/cari/${c.id}" style="cursor:pointer"><td><b>${esc(c.unvan)}</b><div class="tiny">${esc(c.tip || '')}${c.son_hareket ? ' · son hareket ' + fmtD(c.son_hareket) : ''}</div></td><td class="r"><b>${fmtTL(c.bakiye)}</b><div class="tiny">${yzT(c.bakiye)}</div></td></tr>`), 'Alacak yok');
+      const ls = alC.filter((c) => num(c.bakiye) > 0.005).map((c) => ({ ...c, net: num(c.bakiye) - num(c.ithalat_tahsil) })).sort((a, b) => b.net - a.net);
+      govde = tablo([['Cari'], ['Bakiye', 1], ['Sermayeye giren', 1]], ls.map((c) => `<tr data-go="#/cari/${c.id}" style="cursor:pointer"><td><b>${esc(c.unvan)}</b><div class="tiny">${esc(c.tip || '')}${c.son_hareket ? ' · son hareket ' + fmtD(c.son_hareket) : ''}</div></td>
+        <td class="r">${fmtTL(c.bakiye)}${num(c.ithalat_tahsil) > 0.005 ? `<div class="tiny">ithalat avansı −${fmtTL(c.ithalat_tahsil)}</div>` : ''}</td>
+        <td class="r"><b>${fmtTL(Math.max(c.net, 0))}</b>${c.net > 0.005 ? `<div class="tiny">${yzT(c.net)}</div>` : `<div class="tiny">avans borcu karşılıyor${c.net < -0.005 ? `; ${fmtTL(-c.net)} fazlası bizim borcumuz` : ''}</div>`}</td></tr>`), 'Alacak yok')
+        + `<p class="tiny">Ana sayfadaki <b>Açık alacak</b> (${fmtTL(alBrut)}) carilerin bakiyelerinin toplamıdır. Sermayede ise müşterinin henüz sevk edilmemiş ithalat siparişi için verdiği avans, aynı carinin açık borcundan düşülür${alMahsup > 0.5 ? ` (toplam −${fmtTL(alMahsup)})` : ''}; çünkü o para kasaya zaten girmiş ve karşılığında müşteriye mal borçluyuz.</p>`;
     } else if (k === 'cek') {
       const ls = await api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&tur=neq.Platform&order=vade.asc&limit=1000`).catch(() => api.get('nakit_girisleri', `select=*&durum=eq.Bekliyor&tur=neq.Platform&order=vade.asc&limit=1000`));
       govde = tablo([['Çek / senet'], ['Vade', 1], ['Tutar', 1]], ls.map((n) => `<tr><td><b>${esc(n.kesideci || n.cari_unvan || n.kaynak || n.tur || 'Çek')}</b><div class="tiny">${esc([n.tur, n.kaynak, n.belge_no].filter(Boolean).join(' · '))}</div></td>
@@ -6375,7 +6381,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.29';
+const APP_V = '2.30';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
