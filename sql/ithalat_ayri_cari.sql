@@ -68,3 +68,9 @@ end $do$;
 -- v_siparisler'e siparise bagli TL tahsilat toplami (tahsil_tl) eklendi: mevcut tanimin sonuna
 --   COALESCE((SELECT sum(h.alacak) FROM cari_hareketler h WHERE h.siparis_id = s.id AND h.islem = 'Tahsilat'), 0) AS tahsil_tl
 -- (pg_get_viewdef ile alinan tanima eklenip create or replace view ... with (security_invoker = true) ile uygulandi)
+
+-- v2.29: sevk edilen ithalat siparisi normal cariye aktarilir (tahsilatlar ayri satirlar olarak kalir).
+-- v_cariler: ithalat_kalan / ithalat_kalan_sayi = sevk edilmis ithalat siparislerinin (kendi hareketlerinin neti > 0) kalan TL'si; bakiyeye dahildir, ayrica gosterilir.
+-- v_cari_ekstre: ithalat_fis = harekete bagli siparis ithalata bagliysa fis no.
+-- v_siparisler: hesap_kalan = siparise bagli tum cari hareketlerin (borc - alacak) neti.
+-- (uygulanan tanimlar: migration "ithalat_kalan_normal_cari")
