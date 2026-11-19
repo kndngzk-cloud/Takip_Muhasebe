@@ -1848,6 +1848,7 @@ async function viewStok() {
     <p class="tiny" style="margin:0 4px 10px"><b>Real</b>: depoda fiilen olan. <b>Sevk sonrası</b>: bekleyen siparişler gönderildikten sonra kalacak miktar. <b>Yolda</b>: ithalattan gelmekte olan.</p>
     <div id="lst"></div>`;
   const draw = () => {
+    haf = null;
     const q = norm(ui.q);
     const f = data.filter((u) => {
       if (ui.f === 'Pasif') { if (u.aktif) return false; } else if (!u.aktif) return false;
@@ -4079,6 +4080,16 @@ async function viewPaytr() {
   const [data, cariler] = await Promise.all([api.get('v_paytr_islemler', 'select=*&order=islem_tarihi.desc,id.desc&limit=5000'), cache.cariler()]);
   const hesaplar = [...new Set(data.map((p) => p.hesap))].sort();
   const yeniEs = new Set(); // bu ekranda yeni eslestirilenler "Eşleşmemiş" filtresinde de gorunur kalsin (makbuz icin)
+  // PayTR odeyen firma adini vermez; ayni kartla daha once eslesmis cari "kart hafizasi" olarak onerilir (en son eslesme)
+  const kartHaf = () => {
+    const m = {};
+    [...data].filter((p) => p.kart_no && p.durum === 'Cari' && p.cari_id && p.islem_tipi !== 'İade')
+      .sort((a, b) => String(a.islem_tarihi).localeCompare(String(b.islem_tarihi)) || a.id - b.id)
+      .forEach((p) => { const k = `${p.hesap}|${p.kart_no}`; m[k] = { cari_id: p.cari_id, unvan: p.cari_unvan, tip: p.fatura_tipi, n: (m[k]?.n || 0) + 1 }; });
+    return m;
+  };
+  let haf = null; // her cizimde yeniden hesaplanir
+  const oneri = (p) => (p.durum === 'Bekliyor' && p.kart_no ? (haf ||= kartHaf())[`${p.hesap}|${p.kart_no}`] : null);
   $('#view').innerHTML = `${odemeTabs('paytr')}
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Tutar, sipariş no, kart, cari ara…" value="${esc(ui.q)}"></div></div>
     <div class="chips" id="pt-c">${['Eşleşmemiş', 'Eşleşmiş', 'Tümü'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}
@@ -4109,6 +4120,7 @@ async function viewPaytr() {
         <div class="t"><span class="num">${iade ? '−' : ''}${fmtTL(p.islem_tutari)}</span> ${iade ? '<span class="badge b-orange">İade</span>' : ''} ${num(p.taksit) > 1 ? `<span class="badge b-blue">${p.taksit} taksit</span>` : ''}</div>
         <div class="st">${[ptSaat(p), p.kart_marka, p.kart_no, p.siparis_no ? `Sipariş ${esc(p.siparis_no)}` : '', hesaplar.length > 1 ? ptHesap(p.hesap) : ''].filter(Boolean).map(esc).join(' · ')}</div>
         <div>${notIk('paytr_islemler', p.id)}</div>
+        ${!ok && oneri(p) ? `<div class="pt-es" style="color:var(--muted)">Bu kart daha önce <b>${esc(oneri(p).unvan || 'cari')}</b> ile eşleşti${oneri(p).n > 1 ? ` (${oneri(p).n} kez)` : ''} · cari önceden seçildi, kontrol edip düşün</div>` : ''}
         ${!ok && p.site_siparis_no ? `<div class="pt-es" style="color:var(--muted)">${esc(p.site)} siparişi ${esc(p.site_siparis_no)} · programa aktarılınca kendiliğinden bağlanır</div>` : ''}
         ${ok && p.durum === 'Sipariş' ? `<div class="pt-es">✓ <a href="#/siparis/${p.siparis_id}"><b>Fiş ${p.fis_no ?? ''}</b></a> · ${esc(p.site || 'site')} ${esc(p.site_siparis_no || '')}${p.cari_id ? ` · <a href="#/cari/${p.cari_id}">${esc(p.cari_unvan || '')}</a>` : ''} · Makbuz #${p.makbuz_no}</div>` : ''}
         ${ok && p.durum !== 'Sipariş' ? `<div class="pt-es">✓ ${p.durum === 'Perakende' ? '<b>Perakende</b>' : `${p.cari_id ? `<a href="#/cari/${p.cari_id}"><b>${esc(p.cari_unvan || 'Cari')}</b></a>` : `<b>${esc(p.cari_unvan || 'Cari')}</b>`} · ${p.fatura_tipi}`} · Makbuz #${p.makbuz_no}</div>` : ''}
@@ -4122,9 +4134,13 @@ async function viewPaytr() {
       </div></div>`;
   };
   const secim = {}; // islem id -> secilen cari
+  const oneriYok = new Set(); // kart hafizasi onerisini silen kullanicinin secimi yeniden doldurulmasin
   const bindPt = () => {
     $$('.pt-cari', $('#lst')).forEach((inp) => {
       const id = +inp.dataset.id;
+      const o = oneri(data.find((p) => p.id === id));
+      if (o && !secim[id] && !oneriYok.has(id)) { const c = cariler.find((x) => x.id === o.cari_id); if (c) secim[id] = c; }
+      if (o && o.tip && secim[id]?.id === o.cari_id) { const seg = $(`.pt-tip[data-id="${id}"]`, $('#lst')); if (seg) $$('button', seg).forEach((b) => b.classList.toggle('on', b.dataset.v === o.tip)); }
       if (secim[id]) inp.value = secim[id].unvan;
       picker(inp, {
         items: () => cariler, label: (c) => c.unvan, sub: (c) => `${esc(c.kod || '')} · R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}`,
@@ -4135,7 +4151,7 @@ async function viewPaytr() {
           $$('button', seg).forEach((b) => b.classList.toggle('on', b.dataset.v === tip));
         }
       });
-      inp.addEventListener('input', () => { if (secim[id] && inp.value !== secim[id].unvan) delete secim[id]; });
+      inp.addEventListener('input', () => { if (secim[id] && inp.value !== secim[id].unvan) { delete secim[id]; oneriYok.add(id); } });
     });
     $$('.pt-tip', $('#lst')).forEach((seg) => (seg.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; e.stopPropagation(); $$('button', seg).forEach((x) => x.classList.toggle('on', x === b)); }));
     const bul = (id) => data.find((p) => p.id === id);
