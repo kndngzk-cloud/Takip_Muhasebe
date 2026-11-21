@@ -192,6 +192,182 @@ document.addEventListener('click', (e) => {
 }, true);
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ''}</svg>`;
 
+/* Gorunum ve dil (cihaza ozel, Ayarlar > Gorunum ve dil) */
+const yerelAl = (k, v) => { try { return localStorage.getItem(k) || v; } catch { return v; } };
+const dilEn = () => yerelAl('ssc_dil', 'tr') === 'en';
+function temaUygula() {
+  const t = yerelAl('ssc_tema', 'acik');
+  const koyu = t === 'koyu' || (t === 'sistem' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('koyu', koyu);
+}
+temaUygula();
+try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', temaUygula); } catch {}
+
+/* Ingilizce arayuz: ekrana yazilan Turkce metinler (ceviri-en.js sozlugu) yerinde Ingilizceye cevrilir.
+   Tam eslesme once, sonra icinde sayi/isim gecen kaliplar. Kullanici verisi (urun, cari adi, notlar) ve
+   musteriye giden ciktilar (canvas ile cizilen fis/ekstre) degismez. */
+const CEV = (() => {
+  if (!dilEn() || !window.CEVIRI_EN) return null;
+  document.documentElement.lang = 'en';
+  return { d: new Map(Object.entries(window.CEVIRI_EN.d)), p: window.CEVIRI_EN.p.map(([re, en, lit]) => [new RegExp('^' + re + '$'), en, lit]) };
+})();
+const HARF_RE = /[A-Za-zÇĞİÖŞÜçğıöşü]{2}/;
+function cevir(t) {
+  if (!CEV || !t) return t;
+  const k = t.trim(); if (!k || !HARF_RE.test(k)) return t;
+  let r = CEV.d.get(k);
+  if (r === undefined) {
+    for (const [re, en, lit] of CEV.p) {
+      if (lit && !k.includes(lit)) continue;
+      const m = re.exec(k);
+      if (m) { r = en.replace(/\{(\d+)\}/g, (_, i) => { const g = m[+i + 1] ?? ''; return CEV.d.get(g.trim()) ?? cevir(g); }); break; }
+    }
+  }
+  if (r === undefined && !cevir._ic) {
+    // " · " ile birlesmis parcalar tek tek; tarihlerdeki ay / gun adlari
+    cevir._ic = true;
+    try {
+      if (k.includes(' · ')) { const y = k.split(' · ').map((x) => cevir(x)).join(' · '); if (y !== k) r = y; }
+      if (r === undefined) { const m = /^(.+?)\s(\(.+\))$/.exec(k); if (m) { const y = `${cevir(m[1])} ${cevir(m[2])}`; if (y !== k) r = y; } }
+      if (r === undefined) { const m = /^([·:,;]\s*)?(.+?)(\s*[·:,;])?$/.exec(k); if (m && (m[1] || m[3])) { const y = cevir(m[2]); if (y !== m[2]) r = (m[1] || '') + y + (m[3] || ''); } }
+      if (r === undefined && /\d/.test(k)) { const y = k.replace(AY_GUN_RE, (w) => AY_GUN[w] || w); if (y !== k) r = y; }
+    } finally { cevir._ic = false; }
+  }
+  return r === undefined ? t : t.replace(k, r);
+}
+const AY_GUN = { Ocak: 'January', Şubat: 'February', Mart: 'March', Nisan: 'April', Mayıs: 'May', Haziran: 'June', Temmuz: 'July', Ağustos: 'August', Eylül: 'September', Ekim: 'October', Kasım: 'November', Aralık: 'December',
+  Oca: 'Jan', Şub: 'Feb', Mar: 'Mar', Nis: 'Apr', May: 'May', Haz: 'Jun', Tem: 'Jul', Ağu: 'Aug', Eyl: 'Sep', Eki: 'Oct', Kas: 'Nov', Ara: 'Dec',
+  Pazartesi: 'Monday', Salı: 'Tuesday', Çarşamba: 'Wednesday', Perşembe: 'Thursday', Cuma: 'Friday', Cumartesi: 'Saturday', Pazar: 'Sunday', Pzt: 'Mon', Sal: 'Tue', Çar: 'Wed', Per: 'Thu', Cum: 'Fri', Cmt: 'Sat', Paz: 'Sun' };
+const AY_GUN_RE = new RegExp(`(?<![\\wçğıöşüÇĞİÖŞÜ])(${Object.keys(AY_GUN).sort((a, b) => b.length - a.length).join('|')})(?![\\wçğıöşüÇĞİÖŞÜ])`, 'g');
+const CEV_ATR = ['placeholder', 'title', 'aria-label'];
+function cevirAgac(kok) {
+  if (!CEV || !kok) return;
+  if (kok.nodeType === 3) { const p = kok.parentNode; if (p && !/^(SCRIPT|STYLE|TEXTAREA)$/.test(p.nodeName) && !p.closest?.('[data-cevirme]')) { const v = cevir(kok.data); if (v !== kok.data) kok.data = v; } return; }
+  if (kok.nodeType !== 1 || /^(SCRIPT|STYLE)$/.test(kok.nodeName) || kok.closest('[data-cevirme]')) return;
+  const elle = (el) => { for (const a of CEV_ATR) { const v = el.getAttribute(a); if (v) { const y = cevir(v); if (y !== v) el.setAttribute(a, y); } } };
+  const w = document.createTreeWalker(kok, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, { acceptNode: (n) => { if (n.nodeType !== 1) return NodeFilter.FILTER_ACCEPT; if (n.hasAttribute('data-cevirme') || /^(SCRIPT|STYLE)$/.test(n.nodeName)) return NodeFilter.FILTER_REJECT; if (n.nodeName === 'TEXTAREA') { elle(n); return NodeFilter.FILTER_REJECT; } return NodeFilter.FILTER_ACCEPT; } });
+  elle(kok);
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    if (n.nodeType === 3) { const v = cevir(n.data); if (v !== n.data) n.data = v; } else elle(n);
+  }
+}
+if (CEV) {
+  const baslat = () => {
+    cevirAgac(document.body);
+    new MutationObserver((ms) => {
+      for (const m of ms) {
+        if (m.type === 'characterData') cevirAgac(m.target);
+        else if (m.type === 'attributes') { const v = m.target.getAttribute(m.attributeName); if (v) { const y = cevir(v); if (y !== v) m.target.setAttribute(m.attributeName, y); } }
+        else m.addedNodes.forEach(cevirAgac);
+      }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: CEV_ATR });
+    const tt = () => { const y = cevir(document.title); if (y !== document.title) document.title = y; };
+    tt(); new MutationObserver(tt).observe(document.querySelector('title'), { childList: true });
+  };
+  document.body ? baslat() : document.addEventListener('DOMContentLoaded', baslat);
+}
+
+/* ------------------------------------------------------------------ */
+/* Cevrimdisi calisma: okunan veriler bu cihazda saklanir (IndexedDB), internet yokken oradan gosterilir.
+   Internet yokken yapilan degisiklikler sirayla kuyruga yazilir; baglanti gelince kullaniciya sorulur ve onaylarsa
+   ayni sirayla sunucuya gonderilir. Cevrimdisi olusan kayitlara gecici (eksi) numara verilir; gonderirken gercek
+   numarayla degistirilir, bu yuzden ayni kayda bagli sonraki islemler de dogru kayda gider. */
+/* ------------------------------------------------------------------ */
+const OKUMA_RPC = new Set(['cin_maliyet', 'entegrasyon_alanlar', 'kar_raporu', 'panel_ozet', 'sermaye_ozet', 'siparis_maliyet', 'yedek_tam']);
+const GECICI_RE = /-1\d{9}/g; // gecici numaralar: -1000000001, -1000000002 ...
+const cevrim = {
+  _db: null, cevrimdisi: !navigator.onLine,
+  idb() {
+    return this._db ||= new Promise((ok, no) => { const r = indexedDB.open('ssc_cevrimdisi', 1); r.onupgradeneeded = () => r.result.createObjectStore('veri'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+  },
+  async sakla(k, v) { try { const db = await this.idb(); db.transaction('veri', 'readwrite').objectStore('veri').put({ v, t: Date.now() }, k); } catch {} },
+  async getir(k) { try { const db = await this.idb(); return await new Promise((ok) => { const r = db.transaction('veri').objectStore('veri').get(k); r.onsuccess = () => ok(r.result || null); r.onerror = () => ok(null); }); } catch { return null; } },
+  kuyruk() { try { return JSON.parse(localStorage.getItem('ssc_kuyruk') || '[]'); } catch { return []; } },
+  kuyrukYaz(q) { try { q.length ? localStorage.setItem('ssc_kuyruk', JSON.stringify(q)) : localStorage.removeItem('ssc_kuyruk'); } catch {} cevrimSerit(); },
+  gecici() { let n = 0; try { n = +(localStorage.getItem('ssc_gecici_no') || 0) + 1; localStorage.setItem('ssc_gecici_no', n); } catch { n = Date.now() % 1e6; } return -(1000000000 + (n % 999999999)); },
+  durum(cevrimdisi) { if (this.cevrimdisi !== cevrimdisi) { this.cevrimdisi = cevrimdisi; cevrimSerit(); if (!cevrimdisi) setTimeout(cevrimOnay, 300); } },
+  ekle(method, path, opts) {
+    const q = this.kuyruk(), it = { method, path, body: opts.body, prefer: opts.prefer, t: Date.now() };
+    let sonuc;
+    if (method === 'POST' && !path.startsWith('rpc/')) {
+      const rows = Array.isArray(opts.body) ? opts.body : [opts.body];
+      it.gecici = rows.map((r) => (r && r.id != null ? null : this.gecici()));
+      sonuc = rows.map((r, i) => ({ ...r, id: r && r.id != null ? r.id : it.gecici[i] }));
+    } else if (method === 'PATCH') {
+      const id = /(?:^|[?&])id=eq\.(-?\d+)/.exec(path)?.[1];
+      sonuc = [{ ...(opts.body || {}), ...(id ? { id: +id } : {}) }];
+    } else if (method === 'DELETE') sonuc = [];
+    else { it.gecici = [this.gecici()]; sonuc = { id: it.gecici[0], fis_no: '—', cevrimdisi: true }; }
+    q.push(it); this.kuyrukYaz(q);
+    if (!this._uyarildi || Date.now() - this._uyarildi > 15000) { this._uyarildi = Date.now(); setTimeout(() => toast(this.cevrimdisi ? 'İnternet yok: değişiklik bu cihazda saklandı. Bağlantı gelince kaydetmeniz sorulacak.' : 'Bekleyen çevrimdışı değişiklikler var: bu değişiklik de onlarla birlikte kaydedilecek.', 'ok'), 50); }
+    return sonuc;
+  },
+  async gonder() {
+    const q = this.kuyruk(); let es = {}; try { es = JSON.parse(localStorage.getItem('ssc_gecici_es') || '{}'); } catch {}
+    const deg = (x) => x.replace(GECICI_RE, (m) => (es[m] != null ? String(es[m]) : m));
+    while (q.length) {
+      const it = q[0];
+      if (GECICI_RE.test(deg(it.path)) && (GECICI_RE.lastIndex = 0, true)) { GECICI_RE.lastIndex = 0; throw new Error('Bağlı olduğu kayıt kaydedilemediği için bu değişiklik gönderilemiyor.'); }
+      GECICI_RE.lastIndex = 0;
+      const body = it.body === undefined ? undefined : JSON.parse(deg(JSON.stringify(it.body)));
+      const r = await api.req(it.method, deg(it.path), { body, prefer: it.prefer, _gonder: true });
+      if (it.gecici) {
+        if (it.path.startsWith('rpc/')) { const gid = r && typeof r === 'object' ? r.id : typeof r === 'number' ? r : null; if (gid != null) es[it.gecici[0]] = gid; }
+        else (Array.isArray(r) ? r : []).forEach((row, i) => { if (it.gecici[i] != null && row?.id != null) es[it.gecici[i]] = row.id; });
+      }
+      q.shift(); this.kuyrukYaz(q); try { localStorage.setItem('ssc_gecici_es', JSON.stringify(es)); } catch {}
+    }
+    try { localStorage.removeItem('ssc_gecici_es'); } catch {}
+  }
+};
+const TABLO_AD = { siparisler: 'Sipariş', siparis_kalemleri: 'Sipariş kalemi', cari_hareketler: 'Cari hareketi', cariler: 'Cari', urunler: 'Ürün', stok_hareketleri: 'Stok hareketi', kasa: 'Kasa', kasa_hareketleri: 'Kasa hareketi', nakit_girisleri: 'Çek / ödeme', odeme_plani: 'Ödeme planı', cin_siparisler: 'İthalat siparişi', cin_kalemler: 'İthalat kalemi', musteri_fiyatlari: 'Müşteri fiyatı', notlar: 'Not', fabrikalar: 'Fabrika', platform_siparisler: 'Platform siparişi', ayarlar: 'Ayarlar' };
+const RPC_AD = { siparis_kaydet: 'Yeni sipariş', siparis_guncelle: 'Sipariş düzenleme', siparis_sevk: 'Sipariş sevki', siparis_iptal: 'Sipariş iptali', siparis_iskonto: 'Sipariş iskontosu', siparis_doviz: 'Sipariş döviz bilgisi', taksit_tahsil: 'Taksit tahsilatı', platform_urun_sec: 'Platform ürün eşleştirme', platform_siparis_aktar: 'Platform siparişi aktarma', platform_siparis_bagla: 'Platform siparişi bağlama', platform_siparis_bagla_kaldir: 'Platform bağlantısı kaldırma', platform_iade_teslim: 'İade teslim alma', paytr_eslestir: 'PayTR eşleştirme', paytr_eslesme_kaldir: 'PayTR eşleşme kaldırma', entegrasyon_kaydet: 'Entegrasyon ayarı' };
+function kuyrukAciklama(it) {
+  if (it.path.startsWith('rpc/')) return RPC_AD[it.path.slice(4)] || it.path.slice(4);
+  const t = it.path.split('?')[0], ad = TABLO_AD[t] || t;
+  return `${ad} · ${it.method === 'POST' ? 'yeni kayıt' : it.method === 'PATCH' ? 'değişiklik' : 'silme'}`;
+}
+function cevrimSerit() {
+  let el = document.getElementById('cv-serit');
+  const n = cevrim.kuyruk().length;
+  if (!cevrim.cevrimdisi && !n) { el?.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'cv-serit'; document.body.appendChild(el); }
+  el.className = cevrim.cevrimdisi ? 'off' : 'bek';
+  el.innerHTML = cevrim.cevrimdisi ? `<b>Çevrimdışı</b> · son kaydedilen verilerle çalışıyorsunuz${n ? ` · <b>${n}</b> değişiklik bu cihazda bekliyor` : ''}`
+    : `<b>${n}</b> çevrimdışı değişiklik kaydedilmeyi bekliyor <button type="button" class="btn sm" id="cv-bak">Gözden geçir</button>`;
+  el.querySelector('#cv-bak')?.addEventListener('click', () => cevrimOnay(true));
+}
+function cevrimOnay(elle = false) {
+  const q = cevrim.kuyruk();
+  if (!q.length || cevrim.cevrimdisi || document.getElementById('cv-ok') || !api.session) return;
+  if (!elle && document.querySelector('#modal-root .overlay')) { setTimeout(cevrimOnay, 4000); return; } // acik bir pencere varsa kapanmasini bekle
+  modal({
+    title: 'İnternet geri geldi',
+    body: `<p style="margin-top:0">Çevrimdışıyken bu cihazda <b>${q.length}</b> değişiklik yaptınız. Sunucuya kaydedilsin mi?</p>
+      <div class="table-wrap" style="max-height:44vh;overflow:auto"><table class="tbl"><tbody>${q.map((it, i) => `<tr><td class="tiny" style="white-space:nowrap">${i + 1}. ${new Date(it.t).toLocaleString(dilEn() ? 'en-GB' : 'tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td><td>${esc(kuyrukAciklama(it))}</td></tr>`).join('')}</tbody></table></div>
+      <p class="tiny">Değişiklikler yaptığınız sırayla gönderilir. Bu arada başka cihazdan aynı kayıtlar değiştirildiyse son gönderilen geçerli olur.</p>`,
+    foot: `<button class="btn red" id="cv-sil" style="margin-right:auto">${icon('trash')}Vazgeç, sil</button><button class="btn" data-close>Sonra</button><button class="btn primary" id="cv-ok">Kaydet</button>`,
+    onMount: (m) => {
+      $('#cv-ok', m.el).onclick = async (e) => {
+        try { await busy(e.currentTarget, () => cevrim.gonder()); m.close(); cache.dirty('ayarlar', 'urunler', 'cariler', 'notlar'); toast('Çevrimdışı değişiklikler kaydedildi', 'ok'); render(); }
+        catch (err) {
+          const k = cevrim.kuyruk(); cevrimSerit();
+          m.close();
+          if (await confirmBox('Bir değişiklik kaydedilemedi', `<b>${esc(k[0] ? kuyrukAciklama(k[0]) : '')}</b>: ${esc(err.message)}<br><br>${k.length} değişiklik bekliyor. Bu değişikliği atlayıp kalanları göndermek ister misiniz?`, 'Bunu atla')) { k.shift(); cevrim.kuyrukYaz(k); cevrimOnay(true); }
+        }
+      };
+      $('#cv-sil', m.el).onclick = async () => {
+        if (!await confirmBox('Değişiklikler silinsin mi?', `Çevrimdışıyken yapılan ${q.length} değişiklik sunucuya gönderilmeden silinecek. Bu geri alınamaz.`, 'Sil', true)) return;
+        cevrim.kuyrukYaz([]); try { localStorage.removeItem('ssc_gecici_es'); } catch {} m.close(); toast('Bekleyen değişiklikler silindi', 'ok'); render();
+      };
+    }
+  });
+}
+window.addEventListener('online', () => { cevrim.durum(false); });
+window.addEventListener('offline', () => { cevrim.durum(true); });
+// tarayicinin "cevrimici" bildirimi her zaman dogru degil: bekleyen degisiklik varken arada sunucuyu yokla
+setInterval(() => { if (cevrim.kuyruk().length && cevrim.cevrimdisi && navigator.onLine) fetch(`${CFG.url}/rest/v1/`, { method: 'HEAD', headers: { apikey: CFG.key } }).then(() => cevrim.durum(false)).catch(() => {}); }, 20000);
+
 /* ------------------------------------------------------------------ */
 /* Supabase istemcisi (kutuphanesiz)                                    */
 /* ------------------------------------------------------------------ */
@@ -228,20 +404,32 @@ const api = {
     this.save(null);
     if (t) fetch(`${CFG.url}/auth/v1/logout`, { method: 'POST', headers: { apikey: CFG.key, Authorization: `Bearer ${t}` } }).catch(() => {});
   },
-  async req(method, path, { body, prefer } = {}, retried = false) {
+  async req(method, path, { body, prefer, _gonder } = {}, retried = false) {
+    const okuma = method === 'GET' || (method === 'POST' && path.startsWith('rpc/') && OKUMA_RPC.has(path.slice(4).split('?')[0]));
+    const anahtar = `${method} ${path}${method === 'GET' ? '' : ' ' + JSON.stringify(body ?? null)}`;
+    const cevrimdisi = async () => {
+      cevrim.durum(true);
+      if (okuma) { const c = await cevrim.getir(anahtar); if (c) return c.v; throw new Error('İnternet yok ve bu bilgi bu cihazda daha önce açılmamış. Bağlantı gelince tekrar deneyin.'); }
+      return cevrim.ekle(method, path, { body, prefer });
+    };
+    if (!okuma && !_gonder && cevrim.kuyruk().length) return cevrim.ekle(method, path, { body, prefer }); // sira bozulmasin
+    if (!navigator.onLine) return cevrimdisi();
     if (this.session && this.session.expires_at - Date.now() < 60000) {
-      try { await this.refresh(); } catch { this.save(null); location.hash = '#/'; render(); throw new Error('Oturum süresi doldu, tekrar giriş yapın'); }
+      try { await this.refresh(); }
+      catch (e) { if (e instanceof TypeError || !navigator.onLine) return cevrimdisi(); this.save(null); location.hash = '#/'; render(); throw new Error('Oturum süresi doldu, tekrar giriş yapın'); }
     }
     const headers = { apikey: CFG.key, 'Content-Type': 'application/json' };
     if (this.session) headers.Authorization = `Bearer ${this.session.access_token}`;
     if (prefer) headers.Prefer = prefer;
     let r;
     try { r = await fetch(`${CFG.url}/rest/v1/${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }); }
-    catch { throw new Error('Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.'); }
-    if (r.status === 401 && !retried && this.session) { await this.refresh().catch(() => {}); return this.req(method, path, { body, prefer }, true); }
+    catch { if (_gonder) throw new Error('Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.'); return cevrimdisi(); }
+    if (r.status === 401 && !retried && this.session) { await this.refresh().catch(() => {}); return this.req(method, path, { body, prefer, _gonder }, true); }
     const txt = await r.text();
     const j = txt ? JSON.parse(txt) : null;
     if (!r.ok) throw new Error(trDbErr(j));
+    if (cevrim.cevrimdisi) cevrim.durum(false);
+    if (okuma) cevrim.sakla(anahtar, j);
     return j;
   },
   get(table, query = 'select=*') { return this.req('GET', `${table}?${query}`); },
@@ -251,7 +439,8 @@ const api = {
     const headers = { apikey: CFG.key, ...(opts.headers || {}) };
     if (this.session) headers.Authorization = `Bearer ${this.session.access_token}`;
     let r;
-    try { r = await fetch(`${CFG.url}/${path}`, { ...opts, headers }); } catch { throw new Error('Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.'); }
+    if (!navigator.onLine) { cevrim.durum(true); throw new Error('Bu işlem için internet gerekli.'); }
+    try { r = await fetch(`${CFG.url}/${path}`, { ...opts, headers }); } catch { throw new Error('Sunucuya ulaşılamadı. Bu işlem için internet gerekli.'); }
     if (!r.ok) { const t = await r.text(); let m = t; try { const j = JSON.parse(t); m = j.hata || j.message || j.error || t; } catch {} throw new Error(m || `Hata ${r.status}`); }
     return r;
   },
@@ -463,6 +652,12 @@ async function render() {
   } catch (e) { if (!api.session) return viewLogin(); fail(e); }
   if (!state.notlar) await cache.notlar();
   const h = location.hash || '#/';
+  cevrimSerit();
+  if (/\/-1\d{9}(?:$|[/?])/.test(h)) {
+    shell(''); topbar('Çevrimdışı kayıt', { back: true });
+    $('#view').innerHTML = `<div class="card empty">Bu kayıt internet yokken oluşturuldu ve henüz sunucuya gönderilmedi.<br>Bağlantı gelince kaydetmeniz istenecek; ardından burada açılır.<br><br><button class="btn" data-nav="#/">Ana sayfa</button></div>`;
+    return;
+  }
   const r = ROUTES.find(([re]) => re.test(h)) || ROUTES[0];
   const m = h.match(r[0]) || [];
   shell(r[1]);
@@ -3106,7 +3301,16 @@ async function viewAyarlar() {
   topbar('Ayarlar', { back: !window.matchMedia('(min-width: 900px)').matches });
   const a = await cache.ayarlar(true);
   const ad = isAdmin();
+  const tema = yerelAl('ssc_tema', 'acik'), dil = yerelAl('ssc_dil', 'tr');
   $('#view').innerHTML = `
+    <div class="card">
+      <h2>Görünüm ve dil</h2>
+      <div class="grid2">
+        <div class="field"><label>Tema</label><div class="seg" id="s-tema">${[['acik', 'Açık'], ['koyu', 'Koyu'], ['sistem', 'Telefona göre']].map(([v, l]) => `<button type="button" data-v="${v}" class="${v === tema ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        <div class="field"><label>Dil / Language</label><div class="seg" id="s-dil" data-cevirme>${[['tr', 'Türkçe'], ['en', 'English']].map(([v, l]) => `<button type="button" data-v="${v}" class="${v === dil ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      </div>
+      <p class="tiny" style="margin:0">Bu cihaza özel. Müşteriye giden çıktılar (fiş, ekstre, makbuz) Türkçe kalır.</p>
+    </div>
     <div class="card">
       <h2>Firma ve hesaplama</h2>
       <div class="field"><label>Firma adı</label><input class="input" id="s-f" value="${esc(a.firma_adi)}" ${ad ? '' : 'disabled'}></div>
@@ -3193,6 +3397,8 @@ async function viewAyarlar() {
   };
   yedekListe();
   if (ad) entegrasyonKart();
+  $('#s-tema').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; try { localStorage.setItem('ssc_tema', b.dataset.v); } catch {} $$('#s-tema button').forEach((x) => x.classList.toggle('on', x === b)); temaUygula(); };
+  $('#s-dil').onclick = (e) => { const b = e.target.closest('button'); if (!b || b.dataset.v === yerelAl('ssc_dil', 'tr')) return; try { localStorage.setItem('ssc_dil', b.dataset.v); } catch {} location.reload(); };
   $('#s-now')?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
     const r = await (await api.raw('functions/v1/gunluk-yedek', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
     toast(`Yedek alındı: ${r.dosya}`, 'ok'); yedekListe();
@@ -6381,7 +6587,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.30';
+const APP_V = '2.31';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
