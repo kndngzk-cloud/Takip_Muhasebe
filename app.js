@@ -119,6 +119,7 @@ const ICON = {
   factory: '<path d="M3 21V10l6 4V10l6 4V6l6-3v18z"/><path d="M7 17h2M12 17h2M17 17h1"/>'
 };
 ICON.soru = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M9.5 8.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.2M12 15.5h.01"/>';
+ICON.tel = '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>';
 ICON.yenile = '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>';
 /* ------------------------------------------------------------------ */
 /* Ozel notlar: her kayda kendiniz icin not (ekstre / fis / ciktilarda yok) */
@@ -2242,10 +2243,33 @@ function riskAlarm(c, ek = 0, baslik = 'RİSK LİMİTİ AŞILDI') {
   return `<div class="risk-alarm" role="alert">${icon('alert')}<div><b>${baslik}</b>
     <div>${esc(c.unvan)} · Açık borç${ek ? ' (bu siparişle)' : ''} <b>${fmtTL(r.toplam)}</b> · Limit <b>${fmtTL(r.limit)}</b> · Aşım <b>${fmtTL(r.fark)}</b></div></div></div>`;
 }
-function cariRow(c) {
-  return `<div class="row" data-go="#/cari/${c.id}">
+/* Aranacaklar: cari listesinde kirmizi isaretlenen, aranacak cariler (ekipte ortak, veritabaninda) */
+const aranacakTarih = (c) => (c.aranacak_tarih ? new Date(c.aranacak_tarih).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }) : '');
+async function aranacakKaydet(c, isaret, not) {
+  const row = isaret ? { aranacak_tarih: c.aranacak_tarih || new Date().toISOString(), aranacak_not: (not ?? c.aranacak_not ?? '').trim() || null } : { aranacak_tarih: null, aranacak_not: null };
+  await api.update('cariler', `id=eq.${c.id}`, row);
+  Object.assign(c, row);
+  (state.cariler || []).forEach((x) => { if (x.id === c.id) Object.assign(x, row); });
+}
+function aranacakForm(c, onDone) {
+  modal({
+    title: c.aranacak_tarih ? 'Aranacak' : 'Aranacaklara ekle',
+    body: `<p class="small" style="margin:0 0 10px"><b>${esc(c.unvan)}</b>${c.telefon ? ` · <a href="tel:${esc(c.telefon)}">${esc(c.telefon)}</a>` : ''}${c.aranacak_tarih ? ` · ${aranacakTarih(c)} tarihinde işaretlendi` : ''}</p>
+      <div class="field"><label>Not (ne için aranacak?)</label><textarea class="input" id="ar-not" rows="3" placeholder="Örn. ödeme hatırlatma, yeni fiyat listesi…">${esc(c.aranacak_not || '')}</textarea></div>`,
+    foot: `<button class="btn" data-close>Vazgeç</button>${c.aranacak_tarih ? '<button class="btn green" id="ar-ok">Arandı, listeden çıkar</button>' : ''}<button class="btn ${c.aranacak_tarih ? '' : 'red'}" id="ar-kay">${c.aranacak_tarih ? 'Notu kaydet' : 'Aranacak olarak işaretle'}</button>`,
+    onMount: (m) => {
+      $('#ar-kay', m.el).onclick = (e) => busy(e.currentTarget, async () => { await aranacakKaydet(c, true, $('#ar-not', m.el).value); m.close(); toast('Aranacaklar listesine eklendi', 'ok'); onDone && onDone(); }).catch(fail);
+      $('#ar-ok', m.el)?.addEventListener('click', (e) => busy(e.currentTarget, async () => { await aranacakKaydet(c, false); m.close(); toast('Arandı olarak işaretlendi', 'ok'); onDone && onDone(); }).catch(fail));
+    }
+  });
+}
+function cariRow(c, o = {}) {
+  const ar = !!c.aranacak_tarih;
+  return `<div class="row${ar ? ' aranacak' : ''}" data-go="#/cari/${c.id}">
     <div class="main-col"><div class="t">${esc(c.unvan)}${riskDurum(c).asim ? ' <span class="badge b-red">RİSK AŞILDI</span>' : ''}</div>
-      <div class="st"><span class="tiny">${esc(c.kod)}</span>${c.sehir ? `<span class="tiny">· ${esc(c.sehir)}</span>` : ''}${c.tip === 'Perakende' ? '<span class="badge">Perakende</span>' : ''}</div>${notSatir('cariler', c.id)}</div>
+      <div class="st"><span class="tiny">${esc(c.kod)}</span>${c.sehir ? `<span class="tiny">· ${esc(c.sehir)}</span>` : ''}${c.tip === 'Perakende' ? '<span class="badge">Perakende</span>' : ''}${ar ? `<span class="badge b-red">Aranacak · ${aranacakTarih(c)}</span>` : ''}</div>
+      ${ar && c.aranacak_not ? `<div class="ar-not">${esc(c.aranacak_not)}</div>` : ''}${notSatir('cariler', c.id)}</div>
+    ${o.ara ? `<button class="ar-btn${ar ? ' on' : ''}" data-ara="${c.id}" title="${ar ? 'Arandı (listeden çıkar)' : 'Aranacak olarak işaretle'}">${icon('tel')}</button>` : ''}
     <div class="end"><div class="amt ${balCls(c.bakiye)}">${fmtTL(c.bakiye)}</div>
       ${num(c.bakiye_r) || num(c.bakiye_gr) ? `<div class="tiny">R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}</div>` : ''}
       ${Math.abs(num(c.sevk_bekleyen)) > 0.005 ? `<div class="tiny" style="color:var(--orange)">+ sevk bekleyen ${fmtTL(c.sevk_bekleyen)}</div>` : ''}</div>
@@ -2257,17 +2281,22 @@ async function viewCariler() {
   const data = await cache.cariler(true);
   $('#view').innerHTML = `
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Cari adı, kod, şehir ara…" value="${esc(ui.q)}"></div>
-      <select class="input" id="srt" style="width:auto;padding:9px 30px 9px 12px;font-size:14px"><option value="ad">A → Z</option><option value="bakiye">Bakiye ↓</option><option value="son">Son hareket</option></select></div>
-    <div class="chips" id="c1">${['Toptan', 'Perakende', 'Tedarikçi', 'Bakiyesi olan', 'Tümü'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}" data-f="${d}">${d}</button>`).join('')}</div>
+      <select class="input" id="srt" style="width:auto;padding:9px 30px 9px 12px;font-size:14px"><option value="ad">A → Z</option><option value="bakiye">Bakiye ↓</option><option value="son">Son hareket</option><option value="ara">Aranacaklar üstte</option></select></div>
+    <div class="chips" id="c1">${['Toptan', 'Perakende', 'Tedarikçi', 'Bakiyesi olan', 'Aranacak', 'Tümü'].map((d) => `<button class="chip ${ui.f === d ? 'on' : ''}${d === 'Aranacak' ? ' chip-ar' : ''}" data-f="${d}">${d === 'Aranacak' ? `${icon('tel')}Aranacak <span id="ar-say"></span>` : d}</button>`).join('')}</div>
     <div class="card" id="sum" style="padding:12px"></div>
     <div class="list" id="lst"></div>`;
   $('#srt').value = ui.sirala;
   const draw = () => {
     const q = norm(ui.q);
-    let f = data.filter((c) => c.aktif && (ui.f === 'Tümü' || (ui.f === 'Bakiyesi olan' ? Math.abs(num(c.bakiye)) > 0.005 : c.tip === ui.f))
+    const arSay = data.filter((c) => c.aktif && c.aranacak_tarih).length;
+    $('#ar-say').textContent = arSay ? `(${arSay})` : '';
+    let f = data.filter((c) => c.aktif && (ui.f === 'Tümü' || (ui.f === 'Aranacak' ? !!c.aranacak_tarih : ui.f === 'Bakiyesi olan' ? Math.abs(num(c.bakiye)) > 0.005 : c.tip === ui.f))
       && (!q || norm(`${c.unvan} ${c.kod} ${c.sehir || ''} ${c.yetkili || ''} ${c.telefon || ''}`).includes(q)));
     if (ui.sirala === 'bakiye') f.sort((a, b) => num(b.bakiye) - num(a.bakiye));
     if (ui.sirala === 'son') f.sort((a, b) => String(b.son_hareket || '').localeCompare(String(a.son_hareket || '')));
+    // Aranacak listesinde isaretlenme sirasi (ilk isaretlenen ustte); "Aranacaklar üstte" siralamasinda kirmizilar en uste
+    if (ui.f === 'Aranacak') f.sort((a, b) => String(a.aranacak_tarih).localeCompare(String(b.aranacak_tarih)));
+    else if (ui.sirala === 'ara') f.sort((a, b) => (b.aranacak_tarih ? 1 : 0) - (a.aranacak_tarih ? 1 : 0) || String(a.aranacak_tarih || '').localeCompare(String(b.aranacak_tarih || '')));
     const tr = f.reduce((a, c) => a + num(c.bakiye_r), 0), tg = f.reduce((a, c) => a + num(c.bakiye_gr), 0);
     $('#sum').innerHTML = `<div class="stats stats4">
       <div class="stat"><div class="l">${esc(ui.f)} · ${f.length} cari</div><div class="v ${balCls(tr + tg)}">${fmtTL(tr + tg)}</div></div>
@@ -2275,8 +2304,14 @@ async function viewCariler() {
       <div class="stat"><div class="l">GR toplam</div><div class="v ${balCls(tg)}">${fmtTL(tg)}</div></div>
       <div class="stat"><div class="l">Alacak / borç</div><div class="v small" style="font-size:13px;white-space:normal"><span class="pos">${fmtTL(f.reduce((a, c) => a + Math.max(num(c.bakiye), 0), 0))}</span><br><span class="neg">${fmtTL(f.reduce((a, c) => a + Math.min(num(c.bakiye), 0), 0))}</span></div></div>
     </div>${ui.q ? `<div class="tiny" style="margin-top:6px">“${esc(ui.q)}” aramasına göre</div>` : ''}`;
-    $('#lst').innerHTML = f.length ? f.slice(0, 500).map(cariRow).join('') : '<div class="empty">Cari bulunamadı</div>';
+    $('#lst').innerHTML = f.length ? f.slice(0, 500).map((c) => cariRow(c, { ara: true })).join('') : `<div class="empty">${ui.f === 'Aranacak' ? 'Aranacak cari yok. Listede carinin yanındaki telefon simgesine dokunarak ekleyebilirsiniz.' : 'Cari bulunamadı'}</div>`;
     bindRows($('#lst'));
+    // telefon simgesi: tek dokunusla aranacak yap / arandi (listeden cikar)
+    $$('[data-ara]', $('#lst')).forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation(); const c = data.find((x) => x.id === +b.dataset.ara); if (!c) return;
+      const ekle = !c.aranacak_tarih;
+      try { await busy(b, () => aranacakKaydet(c, ekle)); toast(ekle ? `${c.unvan} aranacaklara eklendi` : `${c.unvan} arandı, listeden çıktı`, 'ok'); draw(); } catch (err) { fail(err); }
+    }));
   };
   $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
   $('#srt').onchange = (e) => { ui.sirala = e.target.value; draw(); };
@@ -2313,6 +2348,8 @@ async function viewCariDetay(id) {
       ${riskDurum(c).limit !== null && !riskDurum(c).asim ? `<p class="tiny" style="margin:6px 0 0">Risk limiti ${fmtTL(c.risk_limiti)} · kullanılan %${fmtN(Math.round(riskDurum(c).oran * 100))}</p>` : ''}
     </div>
     ${riskAlarm(c)}
+    ${c.aranacak_tarih ? `<div class="card ar-kart"><div style="flex:1;min-width:0"><b>${icon('tel')} Aranacak</b> <span class="tiny">· ${aranacakTarih(c)} tarihinde işaretlendi</span>${c.aranacak_not ? `<div class="small" style="margin-top:4px">${esc(c.aranacak_not)}</div>` : ''}</div>
+      <div class="btn-row" style="margin:0"><button class="btn sm" id="b-arn">Not</button><button class="btn sm green" id="b-ard">Arandı</button></div></div>` : ''}
     ${dovizBorcKart(dvzSip)}
     ${notKart('cariler', c.id)}
     <div class="btn-row" style="margin-bottom:6px">
@@ -2321,6 +2358,7 @@ async function viewCariDetay(id) {
       <button class="btn" id="b-acl">Açılış / düzeltme</button>
       <button class="btn" id="b-eks">${icon('print')}Ekstre gönder</button>
       <button class="btn" id="b-fl">${icon('list')}Fiyat listesi gönder</button>
+      ${c.aranacak_tarih ? '' : `<button class="btn" id="b-ara">${icon('tel')}Aranacaklara ekle</button>`}
     </div>
     ${acikTk.length ? (() => { const tl = (p) => num(p.tutar_tl) || (p.para_birimi === 'TRY' ? num(p.tutar_hesap) : tlTahmin(p)); const ta = acikTk.filter((p) => p.yon === 'Tahsilat').reduce((a, p) => a + tl(p), 0), od = acikTk.filter((p) => p.yon === 'Ödeme').reduce((a, p) => a + tl(p), 0);
       return `<div class="section-title">Açık taksit / ödemeler <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${acikTk.length} kalem${ta ? ` · tahsil edilecek ${fmtTL(ta)}` : ''}${od ? ` · ödenecek ${fmtTL(od)}` : ''}</span></div>
@@ -2342,6 +2380,9 @@ async function viewCariDetay(id) {
 
   $('#b-eks').onclick = () => ekstreGonder(c, eks, ui.tip);
   $('#b-fl').onclick = () => flCariGonder(c);
+  $('#b-ara')?.addEventListener('click', () => aranacakForm(c, render));
+  $('#b-arn')?.addEventListener('click', () => aranacakForm(c, render));
+  $('#b-ard')?.addEventListener('click', (e) => busy(e.currentTarget, async () => { await aranacakKaydet(c, false); toast('Arandı olarak işaretlendi', 'ok'); render(); }).catch(fail));
   bindPlanRows($('#cd-tk'), acikTk, null); if ($('#cd-sip')) bindRows($('#cd-sip')); if ($('#cd-dvz')) bindRows($('#cd-dvz')); bindNakitRows($('#cd-cek'), cekler);
   const dvzNot = (h) => (h.para_birimi && h.para_birimi !== 'TRY' && h.doviz_tutar !== null ? `<div class="tiny">${fmtPB(h.doviz_tutar, h.para_birimi)} × ${fmtN(h.kur)}</div>` : '');
   const drawEks = () => {
@@ -6587,7 +6628,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.31';
+const APP_V = '2.32';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
