@@ -2278,7 +2278,9 @@ function cariRow(c, o = {}) {
 }
 async function viewCariler() {
   topbar('Cariler', { actions: `<button class="tb-btn" data-fn="cariForm">${icon('plus')}Yeni</button>` });
-  const ui = state.ui.cari ||= { f: 'Toptan', q: '', sirala: 'ad' };
+  // filtre ve siralama secimi cihazda hatirlanir (uygulama kapatilip acilinca da kalir)
+  const ui = state.ui.cari ||= (() => { let k = {}; try { k = JSON.parse(localStorage.getItem('ssc_cari_liste') || '{}'); } catch {} return { f: k.f || 'Toptan', q: '', sirala: k.sirala || 'ad' }; })();
+  const hatirla = () => { try { localStorage.setItem('ssc_cari_liste', JSON.stringify({ f: ui.f, sirala: ui.sirala })); } catch {} };
   const data = await cache.cariler(true);
   $('#view').innerHTML = `
     <div class="toolbar"><div class="search">${icon('search')}<input id="q" placeholder="Cari adı, kod, şehir ara…" value="${esc(ui.q)}"></div>
@@ -2315,8 +2317,8 @@ async function viewCariler() {
     }));
   };
   $('#q').oninput = (e) => { ui.q = e.target.value; draw(); };
-  $('#srt').onchange = (e) => { ui.sirala = e.target.value; draw(); };
-  $('#c1').onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; ui.f = b.dataset.f; $$('#c1 .chip').forEach((c) => c.classList.toggle('on', c === b)); draw(); };
+  $('#srt').onchange = (e) => { ui.sirala = e.target.value; hatirla(); draw(); };
+  $('#c1').onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; ui.f = b.dataset.f; hatirla(); $$('#c1 .chip').forEach((c) => c.classList.toggle('on', c === b)); draw(); };
   draw();
 }
 
@@ -6644,7 +6646,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.32';
+const APP_V = '2.33';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
