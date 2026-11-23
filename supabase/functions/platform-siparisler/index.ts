@@ -179,7 +179,11 @@ async function hepsiburada(a: Record<string, string>, gunSay: number, bitGun = 0
         const komK = tr.filter((x) => /Commission/.test(x.transactionType)).reduce((t, x) => t + tutar(x), 0);
         const kargoK = tr.filter((x) => /Shipment|Cargo|Delivery/.test(x.transactionType)).reduce((t, x) => t + tutar(x), 0);
         const digerK = tr.filter((x) => !["Payment", "TotalPayment"].includes(x.transactionType)).reduce((t, x) => t + tutar(x), 0);
-        if (satis > 0 && tr.some((x) => /Commission/.test(x.transactionType))) { kom = r2(-komK); kesin = tr.some((x) => /Shipment|Cargo|Delivery/.test(x.transactionType)); kargo = kesin ? r2(-kargoK) : null; net = kesin ? r2(satis + digerK) : null; }
+        // muhasebe kayitlari kalem kalem gelir: siparisin tum satis (Payment) kayitlari gelmeden net kesin sayilmaz
+        // (yoksa tek kalemin satisi uzerinden eksi net cikar)
+        const tamam = satis >= brut - 1;
+        if (satis > 0 && tamam && tr.some((x) => /Commission/.test(x.transactionType))) { kom = r2(-komK); kesin = tr.some((x) => /Shipment|Cargo|Delivery/.test(x.transactionType)); kargo = kesin ? r2(-kargoK) : null; net = kesin ? r2(satis + digerK) : null; }
+        else if (satis > 0 && !tamam) { const kg = -kargoK; if (kg > 0) kargo = r2(kg); }
       }
     } catch { /* muhasebe kaydi yoksa tahmin kalir */ }
     const sv = sevk[no];
@@ -386,7 +390,7 @@ Deno.serve(async (req) => {
           const mevcut = await rest(`platform_siparisler?select=id,siparis_no,durum,siparis_id&platform=eq.${encodeURIComponent(e.platform)}&siparis_no=in.(${liste.map((s) => `"${s.siparis_no.replace(/"/g, "")}"`).join(",")})`);
           const m = new Map<string, Record<string, any>>(mevcut.map((x: Record<string, any>) => [x.siparis_no, x]));
           const satirlar = liste.map(({ iptal, bekle, ...s }) => ({ ...s, guncelleme: new Date().toISOString() }));
-          const kayit = await rest("platform_siparisler?on_conflict=platform,siparis_no&select=id,siparis_no,durum,siparis_id,tarih", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(satirlar) });
+          const kayit = await rest("platform_siparisler?on_conflict=platform,siparis_no&select=id,siparis_no,durum,siparis_id,tarih,hata", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(satirlar) });
           for (const k of kayit as Record<string, any>[]) {
             const s = liste.find((x) => x.siparis_no === k.siparis_no)!;
             const eski = m.get(k.siparis_no);
@@ -401,7 +405,7 @@ Deno.serve(async (req) => {
             else if (!eski && !k.siparis_id && (d10(k.tarih) || "9999") < baslangic) { await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ durum: "Eski" }) }); durum = "Eski"; }
             if (kuru) continue;
             try {
-              if (k.siparis_id) { const r = await rest("rpc/platform_siparis_senkron", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r && Object.keys(r).length) guncellenen++; }
+              if (k.siparis_id) { const r = await rest("rpc/platform_siparis_senkron", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r && Object.keys(r).length) guncellenen++; if (k.hata) await rest(`platform_siparisler?id=eq.${k.id}`, { method: "PATCH", body: JSON.stringify({ hata: null }) }); }
               else if (durum === "Bekliyor" || durum === "Eşleşmedi" || durum === "Eski") { const r = await rest("rpc/platform_siparis_aktar", { method: "POST", body: JSON.stringify({ p_id: k.id }) }); if (r?.id) { if (r.elle) baglanan++; else { aktarilan++; if (!eski || eski.durum === "Onay bekliyor") olaylar.push({ baslik: `Yeni ${e.platform} siparişi`, metin: ozet(s), url: `#/siparis/${r.id}`, etiket: `s-${e.platform}-${k.siparis_no}` }); } } else if (r?.eslesmedi) { eslesmedi++; if (!eski || eski.durum !== "Eşleşmedi") olaylar.push({ baslik: `${e.platform} siparişi: ürün seçin`, metin: `${ozet(s)} — bu ürün programdaki hiçbir ürünle eşleşmedi`, url: "#/platform-siparisler", etiket: `e-${e.platform}-${k.siparis_no}` }); } }
             } catch (err) {
               const msg = String((err as Error).message || err).slice(0, 300); hatalar.push(`${k.siparis_no}: ${msg}`);
