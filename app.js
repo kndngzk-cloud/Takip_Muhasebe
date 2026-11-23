@@ -1848,7 +1848,6 @@ async function viewStok() {
     <p class="tiny" style="margin:0 4px 10px"><b>Real</b>: depoda fiilen olan. <b>Sevk sonrası</b>: bekleyen siparişler gönderildikten sonra kalacak miktar. <b>Yolda</b>: ithalattan gelmekte olan.</p>
     <div id="lst"></div>`;
   const draw = () => {
-    haf = null;
     const q = norm(ui.q);
     const f = data.filter((u) => {
       if (ui.f === 'Pasif') { if (u.aktif) return false; } else if (!u.aktif) return false;
@@ -4102,6 +4101,7 @@ async function viewPaytr() {
     $('#lst').innerHTML = `<div class="card empty">Henüz PayTR kart işlemi yok.${isAdmin() ? ' Sağ üstteki “PayTR’den çek” ile son günlerin işlemlerini alabilirsiniz.' : ''} İşlemler gün içinde 2 saatte bir otomatik de çekilir.</div>`;
   }
   const draw = () => {
+    haf = null;
     const q = norm(ui.q);
     const f = data.filter((p) => (ui.f === 'Tümü' || (ui.f === 'Eşleşmemiş' ? p.durum === 'Bekliyor' || yeniEs.has(p.id) : p.durum !== 'Bekliyor')) && (!ui.hesap || p.hesap === ui.hesap)
       && (!q || norm(`${p.siparis_no || ''} ${p.kart_no || ''} ${p.kart_marka || ''} ${p.cari_unvan || ''} ${fmtN(p.islem_tutari)} ${p.islem_tutari} ${p.makbuz_no ? 'makbuz ' + p.makbuz_no : ''} ${p.durum === 'Perakende' ? 'perakende' : ''} ${p.fis_no ? 'fiş ' + p.fis_no : ''} ${p.site_siparis_no || ''} ${p.site || ''}`).includes(q)));
@@ -6646,7 +6646,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.33';
+const APP_V = '2.34';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
