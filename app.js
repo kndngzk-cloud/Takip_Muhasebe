@@ -526,6 +526,7 @@ function confirmBox(title, text, okText = 'Onayla', danger = false) {
   });
 }
 async function busy(btn, fn) {
+  if (!btn) return fn(); // e.currentTarget bir await'ten sonra null olur; buton yoksa sadece isi yap
   const t = btn.innerHTML; btn.disabled = true; btn.innerHTML = 'Kaydediliyor…';
   try { return await fn(); } finally { btn.disabled = false; btn.innerHTML = t; }
 }
@@ -5454,6 +5455,7 @@ function flForm(l, onSaved) {
       ciz();
       $('#fl-sec-ek', m.el).onclick = () => { sec.push({ k: 's' + Date.now().toString(36), ad: '' }); ciz(); $$('.fl-sa', m.el).at(-1)?.focus(); };
       $('#fl-ok', m.el).onclick = async (e) => {
+        const btn = e.currentTarget; // confirmBox beklendikten sonra e.currentTarget null olur
         const row = { ad: $('#fl-ad', m.el).value.trim(), aciklama: $('#fl-ac', m.el).value.trim() || null, para_birimi: $('#fl-pb', m.el).value,
           kdv_dahil: $('#fl-kdv', m.el).value === '1', secenekler: sec.map((s) => ({ k: s.k, ad: s.ad.trim() })).filter((s) => s.ad), guncelleme: new Date().toISOString() };
         if (!row.ad) return toast('Liste adı girin', 'err');
@@ -5461,7 +5463,7 @@ function flForm(l, onSaved) {
         const silinen = l ? flSec(l).filter((s) => !row.secenekler.some((x) => x.k === s.k)) : [];
         if (silinen.length && !(await confirmBox('Seçenek kaldırılsın mı?', `${silinen.map((s) => `<b>${esc(s.ad)}</b>`).join(', ')} kolonundaki fiyatlar artık listede görünmeyecek.`, 'Kaldır', true))) return;
         try {
-          const [r] = await busy(e.currentTarget, () => (l ? api.update('fiyat_listeleri', `id=eq.${l.id}`, row) : api.insert('fiyat_listeleri', [row])));
+          const [r] = await busy(btn, () => (l ? api.update('fiyat_listeleri', `id=eq.${l.id}`, row) : api.insert('fiyat_listeleri', [row])));
           m.close(); toast('Kaydedildi', 'ok'); onSaved && onSaved(r);
         } catch (err) { fail(err); }
       };
@@ -6646,7 +6648,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.36';
+const APP_V = '2.37';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
