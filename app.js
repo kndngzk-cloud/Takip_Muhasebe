@@ -5486,6 +5486,9 @@ async function viewFiyatListesi(id) {
   const sec = flSec(l), pb = l.para_birimi || 'TRY';
   const flP = (v) => (v === null || v === undefined || v === '' ? '' : `${flFmt(v)} ${PB[pb] || pb}`);
   const U = Object.fromEntries(urunler.map((u) => [u.id, u]));
+  // maliyet (son alis fiyati, TL); dovizli listede guncel kurla karsiligi da yazilir
+  const flMal = (u) => { if (u.son_alis_fiyati === null || u.son_alis_fiyati === undefined) return ''; const k = pb !== 'TRY' ? guncelKur(pb) : 0;
+    return `maliyet <b>${fmtTL(u.son_alis_fiyati)}</b>${k ? ` (≈ ${fmtPB(num(u.son_alis_fiyati) / k, pb)})` : ''}`; };
   const ui = (state.ui.fl ||= {}); ui.q ||= '';
   const dokun = () => api.update('fiyat_listeleri', `id=eq.${l.id}`, { guncelleme: new Date().toISOString() }).catch(() => {});
   $('#view').innerHTML = `
@@ -5495,9 +5498,9 @@ async function viewFiyatListesi(id) {
         <div class="field" style="margin:0"><input class="input" id="fl-q" placeholder="Listede ara…" value="${esc(ui.q)}"></div></div>
     </div>
     <div class="card" style="padding:0;overflow:hidden"><div class="table-wrap"><table class="tbl stack fl-tbl"><thead><tr><th>Ürün</th>${sec.map((s) => `<th class="r">${esc(s.ad)} <span style="text-transform:none">(${PB[pb] || pb})</span></th>`).join('')}<th></th></tr></thead><tbody id="fl-body"></tbody></table></div></div>
-    <p class="tiny" style="margin:0 4px"><span id="fl-say"></span> ürün. Ürünün kartındaki liste fiyatı ürün adının altında gösterilir.</p>`;
+    <p class="tiny" style="margin:0 4px"><span id="fl-say"></span> ürün. Ürünün kart fiyatı ve maliyeti (son alış fiyatı) ürün adının altında gösterilir.</p>`;
   const satir = (k) => { const u = U[k.urun_id] || {}; const f = k.fiyatlar || {}; return `<tr data-k="${k.id}">
-      <td class="w"><b>${esc(u.ad || 'Silinmiş ürün')}</b><div class="tiny">${esc(u.kod || '')}${u.satis_fiyati ? ` · kart fiyatı ${fmtTL(u.satis_fiyati)}` : ''}</div></td>
+      <td class="w"><b>${esc(u.ad || 'Silinmiş ürün')}</b><div class="tiny">${esc(u.kod || '')}${u.satis_fiyati ? ` · kart fiyatı ${fmtTL(u.satis_fiyati)}` : ''}${flMal(u) ? ` · ${flMal(u)}` : ''}</div></td>
       ${sec.map((s) => `<td class="r" data-l="${esc(s.ad)}"><input class="input fl-f" data-s="${s.k}" inputmode="decimal" style="width:120px;padding:6px 8px;text-align:right" value="${flP(f[s.k])}" placeholder="${PB[pb]}"></td>`).join('')}
       <td class="r"><button class="icon-btn fl-del" title="Listeden çıkar">${icon('trash')}</button></td></tr>`; };
   const ciz = () => {
@@ -5527,7 +5530,7 @@ async function viewFiyatListesi(id) {
   $('#fl-q').oninput = (e) => { ui.q = e.target.value; ciz(); };
   picker($('#fl-ekle'), {
     items: () => urunler.filter((u) => u.aktif && !kal.some((k) => k.urun_id === u.id)),
-    label: (u) => u.ad, sub: (u) => `${esc(u.kod)}${u.satis_fiyati ? ` · kart fiyatı ${fmtTL(u.satis_fiyati)}` : ''}`,
+    label: (u) => u.ad, sub: (u) => `${esc(u.kod)}${flMal(u) ? ` · ${flMal(u)}` : ''}${u.satis_fiyati ? ` · kart fiyatı ${fmtTL(u.satis_fiyati)}` : ''}`,
     onPick: async (u) => {
       $('#fl-ekle').value = '';
       try {
@@ -6648,7 +6651,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.37';
+const APP_V = '2.38';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
