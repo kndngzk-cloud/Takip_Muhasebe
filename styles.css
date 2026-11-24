@@ -380,6 +380,11 @@ details.gum[open] summary { margin-bottom: 10px; }
 .pt-pick { position: relative; width: 230px; }
 .pt-pick .input { padding: 7px 10px; font-size: 14px; }
 .pt-tip button { padding: 5px 10px; font-size: 13px; }
+/* cari secim listesi kartin disina tasabilsin (.list overflow:hidden kesiyordu) */
+.list:has(.pt-row) { overflow: visible; }
+.list > .pt-row:first-child { border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); }
+.list > .pt-row:last-child { border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
+.pt-row:focus-within { position: relative; z-index: 5; }
 @media (max-width: 700px) { .pt-act { width: 100%; justify-content: stretch; } .pt-pick { flex: 1 1 100%; width: auto; } }
 
 /* Platform siparisleri: kargo karti */
