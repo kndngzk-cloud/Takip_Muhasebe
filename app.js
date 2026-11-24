@@ -5421,7 +5421,7 @@ async function viewFiyatListeleri() {
   $('#view').innerHTML = `<div class="list">${listeler.length ? listeler.map((l) => `<div class="row" data-go="#/fiyat-listesi/${l.id}">
       <div class="main-col"><div class="t">${esc(l.ad)}</div>
         <div class="st"><span>${say[l.id] || 0} ürün</span><span>${flSec(l).map((s) => esc(s.ad)).join(' · ')}</span>${l.aciklama ? `<span>${esc(l.aciklama)}</span>` : ''}</div></div>
-      <div class="end"><div class="tiny">${PB_AD[l.para_birimi] || l.para_birimi} · ${l.kdv_dahil ? 'KDV dahil' : 'KDV hariç'}</div><div class="tiny">güncelleme ${fmtD(l.guncelleme)}</div></div>
+      <div class="end"><div class="tiny">${PB_AD[l.para_birimi] || l.para_birimi} · ${l.kdv_dahil ? 'KDV dahil' : '+KDV'}</div><div class="tiny">güncelleme ${fmtD(l.guncelleme)}</div></div>
     </div>`).join('') : '<div class="empty">Henüz fiyat listesi yok. “Yeni liste” ile başlayın; ürünleri ekleyip her ödeme şekli için ayrı fiyat girebilirsiniz.</div>'}</div>`;
   bindRows();
   $('#fl-yeni').onclick = () => flForm(null, (r) => go(`#/fiyat-listesi/${r.id}`));
@@ -5434,7 +5434,7 @@ function flForm(l, onSaved) {
     body: `<div class="field"><label>Liste adı</label><input class="input" id="fl-ad" value="${esc(l?.ad || '')}" placeholder="Örn. Bayi listesi Kasım 2026"></div>
       <div class="field"><label>Açıklama (isteğe bağlı)</label><input class="input" id="fl-ac" value="${esc(l?.aciklama || '')}"></div>
       <div class="grid2"><div class="field"><label>Para birimi</label><select class="input" id="fl-pb">${Object.keys(PB).map((p) => `<option value="${p}" ${(l?.para_birimi || 'TRY') === p ? 'selected' : ''}>${PB_AD[p]}</option>`).join('')}</select></div>
-        <div class="field"><label>Fiyatlar</label><select class="input" id="fl-kdv"><option value="1" ${l?.kdv_dahil === false ? '' : 'selected'}>KDV dahil</option><option value="0" ${l?.kdv_dahil === false ? 'selected' : ''}>KDV hariç</option></select></div></div>
+        <div class="field"><label>Fiyatlar</label><select class="input" id="fl-kdv"><option value="0" ${l?.kdv_dahil === true ? '' : 'selected'}>+KDV (KDV hariç)</option><option value="1" ${l?.kdv_dahil === true ? 'selected' : ''}>KDV dahil</option></select></div></div>
       <div class="field"><label>Ödeme seçenekleri (her biri listede ayrı fiyat kolonu olur)</label><div id="fl-sec"></div>
         <button class="btn sm" id="fl-sec-ek" type="button" style="margin-top:6px">${icon('plus')}Seçenek ekle</button></div>`,
     foot: `${l && isAdmin() ? `<button class="btn red" id="fl-sil" style="margin-right:auto">${icon('trash')}Sil</button>` : ''}<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="fl-ok">Kaydet</button>`,
@@ -5488,7 +5488,7 @@ async function viewFiyatListesi(id) {
   const dokun = () => api.update('fiyat_listeleri', `id=eq.${l.id}`, { guncelleme: new Date().toISOString() }).catch(() => {});
   $('#view').innerHTML = `
     <div class="card" style="padding:12px">
-      <div class="small muted" style="margin-bottom:8px">${PB_AD[pb]} · ${l.kdv_dahil ? 'KDV dahil' : 'KDV hariç'} fiyatlar${l.aciklama ? ` · ${esc(l.aciklama)}` : ''}. Fiyatı yazıp başka hücreye geçince kaydedilir.</div>
+      <div class="small muted" style="margin-bottom:8px">${PB_AD[pb]} · ${l.kdv_dahil ? 'KDV dahil fiyatlar' : 'Fiyatlara KDV eklenir (+KDV)'}${l.aciklama ? ` · ${esc(l.aciklama)}` : ''}. Fiyatı yazıp başka hücreye geçince kaydedilir.</div>
       <div class="grid2"><div class="field" style="margin:0"><div class="picker"><input class="input" id="fl-ekle" placeholder="Listeye ürün ekle… (ad veya kod)" autocomplete="off"></div></div>
         <div class="field" style="margin:0"><input class="input" id="fl-q" placeholder="Listede ara…" value="${esc(ui.q)}"></div></div>
     </div>
@@ -5614,7 +5614,7 @@ function flCanvas(l, kol, rows, { cari = null, kod = false, not = '' } = {}) {
   x.fillStyle = '#fff'; x.font = F(800, 44); x.fillText('Fiyat Listesi', pad, 60);
   x.font = F(500, 26); x.fillStyle = '#c9d2e6'; x.fillText(kes(state.ayarlar?.firma_adi || '', W / 2 - pad), pad, 110);
   x.textAlign = 'right'; x.fillStyle = '#fff'; x.font = F(700, 30); x.fillText(kes(l.ad, W / 2 - pad), W - pad, 60);
-  x.font = F(600, 24); x.fillStyle = '#c9d2e6'; x.fillText(`${fmtD(today())} · ${PB_AD[pb] || pb} · ${l.kdv_dahil ? 'KDV dahil' : 'KDV hariç'}`, W - pad, 110); x.textAlign = 'left';
+  x.font = F(600, 24); x.fillStyle = '#c9d2e6'; x.fillText(`${fmtD(today())} · ${PB_AD[pb] || pb} · ${l.kdv_dahil ? 'KDV dahil' : '+KDV'}`, W - pad, 110); x.textAlign = 'left';
   let y = 205;
   if (cari) {
     x.fillStyle = '#5b6578'; x.font = F(600, 24); x.fillText('SAYIN', pad, y);
@@ -6646,7 +6646,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.35';
+const APP_V = '2.36';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
