@@ -2737,7 +2737,7 @@ async function odemeLinkleri(c) {
     const tel = waTel(c.telefon);
     return `<div class="row" style="align-items:flex-start;gap:10px">
       <div class="main-col">
-        <div class="t">${tipBadge(l.fatura_tipi)} ${l.max_taksit > 1 ? `<span class="badge b-blue">${l.max_taksit} taksite kadar</span>` : '<span class="badge">Tek çekim</span>'} ${l.aktif ? '<span class="badge b-green">Açık</span>' : '<span class="badge b-red">Kapalı</span>'}</div>
+        <div class="t">${tipBadge(l.fatura_tipi)} ${l.max_taksit > 1 ? `<span class="badge b-blue">${l.max_taksit} taksite kadar</span>` : '<span class="badge">Tek çekim</span>'} <span class="badge ${l.komisyon === 'Müşteri' ? 'b-orange' : ''}">Komisyon ${l.komisyon === 'Müşteri' ? 'müşteriden' : 'bizden'}</span> ${l.aktif ? '<span class="badge b-green">Açık</span>' : '<span class="badge b-red">Kapalı</span>'}</div>
         <div class="st">${fmtD(l.olusturma)} oluşturuldu${l.bakiye_goster ? ' · bakiye görünür' : ' · bakiye gizli'}${od.length ? ` · <b>${od.length} ödeme, ${fmtTL(top)}</b>` : ' · henüz ödeme yok'}</div>
         ${l.aciklama ? `<div class="tiny">${esc(l.aciklama)}</div>` : ''}
       </div>
@@ -2757,12 +2757,13 @@ async function odemeLinkleri(c) {
         <div class="grid2">
           <div class="field"><label>Düşülecek hesap</label><div class="seg" id="ol-tip"><button type="button" data-v="R" class="${tip0 === 'R' ? 'on r' : ''}">R</button><button type="button" data-v="GR" class="${tip0 === 'GR' ? 'on gr' : ''}">GR</button></div>
             <div class="hint">R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}</div></div>
-          <div class="field"><label>En fazla taksit</label><div class="seg" id="ol-tk">${[1, 2, 3].map((n) => `<button type="button" data-v="${n}" class="${n === 1 ? 'on' : ''}">${n === 1 ? 'Tek çekim' : n}</button>`).join('')}</div>
-            <div class="hint">Vade farkını kimin ödeyeceği PayTR panelindeki taksit ayarınıza bağlıdır; cariye müşterinin yazdığı tutar düşer.</div></div>
+          <div class="field"><label>En fazla taksit</label><select class="input" id="ol-tk">${Array.from({ length: 12 }, (_, i) => i + 1).map((n) => `<option value="${n}" ${n === 3 ? 'selected' : ''}>${n === 1 ? 'Tek çekim' : `${n} taksite kadar`}</option>`).join('')}</select></div>
         </div>
+        <div class="field"><label>Komisyonu kim öder?</label><div class="seg" id="ol-km"><button type="button" data-v="Firma" class="on">Biz öderiz</button><button type="button" data-v="Müşteri">Müşteri öder</button></div>
+          <div class="hint" id="ol-kh"></div></div>
         <label class="check" style="margin:2px 0 10px"><input type="checkbox" id="ol-bk" checked> <span>Ödeme sayfasında seçilen hesabın bakiyesi görünsün</span></label>
         <div class="field"><label>Müşteriye not <span class="tiny" style="font-weight:500">isteğe bağlı, ödeme sayfasında görünür</span></label><textarea class="input" id="ol-ac" rows="2" placeholder="örn. Kasım ayı faturalarınız için"></textarea></div>
-        <button class="btn primary" id="ol-yeni">${icon('cash')}Link oluştur</button>
+        <div class="btn-row" style="margin:0"><button class="btn primary" id="ol-yeni">${icon('cash')}Link oluştur</button>${isAdmin() ? '<button class="btn" id="ol-or">Komisyon oranları ve sayfa bilgileri</button>' : ''}</div>
       </div>
       <div class="section-title">Bu carinin linkleri</div>
       <div class="list" id="ol-lst">${linkler.length ? linkler.map(linkSatir).join('') : '<div class="empty">Henüz link yok</div>'}</div>
@@ -2770,11 +2771,21 @@ async function odemeLinkleri(c) {
     foot: '<button class="btn" data-close>Kapat</button>',
     onMount: (m) => {
       const seg = (id) => { const el = $(id, m.el); el.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; $$('button', el).forEach((x) => x.classList.toggle('on', x === b)); if (id === '#ol-tip') $$('button', el).forEach((x) => { x.classList.toggle('r', x.classList.contains('on') && x.dataset.v === 'R'); x.classList.toggle('gr', x.classList.contains('on') && x.dataset.v === 'GR'); }); }; };
-      seg('#ol-tip'); seg('#ol-tk');
+      seg('#ol-tip'); seg('#ol-km');
+      const oranlar = () => state.ayarlar?.odeme_link?.oranlar || {};
+      const kh = () => {
+        const km = $('#ol-km button.on', m.el)?.dataset.v, n = +$('#ol-tk', m.el).value;
+        const o = Array.from({ length: n }, (_, i) => i + 1).map((k) => `${k === 1 ? 'tek' : k}: %${fmtN(oranlar()[k] ?? '?')}`).join(' · ');
+        $('#ol-kh', m.el).innerHTML = km === 'Müşteri'
+          ? `Müşteri ödeme sayfasında taksit sayısını seçer, o seçeneğin komisyonu tutara eklenir; cariye müşterinin yazdığı tutar düşer, net tutar size kalır. Oranlar: ${o}`
+          : 'Müşteri yazdığı tutarı öder, taksitler vade farksızdır; PayTR komisyonu sizden kesilir.';
+      };
+      $('#ol-km', m.el).addEventListener('click', () => setTimeout(kh)); $('#ol-tk', m.el).onchange = kh; kh();
+      $('#ol-or', m.el)?.addEventListener('click', () => odemeLinkAyar(() => { m.close(); odemeLinkleri(c); }));
       const kopyala = async (l) => { try { await navigator.clipboard.writeText(odemeLinkUrl(l.token)); toast('Link kopyalandı', 'ok'); } catch { toast(odemeLinkUrl(l.token)); } };
       $('#ol-yeni', m.el).onclick = (e) => busy(e.currentTarget, async () => {
         const [l] = await api.insert('odeme_linkleri', {
-          cari_id: c.id, fatura_tipi: $('#ol-tip button.on', m.el)?.dataset.v || 'R', max_taksit: +($('#ol-tk button.on', m.el)?.dataset.v || 1),
+          cari_id: c.id, fatura_tipi: $('#ol-tip button.on', m.el)?.dataset.v || 'R', max_taksit: +$('#ol-tk', m.el).value || 1, komisyon: $('#ol-km button.on', m.el)?.dataset.v || 'Firma',
           bakiye_goster: $('#ol-bk', m.el).checked, aciklama: $('#ol-ac', m.el).value.trim() || null
         });
         m.close(); await odemeLinkleri(c);
@@ -2790,6 +2801,36 @@ async function odemeLinkleri(c) {
           try { await api.update('odeme_linkleri', `id=eq.${l.id}`, { aktif: !l.aktif }); m.close(); odemeLinkleri(c); } catch (err) { fail(err); }
         }
       });
+    }
+  });
+}
+
+/* Odeme linki ayarlari: musteriden alinacak komisyon oranlari (taksit basina) ve odeme sayfasinda gorunen iletisim bilgileri */
+async function odemeLinkAyar(sonra) {
+  const ay = await cache.ayarlar(true);
+  const ol = ay.odeme_link || {}, or = ol.oranlar || {};
+  modal({
+    title: 'Ödeme linki ayarları',
+    body: `<p class="small" style="margin:0 0 10px">“Komisyonu müşteri öder” seçilen linklerde, müşterinin seçtiği taksitin oranı tutara eklenir (tutar ÷ (1 − oran)), böylece PayTR kesintisinden sonra size cariye işlenen tutar kalır. Oranlar son 60 günün PayTR kesintilerinden alındı; PayTR panelinizdeki güncel oranlarla kontrol edin.</p>
+      <div class="grid3">${Array.from({ length: 12 }, (_, i) => i + 1).map((k) => `<div class="field"><label>${k === 1 ? 'Tek çekim' : k + ' taksit'} %</label><input class="input" inputmode="decimal" data-or="${k}" value="${or[k] != null ? fmtN(or[k]) : ''}" placeholder="kapalı"></div>`).join('')}</div>
+      <p class="tiny" style="margin:0 0 12px">Boş bırakılan taksit, “müşteri öder” linklerinde seçenek olarak gösterilmez.</p>
+      <div class="section-title" style="margin-top:4px">Ödeme sayfasında görünen bilgiler</div>
+      <div class="grid3"><div class="field"><label>Web sitesi</label><input class="input" id="oa-web" value="${esc(ol.web || '')}"></div>
+        <div class="field"><label>Telefon</label><input class="input" id="oa-tel" inputmode="tel" value="${esc(ol.telefon || '')}"></div>
+        <div class="field"><label>E-posta</label><input class="input" id="oa-ep" type="email" value="${esc(ol.eposta || '')}"></div></div>`,
+    foot: '<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="oa-k">Kaydet</button>',
+    onMount: (m) => {
+      $('#oa-k', m.el).onclick = (e) => busy(e.currentTarget, async () => {
+        const oranlar = {};
+        for (const inp of $$('[data-or]', m.el)) {
+          const v = inp.value.trim(); if (!v) continue;
+          const n = parseNum(v); if (!(n >= 0 && n < 50)) throw new Error(`${inp.dataset.or === '1' ? 'Tek çekim' : inp.dataset.or + ' taksit'} oranı 0 ile 50 arasında olmalı`);
+          oranlar[inp.dataset.or] = n;
+        }
+        await api.update('ayarlar', 'id=eq.1', { odeme_link: { ...ol, oranlar, web: $('#oa-web', m.el).value.trim(), telefon: $('#oa-tel', m.el).value.trim(), eposta: $('#oa-ep', m.el).value.trim() } });
+        await cache.ayarlar(true);
+        toast('Kaydedildi', 'ok'); m.close(); sonra && sonra();
+      }).catch(fail);
     }
   });
 }
