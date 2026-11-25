@@ -2750,6 +2750,7 @@ async function odemeLinkleri(c) {
         ${tel ? `<a class="btn sm green" target="_blank" rel="noopener" href="https://wa.me/${tel}?text=${encodeURIComponent(mesaj(l))}">WhatsApp</a>` : ''}
         ${navigator.share ? `<button class="btn sm" data-pay="${l.id}">Paylaş</button>` : ''}` : ''}
         <button class="btn sm" data-ac="${l.id}">${l.aktif ? 'Kapat' : 'Aç'}</button>
+        ${isAdmin() && !od.length ? `<button class="btn sm red" data-sil="${l.id}">Sil</button>` : ''}
       </div></div>`;
   };
   modal({
@@ -2797,7 +2798,17 @@ async function odemeLinkleri(c) {
       }).catch(fail);
       $('#ol-lst', m.el).addEventListener('click', async (e) => {
         const b = e.target.closest('button'); if (!b) return;
-        const l = linkler.find((x) => x.id === +(b.dataset.kp || b.dataset.pay || b.dataset.ac)); if (!l) return;
+        const l = linkler.find((x) => x.id === +(b.dataset.kp || b.dataset.pay || b.dataset.ac || b.dataset.sil)); if (!l) return;
+        if (b.dataset.sil) {
+          try {
+            // musteri su an PayTR sayfasindaysa (link 2 saat gecerli) silinirse odemesi cariye dusmez
+            const acik = await api.get('odeme_link_odemeleri', `select=id&link_id=eq.${l.id}&durum=eq.Bekliyor&olusturma=gte.${new Date(Date.now() - 2.2 * 3600e3).toISOString()}`);
+            if (acik.length) { toast('Bu linkle son 2 saatte ödeme sayfası açılmış; müşteri ödüyor olabilir. Şimdilik “Kapat” deyin, 2 saat sonra silebilirsiniz.', 'err'); return; }
+            if (!(await confirmBox('Link silinsin mi?', 'Link kalıcı olarak silinir ve müşteri bu linkle ödeme yapamaz.', 'Sil', true))) return;
+            await api.del('odeme_linkleri', `id=eq.${l.id}`); toast('Link silindi', 'ok'); m.close(); odemeLinkleri(c);
+          } catch (err) { fail(err); }
+          return;
+        }
         if (b.dataset.kp) return kopyala(l);
         if (b.dataset.pay) { try { await navigator.share({ title: 'Ödeme linki', text: mesaj(l) }); } catch (err) { if (err.name !== 'AbortError') kopyala(l); } return; }
         if (b.dataset.ac) {
@@ -6825,7 +6836,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.45';
+const APP_V = '2.46';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
