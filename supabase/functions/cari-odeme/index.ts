@@ -63,7 +63,7 @@ async function bildirim(req: Request) {
   const { hash: _h, ...ham } = f;
   await rest("rpc/paytr_link_odendi", {
     method: "POST",
-    body: JSON.stringify({ p_callback_id: f.callback_id, p_merchant_oid: f.merchant_oid, p_odenen: odenen, p_toplam: toplam, p_odeme_tipi: f.payment_type || "card", p_ham: { ...ham, kaynak: "Ödeme linki" } }),
+    body: JSON.stringify({ p_callback_id: f.callback_id, p_merchant_oid: f.merchant_oid, p_tutar: odenen, p_toplam: toplam, p_odeme_tipi: f.payment_type || "card", p_ham: { ...ham, kaynak: "Ödeme linki" } }),
   });
   // PayTR tarafindaki linki kapat (tek kullanimlik; hata onemsiz)
   try {
