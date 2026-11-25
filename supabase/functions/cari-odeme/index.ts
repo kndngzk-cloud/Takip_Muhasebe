@@ -1,9 +1,10 @@
 // Musteri odeme linki (PayTR Linkle Odeme API) — herkese acik, kendi dogrulamasini yapar.
-//  POST JSON {islem:"bilgi", t}          -> link bilgisi (firma, cari unvan, istenirse bakiye, max taksit)
-//  POST JSON {islem:"ode", t, tutar, taksit} -> PayTR'de tek kullanimlik odeme linki acar, {url} doner
+//  POST JSON {islem:"bilgi", t}          -> link bilgisi (firma, cari unvan, istenirse bakiye, max taksit, onceki odemeler)
+//  POST JSON {islem:"ode", t, tutar, taksit} -> PayTR'de tek kullanimlik odeme linki acar, {url, cb} doner
 // Komisyon: link "Firma" ise musteri yazdigi tutari oder (taksitler pesin fiyatina, komisyon firmadan).
 // "Müşteri" ise musteri taksit sayisini bizim sayfada secer; tutar o taksitin komisyonuyla brutlenir
 // (odenecek = tutar / (1 - oran)), cariye yine musterinin yazdigi tutar duser.
+//  POST JSON {islem:"durum", t, cb}      -> o odeme denemesinin durumu (odendiyse makbuz bilgisiyle)
 //  POST form (PayTR bildirimi)           -> hash dogrulanir, basariliysa tahsilat cariye duser, "OK" doner
 // PayTR magaza bilgileri entegrasyonlar tablosundaki "PayTR" (487386) kaydindan okunur.
 
@@ -48,6 +49,14 @@ async function linkGetir(t: unknown) {
   return l || null;
 }
 
+// Musteriye gosterilen makbuz bilgisi (kart no maskeli; PayTR islem dokumu gelince kart/taksit dolar)
+const ODEME_SEC = "callback_id,durum,tutar,toplam,taksit,makbuz_no,odeme_zamani,merchant_oid,paytr_islemler(kart_marka,kart_no,taksit)";
+const makbuzBilgi = (o: Record<string, any>) => {
+  const p = o.paytr_islemler || {};
+  return { no: o.makbuz_no, zaman: o.odeme_zamani, tutar: Number(o.tutar), toplam: Number(o.toplam ?? o.tutar), taksit: p.taksit ?? o.taksit ?? null,
+    kart: [p.kart_marka, p.kart_no].filter(Boolean).join(" · "), siparis: o.merchant_oid || "" };
+};
+
 /* ---------------- PayTR bildirimi ---------------- */
 async function bildirim(req: Request) {
   const f = Object.fromEntries((await req.formData()).entries()) as Record<string, string>;
@@ -87,7 +96,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const l = await linkGetir(body.t);
     if (!l) return json({ hata: "Ödeme linki bulunamadı. Linki size gönderen firmayla iletişime geçin." }, 404);
-    if (!l.aktif) return json({ hata: "Bu ödeme linki kapatılmış. Yeni link için firmayla iletişime geçin." }, 410);
+    if (!l.aktif && body.islem !== "durum") return json({ hata: "Bu ödeme linki kapatılmış. Yeni link için firmayla iletişime geçin." }, 410);
     const [c] = await rest(`v_cariler?select=unvan,bakiye_r,bakiye_gr&id=eq.${l.cari_id}`);
     const [ay] = await rest("ayarlar?select=firma_adi,odeme_link&id=eq.1").catch(() => [null]);
     const firma = (ay?.firma_adi || "").trim();
@@ -99,8 +108,16 @@ Deno.serve(async (req) => {
 
     if (body.islem === "bilgi") {
       const bakiye = l.bakiye_goster ? Number(l.fatura_tipi === "GR" ? c?.bakiye_gr : c?.bakiye_r) || 0 : null;
-      return json({ firma, unvan: c?.unvan || "", bakiye, max_taksit: l.max_taksit, aciklama: l.aciklama || "", komisyon: musteri ? "Müşteri" : "Firma", secenek,
+      const odenen = await rest(`odeme_link_odemeleri?select=${ODEME_SEC}&link_id=eq.${l.id}&durum=eq.${encodeURIComponent("Ödendi")}&order=odeme_zamani.desc&limit=20`).catch(() => []);
+      return json({ firma, unvan: c?.unvan || "", bakiye, odemeler: odenen.map(makbuzBilgi), max_taksit: l.max_taksit, aciklama: l.aciklama || "", komisyon: musteri ? "Müşteri" : "Firma", secenek,
         iletisim: { web: ol.web || "", telefon: ol.telefon || "", eposta: ol.eposta || "" } });
+    }
+
+    if (body.islem === "durum") {
+      if (typeof body.cb !== "string" || !/^[a-f0-9]{32}$/.test(body.cb)) return json({ hata: "Geçersiz istek" }, 400);
+      const [o] = await rest(`odeme_link_odemeleri?select=${ODEME_SEC}&link_id=eq.${l.id}&callback_id=eq.${body.cb}`);
+      if (!o) return json({ durum: "Yok" });
+      return json({ durum: o.durum, ...(o.durum === "Ödendi" ? { makbuz: makbuzBilgi(o), firma, unvan: c?.unvan || "" } : {}) });
     }
 
     if (body.islem === "ode") {
@@ -142,7 +159,7 @@ Deno.serve(async (req) => {
         return json({ hata: "Ödeme sayfası açılamadı, lütfen tekrar deneyin." }, 502);
       }
       await rest(`odeme_link_odemeleri?id=eq.${od.id}`, { method: "PATCH", body: JSON.stringify({ paytr_link_id: String(j.id), paytr_url: String(j.link) }) });
-      return json({ url: j.link });
+      return json({ url: j.link, cb: callback_id });
     }
     return json({ hata: "Geçersiz istek" }, 400);
   } catch (e) {
