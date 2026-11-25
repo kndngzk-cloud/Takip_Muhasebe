@@ -103,3 +103,6 @@ begin
 end $$;
 drop trigger if exists paytr_link_birlestir on public.paytr_islemler;
 create trigger paytr_link_birlestir before insert on public.paytr_islemler for each row execute function private.paytr_link_birlestir();
+
+-- v2: 12 taksite kadar, komisyonu kim oduyor (Firma / Müşteri), oranlar ve sayfa bilgileri ayarlar.odeme_link'te
+-- (Supabase'e uygulanacak hali: odeme_linkleri_komisyon migration'i)

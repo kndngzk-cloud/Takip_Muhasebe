@@ -1,6 +1,9 @@
 // Musteri odeme linki (PayTR Linkle Odeme API) — herkese acik, kendi dogrulamasini yapar.
 //  POST JSON {islem:"bilgi", t}          -> link bilgisi (firma, cari unvan, istenirse bakiye, max taksit)
-//  POST JSON {islem:"ode", t, tutar}     -> PayTR'de o tutara tek kullanimlik odeme linki acar, {url} doner
+//  POST JSON {islem:"ode", t, tutar, taksit} -> PayTR'de tek kullanimlik odeme linki acar, {url} doner
+// Komisyon: link "Firma" ise musteri yazdigi tutari oder (taksitler pesin fiyatina, komisyon firmadan).
+// "Müşteri" ise musteri taksit sayisini bizim sayfada secer; tutar o taksitin komisyonuyla brutlenir
+// (odenecek = tutar / (1 - oran)), cariye yine musterinin yazdigi tutar duser.
 //  POST form (PayTR bildirimi)           -> hash dogrulanir, basariliysa tahsilat cariye duser, "OK" doner
 // PayTR magaza bilgileri entegrasyonlar tablosundaki "PayTR" (487386) kaydindan okunur.
 
@@ -55,13 +58,12 @@ async function bildirim(req: Request) {
   const [o] = await rest(`odeme_link_odemeleri?select=id,tutar,durum&callback_id=eq.${encodeURIComponent(f.callback_id)}`);
   if (!o) return duz("OK"); // bu sistemin olusturmadigi link
   if (o.durum === "Ödendi") return duz("OK"); // tekrar gelen bildirim
-  const kurus = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) / 100 : NaN);
-  const tutar = isNaN(kurus(f.payment_amount)) ? Number(o.tutar) : kurus(f.payment_amount);
-  const toplam = isNaN(kurus(f.total_amount)) ? tutar : kurus(f.total_amount);
+  const kurus = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) / 100 : null);
+  const odenen = kurus(f.payment_amount), toplam = kurus(f.total_amount);
   const { hash: _h, ...ham } = f;
   await rest("rpc/paytr_link_odendi", {
     method: "POST",
-    body: JSON.stringify({ p_callback_id: f.callback_id, p_merchant_oid: f.merchant_oid, p_tutar: tutar, p_toplam: toplam, p_odeme_tipi: f.payment_type || "card", p_ham: { ...ham, kaynak: "Ödeme linki" } }),
+    body: JSON.stringify({ p_callback_id: f.callback_id, p_merchant_oid: f.merchant_oid, p_odenen: odenen, p_toplam: toplam, p_odeme_tipi: f.payment_type || "card", p_ham: { ...ham, kaynak: "Ödeme linki" } }),
   });
   // PayTR tarafindaki linki kapat (tek kullanimlik; hata onemsiz)
   try {
@@ -87,12 +89,18 @@ Deno.serve(async (req) => {
     if (!l) return json({ hata: "Ödeme linki bulunamadı. Linki size gönderen firmayla iletişime geçin." }, 404);
     if (!l.aktif) return json({ hata: "Bu ödeme linki kapatılmış. Yeni link için firmayla iletişime geçin." }, 410);
     const [c] = await rest(`v_cariler?select=unvan,bakiye_r,bakiye_gr&id=eq.${l.cari_id}`);
-    const [ay] = await rest("ayarlar?select=firma_adi&id=eq.1").catch(() => [null]);
+    const [ay] = await rest("ayarlar?select=firma_adi,odeme_link&id=eq.1").catch(() => [null]);
     const firma = (ay?.firma_adi || "").trim();
+    const ol = (ay?.odeme_link || {}) as Record<string, any>;
+    const oran = (k: number) => { const v = Number(ol.oranlar?.[String(k)]); return isFinite(v) && v >= 0 && v < 50 ? v : null; };
+    const musteri = l.komisyon === "Müşteri";
+    // musteri oduyorsa secilebilecek taksitler (orani tanimli olanlar)
+    const secenek = musteri ? Array.from({ length: l.max_taksit }, (_, i) => i + 1).filter((k) => oran(k) !== null).map((k) => ({ taksit: k, oran: oran(k) })) : [];
 
     if (body.islem === "bilgi") {
       const bakiye = l.bakiye_goster ? Number(l.fatura_tipi === "GR" ? c?.bakiye_gr : c?.bakiye_r) || 0 : null;
-      return json({ firma, unvan: c?.unvan || "", bakiye, max_taksit: l.max_taksit, aciklama: l.aciklama || "" });
+      return json({ firma, unvan: c?.unvan || "", bakiye, max_taksit: l.max_taksit, aciklama: l.aciklama || "", komisyon: musteri ? "Müşteri" : "Firma", secenek,
+        iletisim: { web: ol.web || "", telefon: ol.telefon || "", eposta: ol.eposta || "" } });
     }
 
     if (body.islem === "ode") {
@@ -102,18 +110,28 @@ Deno.serve(async (req) => {
       // kotu niyetli cok sayida link acilmasin: link basina saatte 15 deneme
       const son = await rest(`odeme_link_odemeleri?select=id&link_id=eq.${l.id}&olusturma=gte.${new Date(Date.now() - 3600e3).toISOString()}`);
       if (son.length >= 15) return json({ hata: "Çok fazla deneme yapıldı. Lütfen biraz sonra tekrar deneyin." }, 429);
+      let taksit: number | null = null, odenecek = tutar, maxTk = l.max_taksit;
+      if (musteri) {
+        taksit = Math.round(Number(body.taksit) || 1);
+        const s = secenek.find((x) => x.taksit === taksit);
+        if (!s) return json({ hata: "Lütfen geçerli bir ödeme seçeneği seçin." }, 400);
+        odenecek = Math.ceil((tutar / (1 - s.oran! / 100)) * 100) / 100;
+        maxTk = taksit;
+      }
       const a = await magaza();
       const callback_id = rastgele();
-      const [od] = await rest("odeme_link_odemeleri", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ link_id: l.id, callback_id, tutar }) });
+      const [od] = await rest("odeme_link_odemeleri", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ link_id: l.id, callback_id, tutar, odenecek, taksit, hizmet_bedeli: Math.round((odenecek - tutar) * 100) / 100 }) });
       let name = `${firma || "Cari"} cari hesap ödemesi`.replace(/\s+/g, " ").slice(0, 190);
       if (name.length < 4) name = "Cari hesap ödemesi";
-      const price = String(Math.round(tutar * 100)), currency = "TL", max_installment = String(l.max_taksit), link_type = "product", lang = "tr", min_count = "1";
+      const price = String(Math.round(odenecek * 100)), currency = "TL", max_installment = String(maxTk), link_type = "product", lang = "tr", min_count = "1";
       const paytr_token = await hmac(a.merchant_key, name + price + currency + max_installment + link_type + lang + min_count + a.merchant_salt);
       const r = await fetch("https://www.paytr.com/odeme/api/link/create", {
         method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           merchant_id: a.merchant_id, name, price, currency, max_installment, link_type, lang, min_count, max_count: "1",
           expiry_date: istanbul(new Date(Date.now() + 2 * 3600e3)), callback_link: `${URL_}/functions/v1/cari-odeme`, callback_id, debug_on: "0", paytr_token,
+          // taksitler PayTR'de pesin fiyatina: PayTR ayrica vade farki eklemez (musteri komisyonu zaten tutara eklendi)
+          ...(maxTk > 1 ? { pft: String(maxTk) } : {}),
         }),
       });
       const t = await r.text();
