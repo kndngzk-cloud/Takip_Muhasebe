@@ -1037,13 +1037,15 @@ async function faturaKart(s, pls) {
       ${kes && kes.ortam !== 'test' ? '' : `<button class="btn sm primary" id="b-fatura">${son?.durum === 'Hata' ? 'Tekrar dene' : kes ? 'Canlıda kes' : 'Fatura kes'}</button>`}
     </div></div>`;
   $('#b-fatura')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget; // await'ten sonra e.currentTarget bos kalir; bekleme gostergesi icin once al
     if (!await confirmBox(`Fiş ${s.fis_no} için fatura kesilsin mi?`, `<b>${esc(pls[0]?.musteri || s.cari_unvan)}</b> adına ${fmtTL(s.genel_toplam)} (KDV dahil) fatura İşbaşı’nda oluşturulacak.${kes ? '' : ' Test ortamındaysanız GİB’e gitmez.'}`, 'Fatura kes')) return;
-    busy(e.currentTarget, async () => {
+    btn.disabled = true; btn.textContent = 'Kesiliyor… (1 dk sürebilir)';
+    (async () => {
       const r = await (await api.raw('functions/v1/isbasi-fatura', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eylem: 'kes', siparis_id: s.id }) })).json();
       if (r.ok) toast(`Fatura kesildi${r.fatura?.fatura_no ? ': ' + r.fatura.fatura_no : ''}${r.fatura?.ortam === 'test' ? ' (test)' : ''}`, 'ok');
-      else toast(`Fatura kesilemedi: ${r.hata || r.fatura?.hata || 'bilinmeyen hata'}`, 'err');
+      else { const h = String(r.hata || r.fatura?.hata || 'bilinmeyen hata'); toast(`Fatura kesilemedi: ${/timed out|tcp connect|error sending request/i.test(h) ? 'İşbaşı sunucusu şu an yanıt vermiyor, biraz sonra tekrar deneyin' : h}`, 'err'); }
       faturaKart(s, pls);
-    }).catch(fail);
+    })().catch((err) => { btn.disabled = false; btn.textContent = 'Tekrar dene'; fail(err); });
   });
 }
 
@@ -6703,7 +6705,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.41';
+const APP_V = '2.42';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
