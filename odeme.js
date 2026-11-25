@@ -39,8 +39,6 @@
   cagir({ islem: 'bilgi' }).then((b) => {
     if (b.firma) {
       $('#firma').textContent = b.firma; document.title = `${b.firma} · Güvenli Ödeme`;
-      const harf = b.firma.split(/[\s\-–·.&]+/).filter((w) => /[A-Za-zÇĞİÖŞÜçğıöşü0-9]/.test(w)).slice(0, 2).map((w) => w[0].toLocaleUpperCase('tr-TR')).join('');
-      if (harf) $('#amblem').textContent = harf;
     }
     altBilgi(b.firma, b.iletisim);
     const borc = b.bakiye !== null && b.bakiye !== undefined ? Number(b.bakiye) : null;
