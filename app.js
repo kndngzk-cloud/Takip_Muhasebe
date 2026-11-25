@@ -929,7 +929,6 @@ async function viewSiparisDetay(id) {
         ${s.para_birimi && s.para_birimi !== 'TRY' ? `<span class="k">Para birimi</span><span><b>${s.para_birimi}</b> · kur ${fmtN(s.kur)} ₺ · döviz toplamı <b>${fmtPB(num(s.genel_toplam) / num(s.kur), s.para_birimi)}</b></span>` : ''}
         ${s.para_birimi && s.para_birimi !== 'TRY' && s.cin_siparis_id && s.durum !== 'İptal' ? `<span class="k">Döviz tahsilatı</span><span>tahsil edilen <b>${fmtPB(s.doviz_tahsil, s.para_birimi)}</b> · kalan <b>${fmtPB(s.doviz_kalan, s.para_birimi)}</b>${guncelKur(s.para_birimi) && num(s.doviz_kalan) > 0.005 ? ` <span class="tiny">≈ ${fmtTL(num(s.doviz_kalan) * guncelKur(s.para_birimi))} bugünkü kurla</span>` : ''}${num(s.doviz_kalan) > 0.005 ? ` <a href="#" id="d-dtah" class="tiny" style="margin-left:6px">Tahsilat gir →</a>` : ''}</span>` : ''}
         ${(!s.para_birimi || s.para_birimi === 'TRY') && s.cin_siparis_id && s.durum !== 'İptal' ? `<span class="k">Tahsilat</span><span>tahsil edilen <b>${fmtTL(s.tahsil_tl)}</b> · ${s.durum === 'Sevk Edildi' ? 'ithalattan kalan' : 'kalan'} <b>${fmtTL(ithKalan(s))}</b>${ithKalan(s) > 0.005 ? ` <a href="#" id="d-dtah" class="tiny" style="margin-left:6px">Tahsilat gir →</a>` : ''}</span>` : ''}
-        <span class="k">Kâr yöntemi</span><span><span class="seg" id="d-yon" style="display:inline-flex;padding:2px"><button type="button" data-v="FIFO" style="padding:4px 12px">FIFO</button><button type="button" data-v="LIFO" style="padding:4px 12px">LIFO</button></span></span>
         ${s.cin_siparis_id ? `<span class="k">İthalat siparişi</span><span><a href="#/cin/${s.cin_siparis_id}"><b>${cinNo(s.cin_no, s.cin_kod)}</b></a> ${cinBadge(s.cin_durum)} ${s.durum !== 'İptal' ? '<a href="#" id="cin-kaldir" class="tiny" style="margin-left:6px">bağlantıyı kaldır</a>' : ''}</span>`
           : s.durum === 'Beklemede' ? `<span class="k">İthalat</span><span><a href="#" id="cin-bagla">İthalat siparişine bağla →</a></span>` : ''}
         ${s.aciklama ? `<span class="k">Açıklama</span><span>${esc(s.aciklama)}</span>` : ''}
@@ -993,17 +992,28 @@ async function viewSiparisDetay(id) {
     try { await api.rpc('siparis_iptal', { p_siparis_id: s.id }); cache.dirty('urunler', 'cariler'); toast(`Fiş ${s.fis_no} iptal edildi`, 'ok'); render(); } catch (e) { fail(e); }
   });
   $('#prt').onclick = () => printFis(s, kal, tah);
-  $$('#d-yon button').forEach((b) => b.classList.toggle('on', b.dataset.v === s.maliyet_yontemi));
-  $('#d-yon').onclick = async (e) => {
-    const b = e.target.closest('button'); if (!b || b.dataset.v === s.maliyet_yontemi) return;
-    try { await api.update('siparisler', `id=eq.${s.id}`, { maliyet_yontemi: b.dataset.v }); toast(`Kâr yöntemi ${b.dataset.v} yapıldı`, 'ok'); render(); } catch (err) { fail(err); }
-  };
   if (isAdmin()) faturaKart(s, pls);
-  if (isAdmin()) {
-    api.rpc('siparis_maliyet', { p_siparis_id: s.id }).then((rows) => {
-      if (sq !== renderSeq || !rows.length || !$('#kar-kart')) return;
-      $('#kar-kart').innerHTML = maliyetKart(s, rows, kal);
-    }).catch(() => {});
+  /* maliyet / kar: musteri yanindayken gorunmesin diye kapali gelir, tiklayinca acilir (yazilar Ingilizce) */
+  if (isAdmin() && $('#kar-kart')) {
+    $('#kar-kart').innerHTML = `<button type="button" class="btn sm" id="kar-ac" style="margin:0 0 12px">▸ Internal</button><div id="kar-ic" hidden></div>`;
+    let yuklendi = false;
+    $('#kar-ac').onclick = async () => {
+      const ic = $('#kar-ic'), acik = !ic.hidden;
+      ic.hidden = acik; $('#kar-ac').textContent = acik ? '▸ Internal' : '▾ Internal';
+      if (acik || yuklendi) return;
+      ic.innerHTML = '<div class="loading" style="padding:14px"><div class="spinner"></div></div>';
+      try {
+        const rows = await api.rpc('siparis_maliyet', { p_siparis_id: s.id });
+        if (sq !== renderSeq || !$('#kar-ic')) return;
+        yuklendi = true;
+        ic.innerHTML = rows?.length ? maliyetKart(s, rows, kal) : '<div class="card empty">No cost data</div>';
+        $$('#d-yon button').forEach((b) => b.classList.toggle('on', b.dataset.v === s.maliyet_yontemi));
+        $('#d-yon')?.addEventListener('click', async (e) => {
+          const b = e.target.closest('button'); if (!b || b.dataset.v === s.maliyet_yontemi) return;
+          try { await api.update('siparisler', `id=eq.${s.id}`, { maliyet_yontemi: b.dataset.v }); toast(`Method: ${b.dataset.v}`, 'ok'); render(); } catch (err) { fail(err); }
+        });
+      } catch (err) { ic.innerHTML = `<div class="card empty">${esc(err.message)}</div>`; }
+    };
   }
 }
 
@@ -1046,18 +1056,19 @@ function maliyetOzet(rows) {
 function maliyetKart(s, rows, kal) {
   const o = maliyetOzet(rows), ad = (r) => kal.find((k) => k.id === r.kalem_id)?.urunler?.ad || '';
   const kr = (v) => `<span style="color:${v < 0 ? 'var(--red)' : 'var(--green)'};font-weight:700">${fmtTL(v)}</span>`;
-  return `<div class="card not-kart" style="border-left:4px solid var(--accent)"><h2 style="margin-bottom:4px">Maliyet ve kâr <span class="badge">${o.tah ? 'Tahmini' : 'Gerçek'} · ${esc(s.maliyet_yontemi || 'FIFO')}</span></h2>
-    <p class="tiny" style="margin:0 0 10px">Sadece siz görürsünüz; müşteri çıktısına girmez. KDV hariç.${num(s.nakliye_tutar) > 0 ? ` <b>Fiyata dahil nakliye ${fmtTL(s.nakliye_tutar)}${s.nakliye_tip === 'adet' ? ` (ürün başına ${fmtTL(s.nakliye_deger)})` : ''} satıştan düşüldü; satış sütunu net tutardır.</b>` : ''}${o.tah ? ' Sevk edilmediği için tahmini: ithalata bağlıysa ithalat maliyeti, değilse depodaki partiler (yoksa son alış maliyeti).' : ''}</p>
-    <div class="table-wrap"><table class="tbl stack"><thead><tr><th>Ürün</th><th class="r">Miktar</th><th class="r">Birim maliyet</th><th class="r">Maliyet</th><th class="r">Satış</th><th class="r">Kâr</th></tr></thead><tbody>
-    ${rows.map((r) => `<tr><td class="w">${esc(ad(r))}${num(r.maliyetsiz) > 0 ? `<div class="tiny" style="color:var(--orange)">${fmtN(num(r.maliyetsiz))} birimin maliyeti yok</div>` : ''}${r.kaynak === 'Tahmini (ithalat)' ? '<div class="tiny">ithalat maliyeti</div>' : ''}</td>
-      <td class="r" data-l="Miktar">${fmtN(r.miktar)}</td><td class="r" data-l="Birim maliyet">${r.birim_maliyet !== null ? fmtTL(r.birim_maliyet) : '–'}</td>
-      <td class="r" data-l="Maliyet">${fmtTL(r.maliyet)}</td><td class="r" data-l="Satış">${fmtTL(r.satis)}</td><td class="r" data-l="Kâr">${kr(num(r.satis) - num(r.maliyet))}</td></tr>`).join('')}
+  return `<div class="card not-kart" style="border-left:4px solid var(--accent)"><h2 style="margin-bottom:4px">Cost &amp; margin <span class="badge">${o.tah ? 'Estimated' : 'Actual'} · ${esc(s.maliyet_yontemi || 'FIFO')}</span></h2>
+    <p class="tiny" style="margin:0 0 10px">Excl. VAT. Not shown on customer printouts.${num(s.nakliye_tutar) > 0 ? ` <b>Delivery included in price ${fmtTL(s.nakliye_tutar)}${s.nakliye_tip === 'adet' ? ` (${fmtTL(s.nakliye_deger)} per unit)` : ''} is deducted; sales column is net.</b>` : ''}${o.tah ? ' Not shipped yet, so estimated: import cost if linked to an import, otherwise stock batches (or last purchase cost).' : ''}</p>
+    <div style="margin:0 0 10px" class="tiny">Method: <span class="seg" id="d-yon" style="display:inline-flex;padding:2px;vertical-align:middle"><button type="button" data-v="FIFO" style="padding:4px 12px">FIFO</button><button type="button" data-v="LIFO" style="padding:4px 12px">LIFO</button></span></div>
+    <div class="table-wrap"><table class="tbl stack"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit cost</th><th class="r">Cost</th><th class="r">Sales</th><th class="r">Margin</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td class="w">${esc(ad(r))}${num(r.maliyetsiz) > 0 ? `<div class="tiny" style="color:var(--orange)">${fmtN(num(r.maliyetsiz))} units without cost</div>` : ''}${r.kaynak === 'Tahmini (ithalat)' ? '<div class="tiny">import cost</div>' : ''}</td>
+      <td class="r" data-l="Qty">${fmtN(r.miktar)}</td><td class="r" data-l="Unit cost">${r.birim_maliyet !== null ? fmtTL(r.birim_maliyet) : '–'}</td>
+      <td class="r" data-l="Cost">${fmtTL(r.maliyet)}</td><td class="r" data-l="Sales">${fmtTL(r.satis)}</td><td class="r" data-l="Margin">${kr(num(r.satis) - num(r.maliyet))}</td></tr>`).join('')}
     </tbody></table></div>
     <div class="stats" style="margin-top:10px">
-      <div class="stat"><div class="l">Satış (KDV hariç)</div><div class="v">${fmtTL(o.sat)}</div></div>
-      <div class="stat"><div class="l">Maliyet</div><div class="v">${fmtTL(o.mal)}</div></div>
-      <div class="stat"><div class="l">Toplam kâr${o.marj !== null ? ` · %${fmtN(Math.round(o.marj * 1000) / 10)}` : ''}</div><div class="v">${kr(o.kar)}</div></div></div>
-    ${o.eks > 0 ? `<p class="tiny" style="margin:8px 0 0;color:var(--orange)">${fmtN(o.eks)} birimin alış maliyeti girilmemiş; kâr olduğundan yüksek görünür. <a href="#/stok/hareketler">Maliyet gir →</a></p>` : ''}</div>`;
+      <div class="stat"><div class="l">Sales (excl. VAT)</div><div class="v">${fmtTL(o.sat)}</div></div>
+      <div class="stat"><div class="l">Cost</div><div class="v">${fmtTL(o.mal)}</div></div>
+      <div class="stat"><div class="l">Total margin${o.marj !== null ? ` · ${fmtN(Math.round(o.marj * 1000) / 10)}%` : ''}</div><div class="v">${kr(o.kar)}</div></div></div>
+    ${o.eks > 0 ? `<p class="tiny" style="margin:8px 0 0;color:var(--orange)">${fmtN(o.eks)} units have no purchase cost; margin looks higher than it is. <a href="#/stok/hareketler">Enter cost →</a></p>` : ''}</div>`;
 }
 
 function sevkEt(id, fis) {
@@ -6692,7 +6703,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.40';
+const APP_V = '2.41';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
