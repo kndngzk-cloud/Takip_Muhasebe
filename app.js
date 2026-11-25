@@ -2741,6 +2741,7 @@ async function odemeLinkleri(c) {
     const tel = waTel(c.telefon);
     return `<div class="row" style="align-items:flex-start;gap:10px">
       <div class="main-col">
+        ${l.ad ? `<div class="t" style="margin-bottom:4px"><b>${esc(l.ad)}</b></div>` : ''}
         <div class="t">${tipBadge(l.fatura_tipi)} ${l.max_taksit > 1 ? `<span class="badge b-blue">${l.max_taksit} taksite kadar</span>` : '<span class="badge">Tek çekim</span>'} <span class="badge ${l.komisyon === 'Müşteri' ? 'b-orange' : ''}">Komisyon ${l.komisyon === 'Müşteri' ? 'müşteriden' : 'bizden'}</span> ${l.aktif ? '<span class="badge b-green">Açık</span>' : '<span class="badge b-red">Kapalı</span>'}</div>
         <div class="st">${fmtD(l.olusturma)} oluşturuldu${l.bakiye_goster ? ' · bakiye görünür' : ' · bakiye gizli'}${od.length ? ` · <b>${od.length} ödeme, ${fmtTL(top)}</b>` : ' · henüz ödeme yok'}</div>
         ${l.aciklama ? `<div class="tiny">${esc(l.aciklama)}</div>` : ''}
@@ -2759,6 +2760,7 @@ async function odemeLinkleri(c) {
     body: `<p class="small" style="margin:0 0 12px">Müşteri linke girer, <b>ödemek istediği tutarı kendisi yazar</b> ve PayTR güvenli ödeme sayfasında kartıyla öder. Ödeme başarılı olunca tutar bu carinin seçtiğiniz hesabına <b>tahsilat olarak otomatik düşer</b> ve makbuz oluşur (PayTR Tahsilatları’nda “eşleşmiş” görünür). Ödemeler PayTR 1. hesaba (487386) yatar.</p>
       <div class="card" style="margin:0 0 14px">
         <div class="section-title" style="margin-top:0">Yeni link</div>
+        <div class="field"><label>Link adı <span class="tiny" style="font-weight:500">sadece siz görürsünüz</span></label><input class="input" id="ol-ad" maxlength="80" placeholder="örn. Kasım faturaları"></div>
         <div class="grid2">
           <div class="field"><label>Düşülecek hesap</label><div class="seg" id="ol-tip"><button type="button" data-v="R" class="${tip0 === 'R' ? 'on r' : ''}">R</button><button type="button" data-v="GR" class="${tip0 === 'GR' ? 'on gr' : ''}">GR</button></div>
             <div class="hint">R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}</div></div>
@@ -2791,7 +2793,7 @@ async function odemeLinkleri(c) {
       $('#ol-yeni', m.el).onclick = (e) => busy(e.currentTarget, async () => {
         const [l] = await api.insert('odeme_linkleri', {
           cari_id: c.id, fatura_tipi: $('#ol-tip button.on', m.el)?.dataset.v || 'R', max_taksit: +$('#ol-tk', m.el).value || 1, komisyon: $('#ol-km button.on', m.el)?.dataset.v || 'Firma',
-          bakiye_goster: $('#ol-bk', m.el).checked, aciklama: $('#ol-ac', m.el).value.trim() || null
+          bakiye_goster: $('#ol-bk', m.el).checked, ad: $('#ol-ad', m.el).value.trim() || null, aciklama: $('#ol-ac', m.el).value.trim() || null
         });
         m.close(); await odemeLinkleri(c);
         await kopyala(l);
@@ -6836,7 +6838,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.46';
+const APP_V = '2.47';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
