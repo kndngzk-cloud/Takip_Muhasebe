@@ -3522,7 +3522,7 @@ async function entegrasyonKart() {
   el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2>
     <p class="small muted" style="margin-top:0">Bilgiler güvenli saklanır ve buradan geri okunamaz; değiştirmek için yenisini yazmanız yeterli, boş bıraktığınız alan eskisini korur.</p>
     ${sira.map((pl) => { const e = ent.find((x) => x.platform === pl) || {}; const f = ENT_ALAN[pl]; return `<div class="ent" data-pl="${pl}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${pl === 'İşbaşı' ? `<span class="badge ${dolu[pl]?.has('api_key') ? 'b-green' : ''}">${dolu[pl]?.has('api_key') ? (dolu[pl]?.has('sunucu') ? 'canlı' : 'test ortamı') : 'bilgiler bekleniyor'}</span>` : f && !SADECE_SIPARIS.includes(pl) ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : SADECE_SIPARIS.includes(pl) ? `<span class="badge ${dolu[pl]?.size ? 'b-green' : ''}">${dolu[pl]?.size ? 'siparişler otomatik çekiliyor' : 'yetki kodu bekleniyor'}</span>` : '<span class="badge">yakında</span>'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${pl === 'İşbaşı' ? `<span class="badge ${dolu[pl]?.has('api_key') ? (String(e.son_yanit?.giris?.base || '-test.').includes('-test.') ? 'b-orange' : 'b-green') : ''}">${dolu[pl]?.has('api_key') ? (String(e.son_yanit?.giris?.base || '-test.').includes('-test.') ? 'TEST ortamı' : 'CANLI · faturalar GİB’e gider') : 'bilgiler bekleniyor'}</span>` : f && !SADECE_SIPARIS.includes(pl) ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : SADECE_SIPARIS.includes(pl) ? `<span class="badge ${dolu[pl]?.size ? 'b-green' : ''}">${dolu[pl]?.size ? 'siparişler otomatik çekiliyor' : 'yetki kodu bekleniyor'}</span>` : '<span class="badge">yakında</span>'}</div>
       ${f ? `<p class="tiny" style="margin:6px 0 10px">${ENT_NOT[pl]}</p>
         <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${ENT_ACIK.includes(k) ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
         <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button>${pl === 'İşbaşı' ? '<button class="btn sm ent-dene">Bağlantıyı dene</button>' : !SADECE_SIPARIS.includes(pl) ? '<button class="btn sm ent-cal">Şimdi çalıştır</button>' : ''}</div>
@@ -6692,7 +6692,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.39';
+const APP_V = '2.40';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
