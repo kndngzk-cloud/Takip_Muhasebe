@@ -44,7 +44,7 @@ type Oturum = { base: string; token: string; tenant: string; apiKey: string; ham
 async function giris(a: Record<string, string>): Promise<Oturum> {
   for (const k of ["api_key", "kullanici", "sifre"]) if (!a[k]) throw new Error(`İşbaşı ${({ api_key: "API anahtarı", kullanici: "kullanıcı (e-posta)", sifre: "şifre" } as Record<string, string>)[k]} girilmemiş`);
   const sunucu = String(a.sunucu || TEST_SUNUCU).trim().replace(/\/+$/, "").replace(/\/api\/.*$/, "");
-  const r = await fetch(`${sunucu}/api/v1.0/user/integrationLogin`, { method: "POST", headers: { apiKey: a.api_key, ApiKey: a.api_key, "Content-Type": "application/json" }, body: JSON.stringify({ username: a.kullanici.trim(), password: a.sifre }) });
+  const r = await fetch(`${sunucu}/api/v1.0/user/integrationLogin`, { method: "POST", headers: { apiKey: a.api_key.trim(), "Content-Type": "application/json" }, body: JSON.stringify({ username: a.kullanici.trim(), password: a.sifre }) });
   const t = await r.text(); let j: Record<string, unknown> = {}; try { j = JSON.parse(t); } catch { /* */ }
   if (!r.ok || j.isError === true) throw new Error(`İşbaşı girişi başarısız (${r.status}): ${String(j.message || t).slice(0, 200)}`);
   const token = ara(j, ["accessToken", "access_token", "token"]);
@@ -54,7 +54,7 @@ async function giris(a: Record<string, string>): Promise<Oturum> {
   base = base.replace(/\/+$/, "").replace(/\/api\/.*$/, ""); if (!/^https?:\/\//.test(base)) base = `https://${base}`;
   // yanittan gizli olmayan alan adlarini teshis icin sakla
   const ham = Object.fromEntries(Object.entries((j.data as Record<string, unknown>) || {}).map(([k, v]) => [k, /token|key|pass|sifre/i.test(k) ? "***" : typeof v === "object" ? "{…}" : v]));
-  return { base, token, tenant: tenant || "", apiKey: a.api_key, ham };
+  return { base, token, tenant: tenant || "", apiKey: a.api_key.trim(), ham };
 }
 async function isbasi(o: Oturum, yol: string, init: RequestInit = {}) {
   const r = await fetch(`${o.base}${yol}`, { ...init, headers: { Authorization: `Bearer ${o.token}`, tenantId: o.tenant, apiKey: o.apiKey, "Content-Type": "application/json; charset=utf-8", lang: "tr-TR", ...(init.headers || {}) } });
