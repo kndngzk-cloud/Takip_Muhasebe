@@ -28,8 +28,9 @@ const r4 = (n: number) => Math.round(n * 10000) / 10000;
 const TEST_SUNUCU = "https://soho-isbasi-mwv2-test.logo-paas.com";
 // Isbasi'na giden platform siparisleri: bunlarin faturasini pazaryeri ya da baska yer kesiyor
 const HARIC = ["Hepsiburada", "Trendyol", "Koçtaş", "N11"];
-// Ticimax OdemeTipi -> Isbasi e-Arsiv odeme sekli (1 kredi karti, 2 EFT/havale, 3 kapida odeme, 4 odeme aracisi, 99 diger)
-const ODEME: Record<string, number> = { "0": 1, "1": 2, "2": 3 };
+// Ticimax OdemeTipi -> Isbasi e-Arsiv odeme tipi (Logo destek: 0 kredi/banka karti, 1 EFT/havale, 2 kapida odeme, 3 odeme araci, 4 diger)
+const ODEME: Record<string, number> = { "0": 0, "1": 1, "2": 2 };
+const SURE = 40000; // Isbasi istegi en fazla 40 sn beklenir
 
 // yanit nesnesinde adi verilen alanlardan ilk dolu olani bulur (buyuk/kucuk harf duyarsiz, ic ice)
 function ara(o: unknown, adlar: string[], derin = 0): string | null {
@@ -44,7 +45,7 @@ type Oturum = { base: string; token: string; tenant: string; apiKey: string; ham
 async function giris(a: Record<string, string>): Promise<Oturum> {
   for (const k of ["api_key", "kullanici", "sifre"]) if (!a[k]) throw new Error(`İşbaşı ${({ api_key: "API anahtarı", kullanici: "kullanıcı (e-posta)", sifre: "şifre" } as Record<string, string>)[k]} girilmemiş`);
   const sunucu = String(a.sunucu || TEST_SUNUCU).trim().replace(/\/+$/, "").replace(/\/api\/.*$/, "");
-  const r = await fetch(`${sunucu}/api/v1.0/user/integrationLogin`, { method: "POST", headers: { apiKey: a.api_key.trim(), "Content-Type": "application/json" }, body: JSON.stringify({ username: a.kullanici.trim(), password: a.sifre }) });
+  const r = await fetch(`${sunucu}/api/v1.0/user/integrationLogin`, { signal: AbortSignal.timeout(SURE), method: "POST", headers: { apiKey: a.api_key.trim(), "Content-Type": "application/json" }, body: JSON.stringify({ username: a.kullanici.trim(), password: a.sifre }) });
   const t = await r.text(); let j: Record<string, unknown> = {}; try { j = JSON.parse(t); } catch { /* */ }
   if (!r.ok || j.isError === true) throw new Error(`İşbaşı girişi başarısız (${r.status}): ${String(j.message || t).slice(0, 200)}`);
   const token = ara(j, ["accessToken", "access_token", "token"]);
@@ -57,7 +58,7 @@ async function giris(a: Record<string, string>): Promise<Oturum> {
   return { base, token, tenant: tenant || "", apiKey: a.api_key.trim(), ham };
 }
 async function isbasi(o: Oturum, yol: string, init: RequestInit = {}) {
-  const r = await fetch(`${o.base}${yol}`, { ...init, headers: { Authorization: `Bearer ${o.token}`, tenantId: o.tenant, apiKey: o.apiKey, "Content-Type": "application/json; charset=utf-8", lang: "tr-TR", ...(init.headers || {}) } });
+  const r = await fetch(`${o.base}${yol}`, { signal: AbortSignal.timeout(SURE), ...init, headers: { Authorization: `Bearer ${o.token}`, tenantId: o.tenant, apiKey: o.apiKey, "Content-Type": "application/json; charset=utf-8", lang: "tr-TR", ...(init.headers || {}) } });
   const t = await r.text(); let j: any = null; try { j = JSON.parse(t); } catch { /* */ }
   return { ok: r.ok && j?.isError !== true, status: r.status, j, t };
 }
@@ -152,7 +153,7 @@ async function faturaKes(siparisId: number, a: Record<string, string>, ek: Recor
     body.eArchivePaymentDate = odemeT;
     body.eGovernmentInvoice = {
       invoiceTypeForEinvoice: 3,
-      eArchivePaymentType: ODEME[String((p.ham as any)?.odeme_tipi ?? odm.tip ?? "0")] ?? 1,
+      eArchivePaymentType: ODEME[String((p.ham as any)?.odeme_tipi ?? odm.tip ?? "0")] ?? 4,
       eArchivePaymentDate: odemeT,
       website: String(a.site || `www.${p.platform}`)
     };
