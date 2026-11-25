@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
     const l = await linkGetir(body.t);
     if (!l) return json({ hata: "Ödeme linki bulunamadı. Linki size gönderen firmayla iletişime geçin." }, 404);
     if (!l.aktif && body.islem !== "durum") return json({ hata: "Bu ödeme linki kapatılmış. Yeni link için firmayla iletişime geçin." }, 410);
-    const [c] = await rest(`v_cariler?select=unvan,bakiye_r,bakiye_gr&id=eq.${l.cari_id}`);
+    const [c] = await rest(`v_cariler?select=unvan,eposta,bakiye_r,bakiye_gr&id=eq.${l.cari_id}`);
     const [ay] = await rest("ayarlar?select=firma_adi,odeme_link&id=eq.1").catch(() => [null]);
     const firma = (ay?.firma_adi || "").trim();
     const ol = (ay?.odeme_link || {}) as Record<string, any>;
@@ -140,12 +140,15 @@ Deno.serve(async (req) => {
       const [od] = await rest("odeme_link_odemeleri", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ link_id: l.id, callback_id, tutar, odenecek, taksit, hizmet_bedeli: Math.round((odenecek - tutar) * 100) / 100 }) });
       let name = `${firma || "Cari"} cari hesap ödemesi`.replace(/\s+/g, " ").slice(0, 190);
       if (name.length < 4) name = "Cari hesap ödemesi";
-      const price = String(Math.round(odenecek * 100)), currency = "TL", max_installment = String(maxTk), link_type = "product", lang = "tr", min_count = "1";
-      const paytr_token = await hmac(a.merchant_key, name + price + currency + max_installment + link_type + lang + min_count + a.merchant_salt);
+      // "collection" (cari tahsilat) linki: PayTR sayfasinda adet secimi ve teslimat adresi formu cikmaz, tutar degistirilemez
+      const epostaOk = (e: unknown) => typeof e === "string" && e.length <= 100 && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(e.trim());
+      const email = epostaOk(c?.eposta) ? c.eposta.trim() : epostaOk(ol.eposta) ? String(ol.eposta).trim() : `cari${l.cari_id}@example.com`;
+      const price = String(Math.round(odenecek * 100)), currency = "TL", max_installment = String(maxTk), link_type = "collection", lang = "tr";
+      const paytr_token = await hmac(a.merchant_key, name + price + currency + max_installment + link_type + lang + email + a.merchant_salt);
       const r = await fetch("https://www.paytr.com/odeme/api/link/create", {
         method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          merchant_id: a.merchant_id, name, price, currency, max_installment, link_type, lang, min_count, max_count: "1",
+          merchant_id: a.merchant_id, name, price, currency, max_installment, link_type, lang, email,
           expiry_date: istanbul(new Date(Date.now() + 2 * 3600e3)), callback_link: `${URL_}/functions/v1/cari-odeme`, callback_id, debug_on: "0", paytr_token,
           // taksitler PayTR'de pesin fiyatina: PayTR ayrica vade farki eklemez (musteri komisyonu zaten tutara eklendi)
           ...(maxTk > 1 ? { pft: String(maxTk) } : {}),
