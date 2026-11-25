@@ -17,3 +17,9 @@
   for = "/*"
   [headers.values]
     Content-Security-Policy = "script-src 'self'; object-src 'none'; base-uri 'self'"
+
+# Musteri odeme sayfasi kisa adresi: /odeme#<token>
+[[redirects]]
+  from = "/odeme"
+  to = "/odeme.html"
+  status = 200

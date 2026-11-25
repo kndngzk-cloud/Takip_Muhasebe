@@ -106,3 +106,6 @@ create trigger paytr_link_birlestir before insert on public.paytr_islemler for e
 
 -- v2: 12 taksite kadar, komisyonu kim oduyor (Firma / Müşteri), oranlar ve sayfa bilgileri ayarlar.odeme_link'te
 -- (Supabase'e uygulanacak hali: odeme_linkleri_komisyon migration'i)
+
+-- Yeni linkler 32 karakterlik token ile olusur (daha kisa link)
+-- alter table public.odeme_linkleri alter column token set default replace(gen_random_uuid()::text, '-', '');

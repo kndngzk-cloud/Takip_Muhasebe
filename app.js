@@ -2724,7 +2724,11 @@ function dovizBorcKart(ls) {
 }
 
 /* Musteriye kartla odeme linki (PayTR Linkle Odeme). Musteri tutari kendisi yazar, odeme cariye otomatik tahsilat olarak duser. */
-const odemeLinkUrl = (t) => `${location.origin}${location.pathname.replace(/[^/]*$/, '')}odeme.html#${t}`;
+// Ayarlarda kendi alan adiniz (orn. odeme.gradde.com.tr) tanimliysa linkler onunla olusur; yoksa uygulamanin adresiyle
+const odemeLinkUrl = (t) => {
+  const ad = String(state.ayarlar?.odeme_link?.alan_adi || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  return ad ? `https://${ad}/odeme#${t}` : `${location.origin}${location.pathname.replace(/[^/]*$/, '')}odeme#${t}`;
+};
 const waTel = (t) => { let d = String(t || '').replace(/\D/g, ''); if (d.startsWith('0')) d = '90' + d.slice(1); else if (d.length === 10 && d.startsWith('5')) d = '90' + d; return d.length >= 11 ? d : ''; };
 async function odemeLinkleri(c) {
   const linkler = await api.get('odeme_linkleri', `select=*&cari_id=eq.${c.id}&order=olusturma.desc`);
@@ -2817,7 +2821,9 @@ async function odemeLinkAyar(sonra) {
       <div class="section-title" style="margin-top:4px">Ödeme sayfasında görünen bilgiler</div>
       <div class="grid3"><div class="field"><label>Web sitesi</label><input class="input" id="oa-web" value="${esc(ol.web || '')}"></div>
         <div class="field"><label>Telefon</label><input class="input" id="oa-tel" inputmode="tel" value="${esc(ol.telefon || '')}"></div>
-        <div class="field"><label>E-posta</label><input class="input" id="oa-ep" type="email" value="${esc(ol.eposta || '')}"></div></div>`,
+        <div class="field"><label>E-posta</label><input class="input" id="oa-ep" type="email" value="${esc(ol.eposta || '')}"></div></div>
+      <div class="field"><label>Link alan adı <span class="tiny" style="font-weight:500">isteğe bağlı</span></label><input class="input" id="oa-ad" placeholder="odeme.gradde.com.tr" autocapitalize="off" value="${esc(ol.alan_adi || '')}">
+        <div class="hint">Boşsa linkler ${esc(location.host)} adresiyle oluşur. Kendi alan adınızı yazmadan önce Netlify’da alan adını ekleyip DNS kaydını yapın, yoksa linkler açılmaz. Eski linkler iki adreste de çalışır.</div></div>`,
     foot: '<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="oa-k">Kaydet</button>',
     onMount: (m) => {
       $('#oa-k', m.el).onclick = (e) => busy(e.currentTarget, async () => {
@@ -2827,7 +2833,7 @@ async function odemeLinkAyar(sonra) {
           const n = parseNum(v); if (!(n >= 0 && n < 50)) throw new Error(`${inp.dataset.or === '1' ? 'Tek çekim' : inp.dataset.or + ' taksit'} oranı 0 ile 50 arasında olmalı`);
           oranlar[inp.dataset.or] = n;
         }
-        await api.update('ayarlar', 'id=eq.1', { odeme_link: { ...ol, oranlar, web: $('#oa-web', m.el).value.trim(), telefon: $('#oa-tel', m.el).value.trim(), eposta: $('#oa-ep', m.el).value.trim() } });
+        await api.update('ayarlar', 'id=eq.1', { odeme_link: { ...ol, oranlar, web: $('#oa-web', m.el).value.trim(), telefon: $('#oa-tel', m.el).value.trim(), eposta: $('#oa-ep', m.el).value.trim(), alan_adi: $('#oa-ad', m.el).value.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase() } });
         await cache.ayarlar(true);
         toast('Kaydedildi', 'ok'); m.close(); sonra && sonra();
       }).catch(fail);
@@ -6819,7 +6825,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.43';
+const APP_V = '2.44';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
