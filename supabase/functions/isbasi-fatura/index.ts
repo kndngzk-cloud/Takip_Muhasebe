@@ -62,10 +62,24 @@ async function isbasi(o: Oturum, yol: string, init: RequestInit = {}) {
   return { ok: r.ok && j?.isError !== true, status: r.status, j, t };
 }
 
+// il plaka sirasi: posta kodu bilinmiyorsa il merkezinin genel kodu (plaka + "000") gonderilir
+const ILLER = "Adana,Adıyaman,Afyonkarahisar,Ağrı,Amasya,Ankara,Antalya,Artvin,Aydın,Balıkesir,Bilecik,Bingöl,Bitlis,Bolu,Burdur,Bursa,Çanakkale,Çankırı,Çorum,Denizli,Diyarbakır,Edirne,Elazığ,Erzincan,Erzurum,Eskişehir,Gaziantep,Giresun,Gümüşhane,Hakkari,Hatay,Isparta,Mersin,İstanbul,İzmir,Kars,Kastamonu,Kayseri,Kırklareli,Kırşehir,Kocaeli,Konya,Kütahya,Malatya,Manisa,Kahramanmaraş,Mardin,Muğla,Muş,Nevşehir,Niğde,Ordu,Rize,Sakarya,Samsun,Siirt,Sinop,Sivas,Tekirdağ,Tokat,Trabzon,Tunceli,Şanlıurfa,Uşak,Van,Yozgat,Zonguldak,Aksaray,Bayburt,Karaman,Kırıkkale,Batman,Şırnak,Bartın,Ardahan,Iğdır,Yalova,Karabük,Kilis,Osmaniye,Düzce".split(",");
+const kucuk = (v: string) => v.toLocaleLowerCase("tr-TR").replace(/[^a-zçğıöşü0-9]/g, "");
+const ilBul = (v: string) => { const k = kucuk(v); if (!k) return -1; let i = ILLER.findIndex((x) => kucuk(x) === k); if (i < 0) i = ILLER.findIndex((x) => k.endsWith(kucuk(x))); return i; };
+// adresten ilce: "…, Yüregir/Adana" ya da "… Selçuklu Konya" bicimleri
+function ilceBul(adres: string, sehir: string) {
+  const a = adres.replace(/\s+/g, " ").trim(); const sk = kucuk(sehir);
+  const m = /([A-Za-zÇĞİÖŞÜçğıöşü.]+)\s*\/\s*([A-Za-zÇĞİÖŞÜçğıöşü.]+)/.exec(a);
+  if (m && (!sk || kucuk(m[2]) === sk)) return m[1];
+  const w = a.split(/[\s,]+/).filter(Boolean);
+  for (let i = w.length - 1; i > 0; i--) if (kucuk(w[i]) === sk && kucuk(w[i - 1]) !== sk && !/^\d/.test(w[i - 1])) return w[i - 1];
+  return "Merkez";
+}
+const posta = (adres: string, il: number) => /\b(\d{5})\b/.exec(adres)?.[1] || (il >= 0 ? String((il + 1) * 1000).padStart(5, "0") : "00000");
 const bolAd = (ad: string) => { const p = ad.trim().split(/\s+/); return p.length > 1 ? { firstName: p.slice(0, -1).join(" "), lastName: p[p.length - 1] } : { firstName: ad.trim(), lastName: "." }; };
 const tarihSaat = (d: Date) => new Date(d.getTime() + 3 * 3600000).toISOString().slice(0, 19).replace("T", " "); // Istanbul saati
 
-async function faturaKes(siparisId: number, a: Record<string, string>) {
+async function faturaKes(siparisId: number, a: Record<string, string>, ek: Record<string, any> | null = null) {
   const ortam = String(a.sunucu || TEST_SUNUCU).includes("-test.") ? "test" : "canli";
   const [s] = await rest(`siparisler?select=*&id=eq.${siparisId}`);
   if (!s) throw new Error("Sipariş bulunamadı");
@@ -91,9 +105,15 @@ async function faturaKes(siparisId: number, a: Record<string, string>) {
   if (vkn && vkn.length !== 10 && vkn.length !== 11) throw new Error(`Vergi no / TCKN hatalı: ${vkn} (VKN 10, TCKN 11 hane olmalı)`);
   if (!vkn) vkn = "11111111111"; // bireysel, TCKN bilinmiyor (GIB kurali)
   const sahis = vkn.length === 11;
+  const adres = String((site ? fa.adres || p.adres : c?.adres) || "").trim();
+  let sehir = String((site ? p.sehir : c?.sehir) || "").trim();
+  if (!sehir) { const w = adres.split(/[\s,/]+/).filter(Boolean); sehir = w.reverse().find((x) => ilBul(x) >= 0) || ""; }
+  const il = ilBul(sehir);
+  if (il >= 0) sehir = ILLER[il];
+  if (!adres || !sehir) throw new Error(`${ad}: fatura için adres ve şehir gerekli${site ? "" : " (cari kartına ekleyin)"}`);
   const customer: Record<string, unknown> = {
     code: "", isPerson: sahis, name: ad, tcknVkn: vkn, taxOffice: String((site ? fa.vergi_dairesi : "") || ""),
-    country: "Türkiye", city: String((site ? p.sehir : c?.sehir) || ""), address: String((site ? fa.adres || p.adres : c?.adres) || ""),
+    country: "Türkiye", city: sehir, district: ilceBul(adres, sehir), postalCode: posta(adres, il), address: adres,
     email: String((site ? p.eposta : c?.eposta) || ""), phone: String((site ? fa.telefon || p.telefon : c?.telefon) || ""),
     ...(sahis ? bolAd(ad) : {})
   };
@@ -126,15 +146,21 @@ async function faturaKes(siparisId: number, a: Record<string, string>) {
     const kargoVkn = String(a.kargo_vkn || "").replace(/\D/g, "");
     if (kargoVkn.length !== 10) throw new Error("İnternet satışı faturası için kargo firmasının VKN'si gerekli: Ayarlar → İşbaşı → Kargo firması VKN");
     body.sendingDate = tarihSaat(p.sevk_tarihi ? new Date(p.sevk_tarihi) : simdi);
+    // odeme tarihi: Isbasi bazi surumlerde fatura kokunde (paymentDate), bazilarinda eGovernmentInvoice icinde arar; ikisine de yazilir
+    const odemeT = tarihSaat(new Date(odm.tarih ? `${odm.tarih}+03:00` : p.tarih || simdi));
+    body.paymentDate = odemeT;
+    body.eArchivePaymentDate = odemeT;
     body.eGovernmentInvoice = {
       invoiceTypeForEinvoice: 3,
       eArchivePaymentType: ODEME[String((p.ham as any)?.odeme_tipi ?? odm.tip ?? "0")] ?? 1,
-      eArchivePaymentDate: new Date(odm.tarih ? `${odm.tarih}+03:00` : p.tarih || simdi).toISOString(),
+      eArchivePaymentDate: odemeT,
       website: String(a.site || `www.${p.platform}`)
     };
     body.shipmentAgentItem = { firmType: 1, identifier: kargoVkn, title: String(a.kargo_ad || (/aras/i.test(p.kargo_firma || "") ? "ARAS KARGO YURT İÇİ YURT DIŞI TAŞIMACILIK A.Ş." : p.kargo_firma) || "Kargo").trim() };
   }
 
+  // teshis: istege ek alanlar (sadece yonetici/token ile, deneme icin)
+  if (ek && typeof ek === "object") for (const [k, v] of Object.entries(ek)) body[k] = v && typeof v === "object" && !Array.isArray(v) && body[k] && typeof body[k] === "object" ? { ...(body[k] as Record<string, unknown>), ...v } : v;
   const toplam = r2(num(s.genel_toplam));
   const o = await giris(a);
   const r = await isbasi(o, "/api/v1.0/invoices/integrationInvoices", { method: "POST", body: JSON.stringify(body) });
@@ -169,7 +195,7 @@ Deno.serve(async (req) => {
     }
     if (body.eylem === "kes") {
       const id = Number(body.siparis_id); if (!id) return json({ hata: "siparis_id gerekli" }, 400);
-      try { const r = await faturaKes(id, a); return json(r); }
+      try { const r = await faturaKes(id, a, body.ek && typeof body.ek === "object" ? body.ek : null); return json(r); }
       catch (err) { return json({ ok: false, hata: err instanceof Error ? err.message : String(err) }); }
     }
     return json({ hata: "Bilinmeyen eylem" }, 400);
