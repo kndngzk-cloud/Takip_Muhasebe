@@ -936,6 +936,7 @@ async function viewSiparisDetay(id) {
       </div>
     </div>
     ${pls.map((p) => platformKart(p)).join('')}
+    <div id="fatura-kart"></div>
     ${pts.map((p) => `<div class="card" style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><b>PayTR kart ödemesi</b> <span class="badge b-green">Ödendi</span>
       <div class="tiny" style="margin-top:4px">${[fmtD(p.islem_tarihi), ptHesap(p.hesap), p.kart_marka, num(p.taksit) > 1 ? p.taksit + ' taksit' : 'tek çekim', p.kesinti_tutari != null ? 'kesinti ' + fmtTL(p.kesinti_tutari) : '', p.net_tutar != null ? 'net ' + fmtTL(p.net_tutar) : '', p.makbuz_no ? 'makbuz #' + p.makbuz_no : ''].filter(Boolean).map(esc).join(' · ')}</div></div>
       <div class="num" style="font-weight:800">${fmtTL(p.islem_tutari)}</div></div>`).join('')}
@@ -997,12 +998,43 @@ async function viewSiparisDetay(id) {
     const b = e.target.closest('button'); if (!b || b.dataset.v === s.maliyet_yontemi) return;
     try { await api.update('siparisler', `id=eq.${s.id}`, { maliyet_yontemi: b.dataset.v }); toast(`Kâr yöntemi ${b.dataset.v} yapıldı`, 'ok'); render(); } catch (err) { fail(err); }
   };
+  if (isAdmin()) faturaKart(s, pls);
   if (isAdmin()) {
     api.rpc('siparis_maliyet', { p_siparis_id: s.id }).then((rows) => {
       if (sq !== renderSeq || !rows.length || !$('#kar-kart')) return;
       $('#kar-kart').innerHTML = maliyetKart(s, rows, kal);
     }).catch(() => {});
   }
+}
+
+/* Logo Isbasi e-Fatura / e-Arsiv: R siparislerde (pazaryeri siparisleri haric) faturayi kesen kart */
+const FATURA_HARIC = ['Hepsiburada', 'Trendyol', 'Koçtaş', 'N11'];
+async function faturaKart(s, pls) {
+  const el = $('#fatura-kart'); if (!el) return;
+  const pl = pls[0]?.platform;
+  if (s.fatura_tipi !== 'R' || s.durum === 'İptal' || FATURA_HARIC.includes(pl)) return;
+  const sq = renderSeq;
+  let fat = [];
+  try { fat = await api.get('isbasi_faturalar', `select=id,ortam,durum,fatura_no,ettn,tur,tutar,hata,olusturma&siparis_id=eq.${s.id}&order=id.desc`); } catch { return; }
+  if (sq !== renderSeq || !$('#fatura-kart')) return;
+  const kes = fat.find((f) => f.durum === 'Kesildi'), son = fat[0];
+  const zaman = (f) => `${fmtD(String(f.olusturma).slice(0, 10))} ${String(new Date(f.olusturma).toTimeString()).slice(0, 5)}`;
+  el.innerHTML = `<div class="card" style="border-left:4px solid ${kes ? 'var(--green)' : 'var(--brand)'}">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+      <div><b>Fatura (Logo İşbaşı)</b> ${kes ? `<span class="badge b-green">Kesildi${kes.ortam === 'test' ? ' · TEST' : ''}</span>` : son?.durum === 'Hata' ? '<span class="badge b-red">Kesilemedi</span>' : '<span class="badge">Kesilmedi</span>'}
+        <div class="tiny" style="margin-top:4px">${kes ? esc([kes.fatura_no ? 'No ' + kes.fatura_no : null, kes.tur, kes.ettn ? 'ETTN ' + kes.ettn : null, zaman(kes)].filter(Boolean).join(' · '))
+          : son?.durum === 'Hata' ? `<span style="color:var(--red)">${esc(son.hata || '')}</span> · ${zaman(son)}` : `${pl ? esc(pl) + ' siparişi · e-Arşiv internet satışı' : 'Müşteri e-Fatura mükellefiyse e-Fatura, değilse e-Arşiv'} · ${fmtTL(s.genel_toplam)}`}</div></div>
+      ${kes && kes.ortam !== 'test' ? '' : `<button class="btn sm primary" id="b-fatura">${son?.durum === 'Hata' ? 'Tekrar dene' : kes ? 'Canlıda kes' : 'Fatura kes'}</button>`}
+    </div></div>`;
+  $('#b-fatura')?.addEventListener('click', async (e) => {
+    if (!await confirmBox(`Fiş ${s.fis_no} için fatura kesilsin mi?`, `<b>${esc(pls[0]?.musteri || s.cari_unvan)}</b> adına ${fmtTL(s.genel_toplam)} (KDV dahil) fatura İşbaşı’nda oluşturulacak.${kes ? '' : ' Test ortamındaysanız GİB’e gitmez.'}`, 'Fatura kes')) return;
+    busy(e.currentTarget, async () => {
+      const r = await (await api.raw('functions/v1/isbasi-fatura', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eylem: 'kes', siparis_id: s.id }) })).json();
+      if (r.ok) toast(`Fatura kesildi${r.fatura?.fatura_no ? ': ' + r.fatura.fatura_no : ''}${r.fatura?.ortam === 'test' ? ' (test)' : ''}`, 'ok');
+      else toast(`Fatura kesilemedi: ${r.hata || r.fatura?.hata || 'bilinmeyen hata'}`, 'err');
+      faturaKart(s, pls);
+    }).catch(fail);
+  });
 }
 
 /* Siparisin urun maliyetleri ve kari (sadece yonetici gorur; musteriye giden ciktida yok) */
@@ -3462,8 +3494,10 @@ const ENT_ALAN = {
   'Koçtaş': [['api_key', 'API anahtarı']],
   N11: [['api_key', 'API anahtarı (App Key)'], ['api_secret', 'API şifresi (App Secret)']],
   'gradde.com.tr': [['yetki_kodu', 'Web servis yetki kodu']],
-  'eviyeshop.com': [['yetki_kodu', 'Web servis yetki kodu']]
+  'eviyeshop.com': [['yetki_kodu', 'Web servis yetki kodu']],
+  'İşbaşı': [['api_key', 'API anahtarı (APIKEY)'], ['kullanici', 'İşbaşı kullanıcı e-postası'], ['sifre', 'İşbaşı şifresi'], ['sunucu', 'Sunucu adresi (boş = test ortamı)'], ['kargo_vkn', 'Kargo firması VKN'], ['site', 'Web sitesi (örn. www.gradde.com.tr)']]
 };
+const ENT_ACIK = ['merchant_id', 'seller_id', 'kullanici_adi', 'kullanici', 'sunucu', 'kargo_vkn', 'site']; // sifre olmayan, yazilirken gorunen alanlar
 const SITE = ['gradde.com.tr', 'eviyeshop.com'];
 const SADECE_SIPARIS = ['N11', 'gradde.com.tr', 'eviyeshop.com']; // odeme cekilmez, sadece siparis
 const ENT_NOT = {
@@ -3474,7 +3508,8 @@ const ENT_NOT = {
   N11: 'N11 satıcı panelindeki <b>API Hesapları</b> bölümünden API anahtarı ve API şifresi. Siparişler diğer platformlar gibi 2 dakikada bir çekilir; satış tutarı satıcı fatura tutarıdır, kesintiler (komisyon + pazarlama + hizmet bedeli, KDV’li) N11’in verdiği oranlardan hesaplanır.',
   'gradde.com.tr': 'Ticimax yönetim paneli → <b>Ayarlar → Entegrasyon → Web Servisleri</b> → web servisi etkinleştirip <b>yetki kodunu</b> kopyalayın. Siteye gelen siparişler 2 dakikada bir çekilir, ürünler stok koduyla eşleşir. Ödemeyi bekleyen (havale, onay bekleyen) siparişler ödeme gelince aktarılır.',
   'eviyeshop.com': 'eviyeshop.com’un Ticimax panelinden, aynı yerden (<b>Ayarlar → Entegrasyon → Web Servisleri</b>) yetki kodu. Siparişler “eviyeshop.com” etiketiyle ayrı görünür.',
-  Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.'
+  Trendyol: 'Trendyol satıcı paneli → Hesap Bilgileri → <b>Entegrasyon Bilgileri</b>. Teslim edilen siparişlerin vade tarihleri ve net hakedişleri günlük toplanarak eklenir.',
+  'İşbaşı': 'Logo’nun e-postayla gönderdiği <b>APIKEY</b>, İşbaşı yönetici e-postanız ve şifreniz. Sunucu adresini boş bırakırsanız <b>test ortamı</b> kullanılır (faturalar GİB’e gitmez); canlıya geçerken Logo’nun verdiği adresi yazın. İnternet satışı (site) faturalarında taşıyan kargo firmasının VKN’si zorunludur; Aras Kargo faturanızın üstünde yazar. Faturayı sipariş sayfasındaki <b>Fatura kes</b> düğmesi keser; müşteri e-Fatura mükellefiyse e-Fatura, değilse e-Arşiv olur.'
 };
 async function entegrasyonKart() {
   const el = $('#ent-kart'); if (!el) return;
@@ -3482,15 +3517,15 @@ async function entegrasyonKart() {
   try { [ent, alan] = await Promise.all([api.get('entegrasyonlar', 'select=platform,aktif,son_calisma,son_durum,son_adet,son_yanit&order=platform'), api.rpc('entegrasyon_alanlar')]); }
   catch (e) { el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2><p class="tiny" style="color:var(--red)">${esc(e.message)}</p>`; return; }
   const dolu = Object.fromEntries((Array.isArray(alan) ? alan : []).map((a) => [a.platform, new Set(a.alanlar || [])]));
-  const sira = ['PayTR', 'PayTR 2', 'Trendyol', 'Hepsiburada', 'Koçtaş', 'N11', 'gradde.com.tr', 'eviyeshop.com'];
-  const ENT_AD = { PayTR: 'PayTR · 1. hesap', 'PayTR 2': 'PayTR · 2. hesap' };
+  const sira = ['PayTR', 'PayTR 2', 'Trendyol', 'Hepsiburada', 'Koçtaş', 'N11', 'gradde.com.tr', 'eviyeshop.com', 'İşbaşı'];
+  const ENT_AD = { PayTR: 'PayTR · 1. hesap', 'PayTR 2': 'PayTR · 2. hesap', 'İşbaşı': 'Logo İşbaşı · e-Fatura / e-Arşiv' };
   el.innerHTML = `<h2>Pazaryeri / ödeme entegrasyonları</h2>
     <p class="small muted" style="margin-top:0">Bilgiler güvenli saklanır ve buradan geri okunamaz; değiştirmek için yenisini yazmanız yeterli, boş bıraktığınız alan eskisini korur.</p>
     ${sira.map((pl) => { const e = ent.find((x) => x.platform === pl) || {}; const f = ENT_ALAN[pl]; return `<div class="ent" data-pl="${pl}" style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${f && !SADECE_SIPARIS.includes(pl) ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : SADECE_SIPARIS.includes(pl) ? `<span class="badge ${dolu[pl]?.size ? 'b-green' : ''}">${dolu[pl]?.size ? 'siparişler otomatik çekiliyor' : 'yetki kodu bekleniyor'}</span>` : '<span class="badge">yakında</span>'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${ENT_AD[pl] || pl}</b>${pl === 'İşbaşı' ? `<span class="badge ${dolu[pl]?.has('api_key') ? 'b-green' : ''}">${dolu[pl]?.has('api_key') ? (dolu[pl]?.has('sunucu') ? 'canlı' : 'test ortamı') : 'bilgiler bekleniyor'}</span>` : f && !SADECE_SIPARIS.includes(pl) ? `<label class="check" style="margin:0"><input type="checkbox" class="ent-ak" ${e.aktif ? 'checked' : ''}> Otomatik çalışsın</label>` : SADECE_SIPARIS.includes(pl) ? `<span class="badge ${dolu[pl]?.size ? 'b-green' : ''}">${dolu[pl]?.size ? 'siparişler otomatik çekiliyor' : 'yetki kodu bekleniyor'}</span>` : '<span class="badge">yakında</span>'}</div>
       ${f ? `<p class="tiny" style="margin:6px 0 10px">${ENT_NOT[pl]}</p>
-        <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${['merchant_id', 'seller_id', 'kullanici_adi'].includes(k) ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
-        <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button>${!SADECE_SIPARIS.includes(pl) ? '<button class="btn sm ent-cal">Şimdi çalıştır</button>' : ''}</div>
+        <div class="grid3">${f.map(([k, l]) => `<div class="field"><label>${l}</label><input class="input ent-in" data-k="${k}" type="${ENT_ACIK.includes(k) ? 'text' : 'password'}" autocomplete="off" placeholder="${dolu[pl]?.has(k) ? 'kayıtlı ✓ (değiştirmek için yazın)' : 'girin'}"></div>`).join('')}</div>
+        <div class="btn-row" style="margin-top:4px"><button class="btn sm primary ent-kay">Kaydet</button>${pl === 'İşbaşı' ? '<button class="btn sm ent-dene">Bağlantıyı dene</button>' : !SADECE_SIPARIS.includes(pl) ? '<button class="btn sm ent-cal">Şimdi çalıştır</button>' : ''}</div>
         <div class="tiny ent-dur" style="margin-top:8px">${SADECE_SIPARIS.includes(pl) ? (() => { const sy = e.son_yanit?.siparis; if (!sy) return dolu[pl]?.size ? 'İlk çekim 2 dakika içinde yapılır.' : 'Henüz çalışmadı'; const hata = /hata/i.test(sy.durum || ''); return `Son sipariş çekimi: ${fmtD(String(sy.zaman).slice(0, 10))} ${String(new Date(sy.zaman).toTimeString()).slice(0, 5)} · <span style="color:${hata ? 'var(--red)' : 'var(--green)'}">${esc(sy.durum || '')}</span>`; })() : e.son_calisma ? `Son çalışma: ${fmtD(String(e.son_calisma).slice(0, 10))} ${String(new Date(e.son_calisma).toTimeString()).slice(0, 5)} · <span style="color:${String(e.son_durum || '').startsWith('Hata') ? 'var(--red)' : 'var(--green)'}">${esc(e.son_durum || '')}</span>` : 'Henüz çalışmadı'}</div>`
       : `<p class="tiny" style="margin:6px 0 0">${pl} için ödeme tarihlerini veren servis doğrulanınca eklenecek. O zamana kadar ödemeleri Ödemeler → Platform ile girebilirsiniz.</p>`}
     </div>`; }).join('')}`;
@@ -3502,6 +3537,12 @@ async function entegrasyonKart() {
       return r || {};
     };
     $('.ent-kay', box).onclick = (e) => busy(e.currentTarget, async () => { const r = await kaydet(); const eks = ENT_ALAN[pl].filter(([k]) => !r[k]).map(([, l]) => l); toast(eks.length ? `Kaydedildi; eksik: ${eks.join(', ')}` : `${ENT_AD[pl] || pl} bilgileri kaydedildi`, eks.length ? 'err' : 'ok'); entegrasyonKart(); }).catch(fail);
+    if ($('.ent-dene', box)) $('.ent-dene', box).onclick = (e) => busy(e.currentTarget, async () => {
+      if ($$('.ent-in', box).some((i) => i.value.trim())) await kaydet();
+      const r = await (await api.raw('functions/v1/isbasi-fatura', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eylem: 'test' }) })).json();
+      toast(r.ok ? r.mesaj : `İşbaşı: ${r.hata || 'yanıt alınamadı'}`, r.ok ? 'ok' : 'err');
+      entegrasyonKart();
+    }).catch(fail);
     if ($('.ent-cal', box)) $('.ent-cal', box).onclick = (e) => busy(e.currentTarget, async () => {
       if ($$('.ent-in', box).some((i) => i.value.trim())) await kaydet();
       const r = await (await api.raw('functions/v1/platform-odemeler', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform: pl }) })).json();
@@ -6651,7 +6692,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.38';
+const APP_V = '2.39';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
