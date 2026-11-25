@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Cari Hesap Ödemesi</title>
+  <meta name="theme-color" content="#16213a">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32-v4.png">
+  <style>
+    :root { --bg:#e9edf3; --kart:#fff; --yazi:#16213a; --yazi2:#5b6578; --cizgi:#e3e7ef; --mavi:#2563eb; --yesil:#0f9d63; --kirmizi:#d63a3a; --koyu:#16213a; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#0e1424; --kart:#161e33; --yazi:#e9edf6; --yazi2:#a7b0c4; --cizgi:#273152; --mavi:#5b8cff; --yesil:#33c38a; --kirmizi:#ff6b6b; --koyu:#0b1020; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--yazi); font:16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    header { background:var(--koyu); color:#fff; padding:calc(22px + env(safe-area-inset-top,0px)) 16px 54px; text-align:center; }
+    header h1 { margin:0; font-size:22px; font-weight:800; letter-spacing:-.01em; }
+    header p { margin:4px 0 0; color:#c9d2e6; font-size:14px; }
+    main { max-width:460px; margin:-36px auto 32px; padding:0 16px; }
+    .kart { background:var(--kart); border-radius:16px; padding:20px; box-shadow:0 1px 2px rgba(22,33,58,.06), 0 6px 24px rgba(22,33,58,.08); }
+    .etiket { font-size:13px; color:var(--yazi2); font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+    .unvan { font-size:19px; font-weight:700; margin:2px 0 0; overflow-wrap:anywhere; }
+    .bakiye { margin-top:16px; padding:14px; border-radius:12px; background:color-mix(in srgb, var(--mavi) 9%, transparent); }
+    .bakiye b { display:block; font-size:24px; font-variant-numeric:tabular-nums; }
+    .bakiye small { color:var(--yazi2); font-size:13px; }
+    .not { margin-top:14px; font-size:14px; color:var(--yazi2); white-space:pre-line; }
+    label { display:block; margin:20px 0 6px; font-weight:700; }
+    .tutar { position:relative; }
+    .tutar input { width:100%; font:inherit; font-size:26px; font-weight:700; padding:14px 52px 14px 14px; border:2px solid var(--cizgi); border-radius:12px; background:transparent; color:var(--yazi); font-variant-numeric:tabular-nums; }
+    .tutar input:focus { outline:none; border-color:var(--mavi); }
+    .tutar span { position:absolute; right:16px; top:50%; transform:translateY(-50%); font-size:20px; font-weight:700; color:var(--yazi2); }
+    .hizli { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+    .hizli button { font:inherit; font-size:14px; padding:6px 12px; border-radius:999px; border:1px solid var(--cizgi); background:transparent; color:var(--mavi); cursor:pointer; }
+    .bilgi { margin-top:10px; font-size:14px; color:var(--yazi2); }
+    .ode { margin-top:20px; width:100%; font:inherit; font-size:18px; font-weight:700; padding:16px; border:0; border-radius:12px; background:var(--yesil); color:#fff; cursor:pointer; }
+    .ode:disabled { opacity:.6; cursor:default; }
+    .hata { margin-top:12px; color:var(--kirmizi); font-weight:600; font-size:15px; }
+    .guven { margin-top:16px; font-size:13px; color:var(--yazi2); text-align:center; }
+    .bos { text-align:center; padding:28px 8px; color:var(--yazi2); }
+  </style>
+</head>
+<body>
+  <header><h1 id="firma">Cari Hesap Ödemesi</h1><p>Kredi / banka kartı ile güvenli ödeme</p></header>
+  <main><div class="kart" id="icerik"><div class="bos">Yükleniyor…</div></div>
+    <p class="guven">Ödeme, PayTR güvenli ödeme sayfasında alınır. Kart bilgileriniz firmaya iletilmez.</p></main>
+  <script src="config.js"></script>
+  <script src="odeme.js"></script>
+</body>
+</html>

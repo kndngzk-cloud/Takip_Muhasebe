@@ -2357,6 +2357,7 @@ async function viewCariDetay(id) {
     ${notKart('cariler', c.id)}
     <div class="btn-row" style="margin-bottom:6px">
       <button class="btn orange" id="b-tah">${icon('cash')}Tahsilat</button>
+      ${c.tip !== 'Tedarikçi' ? `<button class="btn" id="b-olk">${icon('cash')}Kartla ödeme linki</button>` : ''}
       <button class="btn primary" id="b-sip">${icon('order')}Yeni sipariş</button>
       <button class="btn" id="b-acl">Açılış / düzeltme</button>
       <button class="btn" id="b-eks">${icon('print')}Ekstre gönder</button>
@@ -2418,6 +2419,7 @@ async function viewCariDetay(id) {
   drawEks();
   $('#ed').onclick = () => cariForm(c, null, () => { cache.dirty('cariler'); render(); });
   $('#b-tah').onclick = () => tahsilat(c);
+  $('#b-olk')?.addEventListener('click', () => odemeLinkleri(c));
   $('#b-sip').onclick = () => go(`#/siparis/yeni?cari=${c.id}`);
   $('#b-acl').onclick = () => acilisBakiye(c);
   $('#mf-add').onclick = (e) => { e.preventDefault(); musteriFiyat(c); };
@@ -2674,6 +2676,77 @@ function dovizBorcKart(ls) {
       <div class="st">Sipariş ${fmtPB(x.doviz_toplam, x.para_birimi)} (kur ${fmtK(x.kur)}) · tahsil edilen ${fmtPB(x.doviz_tahsil, x.para_birimi)}</div></div>
       <div class="right"><div class="num" style="font-weight:800">${fmtPB(x.doviz_kalan, x.para_birimi)}</div>${gk ? `<div class="tiny">≈ ${fmtTL(num(x.doviz_kalan) * gk)} · kur ${fmtK(gk)}</div>` : ''}</div></div>`; }).join('')}
     <div class="tiny" style="margin-top:4px">Tahsilat girerken bu siparişi seçin: tutar siparişin hesabına yazılır${acik.some(ithDvz) ? ' (dövizli siparişte o günün kuruyla dövize çevrilip kalan borçtan düşer, kur farkı otomatik yazılır)' : ''}.</div></div>`;
+}
+
+/* Musteriye kartla odeme linki (PayTR Linkle Odeme). Musteri tutari kendisi yazar, odeme cariye otomatik tahsilat olarak duser. */
+const odemeLinkUrl = (t) => `${location.origin}${location.pathname.replace(/[^/]*$/, '')}odeme.html#${t}`;
+const waTel = (t) => { let d = String(t || '').replace(/\D/g, ''); if (d.startsWith('0')) d = '90' + d.slice(1); else if (d.length === 10 && d.startsWith('5')) d = '90' + d; return d.length >= 11 ? d : ''; };
+async function odemeLinkleri(c) {
+  const linkler = await api.get('odeme_linkleri', `select=*&cari_id=eq.${c.id}&order=olusturma.desc`);
+  const odemeler = linkler.length ? await api.get('odeme_link_odemeleri', `select=id,link_id,tutar,toplam,odeme_zamani,makbuz_no&link_id=in.(${linkler.map((l) => l.id).join(',')})&durum=eq.${encodeURIComponent('Ödendi')}&order=odeme_zamani.desc&limit=50`) : [];
+  const firma = state.ayarlar?.firma_adi || '';
+  const mesaj = (l) => `Merhaba,${firma ? ` ${firma}` : ''} cari hesabınıza kredi / banka kartıyla ödeme yapmak için bu linki kullanabilirsiniz:\n${odemeLinkUrl(l.token)}`;
+  const tip0 = num(c.bakiye_gr) > num(c.bakiye_r) ? 'GR' : 'R';
+  const linkSatir = (l) => {
+    const od = odemeler.filter((o) => o.link_id === l.id), top = od.reduce((a, o) => a + num(o.tutar), 0);
+    const tel = waTel(c.telefon);
+    return `<div class="row" style="align-items:flex-start;gap:10px">
+      <div class="main-col">
+        <div class="t">${tipBadge(l.fatura_tipi)} ${l.max_taksit > 1 ? `<span class="badge b-blue">${l.max_taksit} taksite kadar</span>` : '<span class="badge">Tek çekim</span>'} ${l.aktif ? '<span class="badge b-green">Açık</span>' : '<span class="badge b-red">Kapalı</span>'}</div>
+        <div class="st">${fmtD(l.olusturma)} oluşturuldu${l.bakiye_goster ? ' · bakiye görünür' : ' · bakiye gizli'}${od.length ? ` · <b>${od.length} ödeme, ${fmtTL(top)}</b>` : ' · henüz ödeme yok'}</div>
+        ${l.aciklama ? `<div class="tiny">${esc(l.aciklama)}</div>` : ''}
+      </div>
+      <div class="btn-row" style="margin:0;justify-content:flex-end">
+        ${l.aktif ? `<button class="btn sm" data-kp="${l.id}">Kopyala</button>
+        ${tel ? `<a class="btn sm green" target="_blank" rel="noopener" href="https://wa.me/${tel}?text=${encodeURIComponent(mesaj(l))}">WhatsApp</a>` : ''}
+        ${navigator.share ? `<button class="btn sm" data-pay="${l.id}">Paylaş</button>` : ''}` : ''}
+        <button class="btn sm" data-ac="${l.id}">${l.aktif ? 'Kapat' : 'Aç'}</button>
+      </div></div>`;
+  };
+  modal({
+    title: `Kartla ödeme linki · ${c.unvan}`,
+    wide: true,
+    body: `<p class="small" style="margin:0 0 12px">Müşteri linke girer, <b>ödemek istediği tutarı kendisi yazar</b> ve PayTR güvenli ödeme sayfasında kartıyla öder. Ödeme başarılı olunca tutar bu carinin seçtiğiniz hesabına <b>tahsilat olarak otomatik düşer</b> ve makbuz oluşur (PayTR Tahsilatları’nda “eşleşmiş” görünür). Ödemeler PayTR 1. hesaba (487386) yatar.</p>
+      <div class="card" style="margin:0 0 14px">
+        <div class="section-title" style="margin-top:0">Yeni link</div>
+        <div class="grid2">
+          <div class="field"><label>Düşülecek hesap</label><div class="seg" id="ol-tip"><button type="button" data-v="R" class="${tip0 === 'R' ? 'on r' : ''}">R</button><button type="button" data-v="GR" class="${tip0 === 'GR' ? 'on gr' : ''}">GR</button></div>
+            <div class="hint">R ${fmtTL(c.bakiye_r)} · GR ${fmtTL(c.bakiye_gr)}</div></div>
+          <div class="field"><label>En fazla taksit</label><div class="seg" id="ol-tk">${[1, 2, 3].map((n) => `<button type="button" data-v="${n}" class="${n === 1 ? 'on' : ''}">${n === 1 ? 'Tek çekim' : n}</button>`).join('')}</div>
+            <div class="hint">Vade farkını kimin ödeyeceği PayTR panelindeki taksit ayarınıza bağlıdır; cariye müşterinin yazdığı tutar düşer.</div></div>
+        </div>
+        <label class="check" style="margin:2px 0 10px"><input type="checkbox" id="ol-bk" checked> <span>Ödeme sayfasında seçilen hesabın bakiyesi görünsün</span></label>
+        <div class="field"><label>Müşteriye not <span class="tiny" style="font-weight:500">isteğe bağlı, ödeme sayfasında görünür</span></label><textarea class="input" id="ol-ac" rows="2" placeholder="örn. Kasım ayı faturalarınız için"></textarea></div>
+        <button class="btn primary" id="ol-yeni">${icon('cash')}Link oluştur</button>
+      </div>
+      <div class="section-title">Bu carinin linkleri</div>
+      <div class="list" id="ol-lst">${linkler.length ? linkler.map(linkSatir).join('') : '<div class="empty">Henüz link yok</div>'}</div>
+      ${odemeler.length ? `<div class="section-title">Linkle gelen ödemeler</div><div class="list">${odemeler.map((o) => `<div class="row"><div class="main-col"><div class="t">${fmtTL(o.tutar)}${num(o.toplam) > num(o.tutar) + 0.005 ? ` <span class="tiny">(karttan ${fmtTL(o.toplam)})</span>` : ''}</div><div class="st">${o.odeme_zamani ? new Date(o.odeme_zamani).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : ''} · Makbuz #${o.makbuz_no ?? ''}</div></div></div>`).join('')}</div>` : ''}`,
+    foot: '<button class="btn" data-close>Kapat</button>',
+    onMount: (m) => {
+      const seg = (id) => { const el = $(id, m.el); el.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; $$('button', el).forEach((x) => x.classList.toggle('on', x === b)); if (id === '#ol-tip') $$('button', el).forEach((x) => { x.classList.toggle('r', x.classList.contains('on') && x.dataset.v === 'R'); x.classList.toggle('gr', x.classList.contains('on') && x.dataset.v === 'GR'); }); }; };
+      seg('#ol-tip'); seg('#ol-tk');
+      const kopyala = async (l) => { try { await navigator.clipboard.writeText(odemeLinkUrl(l.token)); toast('Link kopyalandı', 'ok'); } catch { toast(odemeLinkUrl(l.token)); } };
+      $('#ol-yeni', m.el).onclick = (e) => busy(e.currentTarget, async () => {
+        const [l] = await api.insert('odeme_linkleri', {
+          cari_id: c.id, fatura_tipi: $('#ol-tip button.on', m.el)?.dataset.v || 'R', max_taksit: +($('#ol-tk button.on', m.el)?.dataset.v || 1),
+          bakiye_goster: $('#ol-bk', m.el).checked, aciklama: $('#ol-ac', m.el).value.trim() || null
+        });
+        m.close(); await odemeLinkleri(c);
+        await kopyala(l);
+      }).catch(fail);
+      $('#ol-lst', m.el).addEventListener('click', async (e) => {
+        const b = e.target.closest('button'); if (!b) return;
+        const l = linkler.find((x) => x.id === +(b.dataset.kp || b.dataset.pay || b.dataset.ac)); if (!l) return;
+        if (b.dataset.kp) return kopyala(l);
+        if (b.dataset.pay) { try { await navigator.share({ title: 'Ödeme linki', text: mesaj(l) }); } catch (err) { if (err.name !== 'AbortError') kopyala(l); } return; }
+        if (b.dataset.ac) {
+          if (l.aktif && !(await confirmBox('Link kapatılsın mı?', 'Müşteri bu linkle artık ödeme yapamaz. Daha sonra tekrar açabilirsiniz.', 'Kapat', true))) return;
+          try { await api.update('odeme_linkleri', `id=eq.${l.id}`, { aktif: !l.aktif }); m.close(); odemeLinkleri(c); } catch (err) { fail(err); }
+        }
+      });
+    }
+  });
 }
 
 function tahsilat(c = null, siparisId = null) {
@@ -6651,7 +6724,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.38';
+const APP_V = '2.39';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
