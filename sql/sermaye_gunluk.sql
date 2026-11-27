@@ -2,3 +2,7 @@
 -- tablo public.sermaye_gunluk (tarih pk, stok, yolda, alacak, cek, platform, kasa, borc, toplam), RLS: sadece admin okur.
 -- public.sermaye_gunluk_kaydet(): sermaye_ozet() + kasa (TL) ile bugunun satirini upsert eder.
 -- cron 'sermaye-gunluk' '53 * * * *' (saat basi); uygulama sermaye ekrani acilinca da cagirir.
+-- kaynak kolonu: 'kayit' (saatlik fotograf) | 'hesap' (geriye donuk).
+-- public.sermaye_tarihte(p date): o gunun sermayesini hareketlerden hesaplar (bugun icin sermaye_ozet ile birebir ayni).
+-- 30.10.2026 - 26.11.2026 arasi bununla dolduruldu (kaynak='hesap'). Kasa: bugunku bakiye - o gunden sonraki kasa hareketleri
+-- (elle yapilan bakiye duzeltmeleri hareket olarak kaydedilmedigi icin geriye dogru gorulmez).

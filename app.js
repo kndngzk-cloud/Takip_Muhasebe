@@ -3327,13 +3327,13 @@ async function raporSermaye(el) {
         <text x="90" y="84" text-anchor="middle" class="sm-g-l">TOPLAM</text><text x="90" y="104" text-anchor="middle" class="sm-g-v">${fmtTL(Math.round(toplam)).replace(/,\d+/, '')}</text></svg></div>
       <div class="sm-lejant">${K.map(([k, ad, v, renk]) => `<button class="sm-lj" data-sd="${k}"><i style="background:${renk}"></i><span>${esc(ad)}</span><b>${yzT(v)}</b><em>${fmtTL(v)}</em></button>`).join('')}</div>
     </div>
-    <div class="card" id="sm-trend"><div class="tiny">Günlük değişim yükleniyor…</div></div>
     <div class="card sermaye-top"><div class="l">Toplam sermaye</div><div class="v num">${fmtTL(toplam)}</div>
       <div class="tiny">${fmtD(today())} · ayrıntı için bir kaleme dokunun</div></div>
     <div class="kpis">${K.map(([k, ad, v, renk, alt]) => `<button class="kpi sm-kpi" data-sd="${k}" style="border-top-color:${renk}"><div class="l">${esc(ad)}</div><div class="v num">${fmtTL(v)}</div>
       <div class="sm-yuzde"><span style="width:${Math.min(100, yz(v))}%;background:${renk}"></span></div><div class="s"><b style="color:${renk}">${yzT(v)}</b> · ${alt} ›</div></button>`).join('')}</div>
     ${borc > 0 ? `<div class="card tiny">Bilgi: ${oz.borc.cari} cariye toplam <b>${fmtTL(borc)}</b> borcumuz var (alacaklı cariler). Bu düşülünce net: <b>${fmtTL(toplam - borc)}</b>. Fabrikalara kalan, henüz ödenmemiş tutarlar sermayeye eklenmez.</div>` : ''}
-    <p class="tiny">Stok değeri, depoda kalan alış partilerinin maliyetiyle hesaplanır; eksiye düşmüş stoklar sıfır sayılır. Çekler, müşteriden alınınca cari bakiyesinden düştüğü için alacakta ayrıca sayılmaz. Platform müşterileri perakende olduğu için platform tutarları alacakta yer almaz.</p>`;
+    <p class="tiny">Stok değeri, depoda kalan alış partilerinin maliyetiyle hesaplanır; eksiye düşmüş stoklar sıfır sayılır. Çekler, müşteriden alınınca cari bakiyesinden düştüğü için alacakta ayrıca sayılmaz. Platform müşterileri perakende olduğu için platform tutarları alacakta yer almaz.</p>
+    <div class="card" id="sm-trend"><div class="tiny">Günlük değişim yükleniyor…</div></div>`;
 
   // ---- detay pencereleri ----
   const tablo = (bas, satirlar, bos) => `<div class="table-wrap" style="margin:0 -4px"><table class="tbl sermaye-tbl"><thead><tr>${bas.map(([t, r]) => `<th class="${r ? 'r' : ''}">${t}</th>`).join('')}</tr></thead><tbody>${satirlar.length ? satirlar.join('') : `<tr><td colspan="${bas.length}" class="empty">${bos}</td></tr>`}</tbody></table></div>`;
@@ -3422,7 +3422,7 @@ async function sermayeTrend(kutu, K) {
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-bottom:6px">${seri().map((x) => `<button type="button" data-gz="${x.k}" style="background:none;border:0;padding:2px 0;font:inherit;font-size:13px;color:inherit;cursor:pointer;opacity:${gizli.has(x.k) ? 0.35 : 1}"><i style="display:inline-block;width:14px;height:${x.kesik ? 2 : 3}px;background:${x.renk};vertical-align:middle;margin-right:6px;border-radius:2px"></i>${esc(x.ad)}</button>`).join('')}</div>
       ${svg}${ozet}
-      <p class="tiny" style="margin-top:8px">Kayıtlar ${fmtD(ilk)} tarihinden itibaren her saat otomatik alınır; her günün son kaydı o günün değeridir. Bu tarihten öncesi için kayıt yoktur. Bir kaleme dokunarak grafikte gizleyip gösterebilirsiniz.</p>`;
+      <p class="tiny" style="margin-top:8px">${(() => { const h = tum.filter((x) => x.kaynak === 'hesap'); return h.length ? `${fmtD(h[0].tarih)} – ${fmtD(h[h.length - 1].tarih)} arası, o günlere kadarki stok, cari, kasa, çek ve ithalat hareketlerinden geriye dönük hesaplandı. ` : ''; })()}Bundan sonra her saat otomatik kaydedilir; her günün son kaydı o günün değeridir. Bir kaleme dokunarak grafikte gizleyip gösterebilirsiniz.</p>`;
     $('#smt-1', kutu).onchange = (e) => { t1 = e.target.value || ilk; if (t1 > t2) t2 = t1; ciz(); };
     $('#smt-2', kutu).onchange = (e) => { t2 = e.target.value || son; if (t2 < t1) t1 = t2; ciz(); };
     $('#smt-hiz', kutu).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const n = +b.dataset.n; t2 = son; t1 = n ? (addDays(son, -(n - 1)) < ilk ? ilk : addDays(son, -(n - 1))) : ilk; ciz(); };
@@ -7437,7 +7437,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.65';
+const APP_V = '2.66';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
