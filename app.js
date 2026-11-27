@@ -3564,6 +3564,39 @@ async function viewDaha() {
 /* Anlik bildirim (Web Push) */
 const VAPID_PUBLIC = 'BO1U35fQHu7dYgapMTOWsMVwmA17VqQSO0yNtBpHK7HXmya7v05Ht_AJLJNJJTBy-2NY0sR001E2zjl_8n23O-E';
 const b64u8 = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
+// Bildirim turleri (her cihaz kendi secer; push_abonelik.konular). Varsayilan liste bildirim fonksiyonundakiyle ayni.
+const BLD_KONU = [
+  ['Para hareketleri', [['kart', 'Kartla ödeme geldi', 'PayTR ödeme linki ve sitedeki kart ödemeleri'], ['tahsilat', 'Müşteriden tahsilat', 'havale / EFT, nakit, çek ile girilen tahsilatlar'], ['cek', 'Çek / senet', 'alındığında ve tahsil edildiğinde'], ['platform_odeme', 'Platform ödemesi yattı', 'Trendyol, Hepsiburada vb. hakedişi hesaba geçince'], ['gelir', 'Ödeme planından gelir alındı', 'planlanan bir tahsilat / gelir “alındı” işaretlenince'], ['odeme_yapildi', 'Ödeme yapıldı', 'fabrika, gider, cari ödemesi “ödendi” işaretlenince'], ['kasa', 'Her kasa / banka hareketi', 'her giriş ve çıkış ayrı bildirim (çok bildirim gelebilir)'], ['vade', 'Sabah vade özeti', 'her sabah 09:00’da bugün vadesi gelen ve geciken ödeme / tahsilat / çekler']]],
+  ['Siparişler', [['platform_siparis', 'Platform siparişi', 'yeni sipariş, onay bekleyen, ürün eşleştirmesi'], ['platform_iade', 'Platform iadesi / talebi', ''], ['musteri_sorusu', 'Müşteri sorusu', ''], ['siparis', 'Programda yeni sipariş açıldı', 'elle açılan siparişler'], ['siparis_durum', 'Sipariş sevk edildi / iptal', ''], ['cari_duzeltme', 'Cariye elle borç / düzeltme', 'açılış bakiyesi, düzeltme, elle borç']]],
+  ['Stok ve ithalat', [['stok', 'Stok girişi / mal alışı', 'bir seferde girilen ürünler tek bildirim'], ['ithalat', 'İthalat siparişi durumu değişti', 'üretim, yükleme, yolda, teslim…']]],
+  ['Gizem Ev Planlama', [['ev_harcama', 'Ev harcaması girildi', ''], ['ev_ihtiyac', 'Ev ihtiyaçları listesine eklendi', '']]],
+  ['Genel', [['kendi', 'Kendi yaptığım işlemleri de bildir', 'kapalıyken sadece başkalarının ve otomatik gelen işlemlerin bildirimi gelir']]]
+];
+const BLD_VARSAYILAN = ['platform_siparis', 'platform_iade', 'musteri_sorusu', 'kart', 'tahsilat', 'cek', 'platform_odeme', 'vade', 'ev_harcama', 'ev_ihtiyac'];
+async function bildirimSecenek(sub) {
+  const kutu = $('#bld-sec'); if (!kutu) return;
+  if (!sub) { kutu.innerHTML = ''; return; }
+  const [ab] = await api.get('push_abonelik', `select=*&endpoint=eq.${encodeURIComponent(sub.endpoint)}`).catch(() => []);
+  if (!ab) { kutu.innerHTML = ''; return; }
+  let sec = new Set(Array.isArray(ab.konular) ? ab.konular : BLD_VARSAYILAN);
+  const kaydet = async () => {
+    try { await api.update('push_abonelik', `id=eq.${ab.id}`, { konular: [...sec] }); toast('Bildirim seçenekleri kaydedildi', 'ok'); }
+    catch (e) { fail(/konular/.test(e.message || '') ? new Error('Bildirim seçenekleri için veritabanı kurulumu henüz yapılmadı (bildirim-kurulum.sql).') : e); }
+  };
+  const ciz = () => {
+    kutu.innerHTML = `<h3 style="margin:14px 0 6px;font-size:15px">Bu cihaza hangi bildirimler gelsin?</h3>
+      <div class="btn-row" style="margin-bottom:6px"><button class="btn sm" id="bld-hepsi">Tümünü seç</button><button class="btn sm" id="bld-var">Önerilenler</button><button class="btn sm" id="bld-hic">Hiçbiri</button></div>
+      ${BLD_KONU.map(([g, ls]) => `<div style="margin-top:10px"><div class="tiny" style="font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">${esc(g)}</div>
+        ${ls.map(([k, ad, ac]) => `<label class="check" style="margin:6px 0;align-items:flex-start"><input type="checkbox" data-bk="${k}" ${sec.has(k) ? 'checked' : ''}> <span>${esc(ad)}${ac ? `<span class="tiny" style="display:block">${esc(ac)}</span>` : ''}</span></label>`).join('')}</div>`).join('')}
+      <p class="tiny" style="margin-top:8px">Seçimler bu cihaza özeldir; her telefon / bilgisayarda ayrı ayarlanır.</p>`;
+    $$('[data-bk]', kutu).forEach((c) => (c.onchange = () => { c.checked ? sec.add(c.dataset.bk) : sec.delete(c.dataset.bk); kaydet(); }));
+    const toplu = (ls) => { sec = new Set(ls); ciz(); kaydet(); };
+    $('#bld-hepsi', kutu).onclick = () => toplu(BLD_KONU.flatMap(([, ls]) => ls.map(([k]) => k)));
+    $('#bld-var', kutu).onclick = () => toplu(BLD_VARSAYILAN);
+    $('#bld-hic', kutu).onclick = () => toplu([]);
+  };
+  ciz();
+}
 async function bildirimKart() {
   const el = $('#bld-durum'); if (!el) return;
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -3576,6 +3609,7 @@ async function bildirimKart() {
   const sub = await reg.pushManager.getSubscription();
   if (sub) { el.innerHTML = '<span style="color:var(--green);font-weight:700">✓ Bu cihazda bildirimler açık.</span>'; goster(false, true, true); }
   else { el.innerHTML = 'Bu cihazda bildirimler kapalı.'; goster(true, false, false); }
+  bildirimSecenek(sub).catch(() => {});
   $('#bld-ac').onclick = async (e) => {
     try {
       await busy(e.currentTarget, async () => {
@@ -3644,9 +3678,10 @@ async function viewAyarlar() {
     </div>
     <div class="card" id="bld-kart">
       <h2>Bildirimler</h2>
-      <p class="small muted" style="margin:0 0 10px">Yeni platform siparişi geldiğinde, ürün eşleştirmesi beklendiğinde ya da iade olduğunda bu cihaza bildirim gelir. Her cihazda (telefon, bilgisayar) ayrı ayrı açılır.</p>
+      <p class="small muted" style="margin:0 0 10px">Müşteriden ödeme geldiğinde, platform siparişi, çek, stok, ithalat ve diğer hareketlerde bu cihaza anlık bildirim gelir. Hangi bildirimlerin geleceğini aşağıdan seçersiniz. Her cihazda (telefon, bilgisayar) ayrı ayrı açılır.</p>
       <div id="bld-durum" class="small" style="margin-bottom:10px"></div>
       <div class="btn-row"><button class="btn primary" id="bld-ac">${icon('inbox')}Bu cihazda bildirimleri aç</button><button class="btn" id="bld-test">Deneme bildirimi gönder</button><button class="btn" id="bld-kapat">Bu cihazda kapat</button></div>
+      <div id="bld-sec"></div>
     </div>
     <div class="card">
       <h2>Hesap</h2>
@@ -7437,7 +7472,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.66';
+const APP_V = '2.67';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
