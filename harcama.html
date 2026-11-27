@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Gider</title>
+  <meta name="theme-color" content="#16213a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Gider">
+  <link rel="manifest" href="harcama.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/gider-192.png">
+  <link rel="apple-touch-icon" href="icons/gider-180.png">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .hc-giris { min-height: 100vh; display: grid; place-items: center; padding: 20px 16px; background: var(--brand); }
+    .hc-giris .card { width: 100%; max-width: 380px; padding: 22px; }
+    .hc-marka { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .hc-amblem { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); flex: none; }
+    .hc-amblem img { width: 36px; height: 36px; }
+    .hc-marka b { display: block; font-size: 18px; } .hc-marka small { color: var(--text-2); }
+    .hc-ust { display: flex; align-items: center; gap: 10px; }
+    .hc-ust img { width: 28px; height: 28px; background: #fff; border-radius: 7px; padding: 3px; flex: none; }
+    .kats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .kats button { font: inherit; font-size: 14px; font-weight: 600; padding: 10px 6px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text-2); cursor: pointer; }
+    .kats button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .hc-tutar { font-size: 26px !important; font-weight: 750; }
+    .hc-msj { margin-top: 10px; font-weight: 600; }
+    .hc-msj.ok { color: var(--green); } .hc-msj.err { color: var(--red); }
+    .bottomnav a { cursor: pointer; }
+    @media (min-width: 900px) { .bottomnav { display: flex !important; position: fixed; left: 0; right: 0; bottom: 0; } }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="config.js"></script>
+  <script src="harcama.js"></script>
+</body>
+</html>

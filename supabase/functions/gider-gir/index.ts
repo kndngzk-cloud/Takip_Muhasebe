@@ -1,4 +1,5 @@
-// Kisiye ozel gider giris linki (gider.html#token) — herkese acik, token ile dogrular.
+// Gider programi (harcama.html) ve kisiye ozel gider giris linki (gider.html#token) — herkese acik, token ile dogrular.
+//  POST {islem:"giris", kullanici, sifre}        -> { t } (gider programi girisi; t cihazda saklanir)
 //  POST {islem:"bilgi", t}                       -> { ad, firma, kategoriler, son: [...] } (sadece bu linkle girilenler)
 //  POST {islem:"ekle", t, tarih, tutar, kategori, aciklama, faturali, odeme_sekli}
 //  POST {islem:"sil", t, id}                     -> bu linkle son 24 saatte girilmis kaydi siler (yanlis giris icin)
@@ -24,16 +25,23 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ hata: "Geçersiz istek" }, 405);
   try {
     const b = await req.json().catch(() => ({}));
-    if (typeof b.t !== "string" || !/^[a-f0-9]{32}$/.test(b.t)) return json({ hata: "Link hatalı. Linki size gönderen kişiyle iletişime geçin." }, 404);
+    if (b.islem === "giris") {
+      const k = String(b.kullanici || "").trim(), s = String(b.sifre || "");
+      if (!k || !s) return json({ hata: "Kullanıcı adı ve şifreyi girin." }, 400);
+      const t = await rest("rpc/gider_giris", { method: "POST", body: JSON.stringify({ p_kullanici: k, p_sifre: s }) });
+      if (!t) { await new Promise((r) => setTimeout(r, 1200)); return json({ hata: "Kullanıcı adı ya da şifre hatalı." }, 401); }
+      return json({ t });
+    }
+    if (typeof b.t !== "string" || !/^[a-f0-9]{32}$/.test(b.t)) return json({ hata: "Oturum bulunamadı. Tekrar giriş yapın." }, 404);
     const [l] = await rest(`gider_linkleri?select=*&token=eq.${b.t}`);
-    if (!l) return json({ hata: "Link bulunamadı. Linki size gönderen kişiyle iletişime geçin." }, 404);
-    if (!l.aktif) return json({ hata: "Bu gider giriş linki kapatılmış." }, 410);
+    if (!l) return json({ hata: "Oturumunuz sona erdi (şifre değişmiş olabilir). Tekrar giriş yapın." }, 404);
+    if (!l.aktif) return json({ hata: "Hesabınız kapatılmış. Yöneticinizle iletişime geçin." }, 410);
 
     if (b.islem === "bilgi") {
       const [ay] = await rest("ayarlar?select=firma_adi&id=eq.1").catch(() => [null]);
-      const son = await rest(`odeme_plani?select=id,odeme_tarihi,tutar,gider_kategori,aciklama,faturali,odeme_sekli,olusturma&gider_link_id=eq.${l.id}&order=olusturma.desc&limit=30`);
+      const son = await rest(`odeme_plani?select=id,odeme_tarihi,tutar,gider_kategori,aciklama,faturali,odeme_sekli,olusturma&gider_link_id=eq.${l.id}&order=olusturma.desc&limit=200`);
       const sinir = Date.now() - 24 * 3600e3;
-      return json({ ad: l.ad, firma: (ay?.firma_adi || "").trim(), kategoriler: KAT, odeme_sekilleri: OS,
+      return json({ ad: l.ad, kasa: !!l.kasa_id, firma: (ay?.firma_adi || "").trim(), kategoriler: KAT, odeme_sekilleri: OS,
         son: son.map((x: Record<string, any>) => ({ id: x.id, tarih: x.odeme_tarihi, tutar: Number(x.tutar), kategori: x.gider_kategori, aciklama: x.aciklama || "", faturali: !!x.faturali, odeme_sekli: x.odeme_sekli, silinebilir: new Date(x.olusturma).getTime() > sinir })) });
     }
 

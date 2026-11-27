@@ -29,3 +29,9 @@
   from = "/gider"
   to = "/gider.html"
   status = 200
+
+# Gider programi (sadece gider girilen ayri uygulama): /harcama
+[[redirects]]
+  from = "/harcama"
+  to = "/harcama.html"
+  status = 200
