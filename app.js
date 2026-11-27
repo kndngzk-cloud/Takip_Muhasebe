@@ -4035,7 +4035,8 @@ async function yedekGetir(gun) {
 // dosyalar onceden indirilir: iPhone paylasim penceresi dokunustan hemen sonra acilmali
 async function yedekCihazaKaydet(gun, hazir) {
   const dosyalar = hazir || await yedekGetir(gun);
-  if (navigator.canShare && navigator.canShare({ files: dosyalar })) {
+  // paylasim menusu sadece telefon / tablette: Mac'te paylasim menusunde "Dosyalar'a Kaydet" yok, dosyalar indirilir
+  if (cihazMobil() && navigator.canShare && navigator.canShare({ files: dosyalar })) {
     try { await navigator.share({ files: dosyalar, title: `GRADDE yedek ${fmtD(gun)}` }); }
     catch (e) { if (e.name === 'AbortError') return false; throw e; }
   } else {
@@ -4051,7 +4052,7 @@ async function cihazYedek() {
     // bilgisayar bu yedegi iCloud'daki GRADDE Yedekler klasorune zaten indirdiyse telefonda tekrar istenmez (ayni klasor)
     const ay = await cache.ayarlar(true).catch(() => ({})); if ((ay?.son_mac_yedek || '') >= gun || !$('#h-yedek')) return;
     el.innerHTML = `<div class="card" style="border-left:4px solid var(--accent);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:180px"><b>${fmtD(gun)} yedeği bu cihaza kaydedilmedi</b><div class="tiny">Bilgisayar bugün açılmadığı için iCloud'daki yedek klasörüne gelmedi · Kaydet → “Dosyalar'a Kaydet” → iCloud Drive › Belgeler › GRADDE Yedekler</div></div>
+      <div style="flex:1;min-width:180px"><b>${fmtD(gun)} yedeği bu cihaza kaydedilmedi</b><div class="tiny">Bilgisayar bugün açılmadığı için iCloud'daki yedek klasörüne gelmedi · ${cihazMobil() ? 'Kaydet → “Dosyalar’a Kaydet” → iCloud Drive › Belgeler › GRADDE Yedekler' : 'Kaydet → dosyalar İndirilenler klasörüne iner; isterseniz Belgeler › GRADDE Yedekler’e taşıyın'}</div></div>
       <div class="btn-row" style="margin:0"><button class="btn sm" id="hy-sonra">Sonra</button><button class="btn sm primary" id="hy-kaydet">${icon('download')}Kaydet</button></div></div>`;
     $('#hy-sonra').onclick = () => { try { sessionStorage.setItem('ssc_yedek_sonra', '1'); } catch {} el.innerHTML = ''; };
     let hazir = null; yedekGetir(gun).then((d) => { hazir = d; }).catch(() => {});
@@ -7334,7 +7335,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.61';
+const APP_V = '2.62';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
