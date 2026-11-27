@@ -6695,10 +6695,40 @@ async function viewGiderler() {
   const ui = state.ui.gider ||= { tab: 'defter', ay: today().slice(0, 7) };
   const gelir = ui.tab === 'gelir';
   topbar('Gelir / Gider', { back: !wideScr(), actions: `<button class="tb-btn" id="gd-yeni">${icon('plus')}${ui.tab === 'sabit' ? 'Sabit kalem' : gelir ? 'Gelir ekle' : 'Gider ekle'}</button>` });
-  const [liste, sabitler] = await Promise.all([gelir ? gelirSorgu() : giderSorgu(), api.get('sabit_giderler', 'select=*&order=aktif.desc,gun.asc,id.asc')]);
+  const [liste, sabitler, gelirler0] = await Promise.all([gelir ? gelirSorgu() : giderSorgu(), api.get('sabit_giderler', 'select=*&order=aktif.desc,gun.asc,id.asc'), ui.tab === 'plan' ? gelirSorgu() : []]);
   const sa = sabitler.filter((s) => s.aktif).length;
-  const sekme = `<div class="chips" id="gd-tab" style="margin-bottom:10px">${[['defter', 'Gider defteri'], ['gelir', 'Gelirler'], ['sabit', `Sabit gelir / gider${sa ? ` · ${sa}` : ''}`]].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
+  const sekme = `<div class="chips" id="gd-tab" style="margin-bottom:10px">${[['defter', 'Gider defteri'], ['plan', 'Planlanan'], ['gelir', 'Gelirler'], ['sabit', `Sabit gelir / gider${sa ? ` · ${sa}` : ''}`]].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
   $('#gd-yeni').onclick = () => (ui.tab === 'sabit' ? sabitGiderForm(null, render) : giderForm(null, render, { gelir }));
+
+  if (ui.tab === 'plan') {
+    // odenmemis tum gider ve gelirler, ay ay (vadesi gecmisler bu aya sayilir)
+    const b0 = today(), a0 = b0.slice(0, 7);
+    const hepsi = [...liste, ...gelirler0].filter((p) => !p.odendi && p.vade_tarihi);
+    const ay = (p) => (p.vade_tarihi < a0 + '-01' ? a0 : p.vade_tarihi.slice(0, 7));
+    const aylar = [...new Set(hepsi.map(ay))].sort();
+    const ayAd = (a) => `${AY_AD[+a.slice(5) - 1]} ${a.slice(0, 4)}`;
+    const gTop = hepsi.filter((p) => p.yon !== 'Tahsilat').reduce((t, p) => t + giderTL(p), 0), lTop = hepsi.filter((p) => p.yon === 'Tahsilat').reduce((t, p) => t + giderTL(p), 0);
+    const kalem = (p) => { const gl = p.yon === 'Tahsilat', gec = p.vade_tarihi < b0; return `<div class="row" data-pl="${p.id}">
+      <div class="main-col"><div class="t">${esc(p.aciklama || giderKat(p))} <span class="badge">${esc(giderKat(p))}</span>${p.sabit_gider_id ? ' <span class="badge b-purple">Sabit</span>' : ''}</div>
+        <div class="st"><span style="color:${gec ? 'var(--red)' : 'var(--text-2)'}">${gec ? 'Gecikti · ' : ''}${fmtD(p.vade_tarihi)}</span> · ${gl ? 'gelir' : 'gider'}</div></div>
+      <div class="end"><div class="amt" style="color:${gl ? 'var(--green)' : 'var(--orange)'}">${gl ? '+' : '−'}${fmtTL(giderTL(p))}</div><button class="btn sm green" data-plo="${p.id}">${gl ? 'Tahsil edildi' : 'Ödendi'}</button></div></div>`; };
+    $('#view').innerHTML = `${sekme}
+      <div class="kpis">
+        <div class="kpi orange"><div class="l">Planlanan gider</div><div class="v num">${fmtTL(gTop)}</div><div class="s">${hepsi.filter((p) => p.yon !== 'Tahsilat').length} kalem</div></div>
+        <div class="kpi green"><div class="l">Planlanan gelir</div><div class="v num">${fmtTL(lTop)}</div><div class="s">${hepsi.filter((p) => p.yon === 'Tahsilat').length} kalem</div></div>
+        <div class="kpi ${lTop - gTop >= 0 ? 'green' : 'red'}"><div class="l">Net</div><div class="v num">${fmtTL(lTop - gTop)}</div><div class="s">gelir − gider</div></div>
+      </div>
+      <p class="tiny" style="margin:0 4px 10px">Henüz ödenmemiş / tahsil edilmemiş tüm gelir ve giderler; sabit kalemler 6 ay ileriye kadar. Aynı kalemler Ödemeler’de ve aylık nakit akışında da görünür.</p>
+      ${aylar.length ? aylar.map((a) => { const k = hepsi.filter((p) => ay(p) === a).sort((x, y) => String(x.vade_tarihi).localeCompare(String(y.vade_tarihi)));
+        const g = k.filter((p) => p.yon !== 'Tahsilat').reduce((t, p) => t + giderTL(p), 0), l = k.filter((p) => p.yon === 'Tahsilat').reduce((t, p) => t + giderTL(p), 0);
+        return `<div class="section-title">${ayAd(a)} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· gider ${fmtTL(g)}${l ? ` · gelir ${fmtTL(l)}` : ''}</span></div><div class="list">${k.map(kalem).join('')}</div>`; }).join('')
+        : '<div class="card empty">Planlanan gelir ya da gider yok.</div>'}`;
+    const bul = (id) => hepsi.find((p) => p.id === id);
+    $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); }));
+    $$('[data-pl]').forEach((r) => r.addEventListener('click', (e) => { if (e.target.closest('button')) return; giderForm(bul(+r.dataset.pl), render); }));
+    $$('[data-plo]').forEach((b) => (b.onclick = () => giderForm(bul(+b.dataset.plo), render, { ode: true })));
+    return;
+  }
 
   if (ui.tab === 'sabit') {
     const ak = sabitler.filter((s) => s.aktif);
@@ -7085,7 +7115,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.52';
+const APP_V = '2.53';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
