@@ -3,6 +3,8 @@
 //  POST {islem:"bilgi", t}                       -> { ad, firma, kategoriler, son: [...] } (sadece bu linkle girilenler)
 //  POST {islem:"ekle", t, tarih, tutar, kategori, aciklama, faturali, odeme_sekli}
 //  POST {islem:"sil", t, id}                     -> bu linkle son 24 saatte girilmis kaydi siler (yanlis giris icin)
+//  POST {islem:"ihtiyac_liste" | "ihtiyac_ekle" {liste, metin, aciklama} | "ihtiyac_isaretle" {id, tamam} | "ihtiyac_sil" {id}, t}
+//       -> Ev ihtiyaclari (Yapılacak / Mutfak / Ev): ortak listeler, ev programi kullanicilari ve yonetici birlikte kullanir
 // Kisi kasa, cari ya da baska veri goremez. Link icin kasa secildiyse gider o kasadan duser.
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -76,6 +78,23 @@ Deno.serve(async (req) => {
         if (khId) await rest(`kasa_hareketleri?id=eq.${khId}`, { method: "DELETE" }).catch(() => {});
         throw e;
       }
+    }
+
+    if (String(b.islem || "").startsWith("ihtiyac_")) {
+      const LISTE = ["Yapılacak", "Mutfak", "Ev"];
+      if (b.islem === "ihtiyac_ekle") {
+        const liste = LISTE.includes(b.liste) ? b.liste : null, metin = String(b.metin || "").trim().slice(0, 200);
+        if (!liste || !metin) return json({ hata: "Yazın ve listeyi seçin." }, 400);
+        await rest("ev_ihtiyaclari", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ liste, metin, aciklama: String(b.aciklama || "").trim().slice(0, 300) || null, gider_link_id: l.id, ekleyen: l.ad }) });
+      } else if (b.islem === "ihtiyac_isaretle") {
+        const tamam = !!b.tamam;
+        await rest(`ev_ihtiyaclari?id=eq.${Number(b.id)}`, { method: "PATCH", body: JSON.stringify({ tamam, tamam_zamani: tamam ? new Date().toISOString() : null }) });
+      } else if (b.islem === "ihtiyac_sil") {
+        await rest(`ev_ihtiyaclari?id=eq.${Number(b.id)}`, { method: "DELETE" });
+      }
+      // tamamlananlar 30 gun gorunur
+      const liste = await rest(`ev_ihtiyaclari?select=id,liste,metin,aciklama,tamam,tamam_zamani,ekleyen,olusturma&or=${encodeURIComponent(`(tamam.is.false,tamam_zamani.gte.${new Date(Date.now() - 30 * 86400e3).toISOString()})`)}&order=olusturma.desc&limit=500`);
+      return json({ liste });
     }
 
     if (b.islem === "sil") {

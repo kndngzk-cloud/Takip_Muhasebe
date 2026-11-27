@@ -1,0 +1,2 @@
+-- (Supabase'e ev_ihtiyaclari migration'i ile uygulandi) GİZEM EV PLANLAMA PROGRAMI ev ihtiyaclari listeleri
+-- create table public.ev_ihtiyaclari (id, liste in ('Yapılacak','Mutfak','Ev'), metin, aciklama, tamam, tamam_zamani, gider_link_id, ekleyen, olusturma) + RLS (yonetici)

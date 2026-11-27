@@ -15,7 +15,8 @@
   const IK = {
     plus: '<path d="M12 5v14M5 12h14"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
-    cikis: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>'
+    cikis: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+    ev: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/><path d="M9 12l2 2 4-4"/>'
   };
   const ik = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IK[n]}</svg>`;
   const tOku = () => { try { return localStorage.getItem(ANAHTAR) || ''; } catch { return ''; } };
@@ -54,9 +55,9 @@
     const t = tOku(); if (!t) return giris();
     $('#app').innerHTML = `<div class="main"><header class="topbar"><div class="hc-ust" style="flex:1;min-width:0"><img src="icons/ev-192.png" alt=""><h1 id="u-bas">Gizem Ev Planlama</h1></div><button class="tb-btn" id="u-cik">${ik('cikis')}Çıkış</button></header>
       <main class="view" id="view"><div class="loading"><div class="spinner"></div>Yükleniyor…</div></main></div>
-      <nav class="bottomnav"><a data-s="ekle">${ik('plus')}Harcama Ekle</a><a data-s="liste">${ik('list')}Harcamalarım</a></nav>`;
+      <nav class="bottomnav"><a data-s="ekle">${ik('plus')}Harcama Ekle</a><a data-s="liste">${ik('list')}Harcamalarım</a><a data-s="ihtiyac">${ik('ev')}Ev İhtiyaçları</a></nav>`;
     $('#u-cik').onclick = () => { if (confirm('Çıkış yapılsın mı?')) { tYaz(''); giris(); } };
-    $$('.bottomnav a').forEach((a) => (a.onclick = () => { sekme = a.dataset.s; ciz(); }));
+    $$('.bottomnav a').forEach((a) => (a.onclick = () => { sekme = a.dataset.s; if (sekme === 'ihtiyac') ihtiyac = null; ciz(); }));
     try { bilgi = await cagir({ islem: 'bilgi', t }); } catch (e) { if (tOku()) $('#view').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
     $('#u-bas').textContent = 'Gizem Ev Planlama';
     document.title = 'GİZEM EV PLANLAMA PROGRAMI';
@@ -67,7 +68,41 @@
   function ciz() {
     $$('.bottomnav a').forEach((a) => a.classList.toggle('active', a.dataset.s === sekme));
     if (sekme === 'ekle') return ekleCiz();
+    if (sekme === 'ihtiyac') return ihtiyacCiz();
     listeCiz();
+  }
+
+  /* ---------- Ev ihtiyaclari: Yapılacaklar / Mutfak eksikleri / Ev eksikleri (ortak liste) ---------- */
+  const LISTELER = [['Yapılacak', 'Yapılacaklar', 'Örn. Kombi bakımı çağır'], ['Mutfak', 'Mutfak Eksikleri', 'Örn. Zeytinyağı, 2 kg un'], ['Ev', 'Ev Eksikleri', 'Örn. Banyo paspası, ampul']];
+  let ihtiyac = null, iSekme = 'Yapılacak';
+  const ihtiyacIslem = async (body) => { ihtiyac = (await cagir({ ...body, t: tOku() })).liste || []; };
+  async function ihtiyacCiz() {
+    if (!ihtiyac) { $('#view').innerHTML = '<div class="loading"><div class="spinner"></div>Yükleniyor…</div>'; try { await ihtiyacIslem({ islem: 'ihtiyac_liste' }); } catch (e) { $('#view').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; } }
+    const [kod, baslik, ornek] = LISTELER.find((x) => x[0] === iSekme);
+    const acik = ihtiyac.filter((x) => x.liste === kod && !x.tamam), biten = ihtiyac.filter((x) => x.liste === kod && x.tamam);
+    const tarihK = (iso) => new Date(iso).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' });
+    const satir = (x) => `<div class="row" style="cursor:default;gap:10px"><label style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;cursor:pointer">
+        <input type="checkbox" data-tm="${x.id}" ${x.tamam ? 'checked' : ''} style="width:22px;height:22px;flex:none;accent-color:var(--green)">
+        <span class="main-col"><span class="t" style="display:block;${x.tamam ? 'text-decoration:line-through;color:var(--text-3)' : ''}">${esc(x.metin)}</span>
+        <span class="st" style="display:block">${x.aciklama ? `${esc(x.aciklama)} · ` : ''}${esc(x.ekleyen || 'Yönetici')} · ${tarihK(x.olusturma)}${x.tamam && x.tamam_zamani ? ` · ✓ ${tarihK(x.tamam_zamani)}` : ''}</span></span></label>
+        <button class="btn sm" data-isil="${x.id}" style="color:var(--red)">Sil</button></div>`;
+    $('#view').innerHTML = `
+      <div class="chips" id="i-tab">${LISTELER.map(([k, t]) => { const n = ihtiyac.filter((x) => x.liste === k && !x.tamam).length; return `<button class="chip ${k === iSekme ? 'on' : ''}" data-l="${k}">${t}${n ? ` · ${n}` : ''}</button>`; }).join('')}</div>
+      <div class="card" style="display:flex;gap:8px;align-items:center;padding:10px">
+        <input class="input" id="i-yeni" placeholder="${esc(ornek)}" maxlength="200" style="flex:1;min-width:0">
+        <button class="btn primary" id="i-ekle">Ekle</button></div>
+      <div class="list">${acik.length ? acik.map(satir).join('') : `<div class="empty">${esc(baslik)} listesi boş.</div>`}</div>
+      ${biten.length ? `<div class="section-title">Tamamlananlar <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· son 30 gün</span></div><div class="list">${biten.map(satir).join('')}</div>` : ''}`;
+    $('#i-tab').onclick = (e) => { const b = e.target.closest('[data-l]'); if (!b) return; iSekme = b.dataset.l; ihtiyacCiz(); };
+    const ekle = async () => {
+      const v = $('#i-yeni').value.trim(); if (!v) return $('#i-yeni').focus();
+      $('#i-ekle').disabled = true;
+      try { await ihtiyacIslem({ islem: 'ihtiyac_ekle', liste: kod, metin: v }); ihtiyacCiz(); setTimeout(() => $('#i-yeni')?.focus(), 50); } catch (e) { alert(e.message); $('#i-ekle').disabled = false; }
+    };
+    $('#i-ekle').onclick = ekle;
+    $('#i-yeni').addEventListener('keydown', (e) => { if (e.key === 'Enter') ekle(); });
+    $$('[data-tm]').forEach((c) => (c.onchange = async () => { try { await ihtiyacIslem({ islem: 'ihtiyac_isaretle', id: +c.dataset.tm, tamam: c.checked }); ihtiyacCiz(); } catch (e) { alert(e.message); } }));
+    $$('[data-isil]').forEach((b) => (b.onclick = async () => { if (!confirm('Silinsin mi?')) return; try { await ihtiyacIslem({ islem: 'ihtiyac_sil', id: +b.dataset.isil }); ihtiyacCiz(); } catch (e) { alert(e.message); } }));
   }
 
   function ekleCiz() {

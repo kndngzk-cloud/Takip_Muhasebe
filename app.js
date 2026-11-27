@@ -3469,7 +3469,7 @@ async function viewDaha() {
       <div class="row" data-go="#/cin"><div class="main-col"><div class="t">İthalat</div><div class="st">Fabrika siparişleri, aşamalar, yoldaki mallar, gümrük vergisi</div></div></div>
       <div class="row" data-go="#/vergi-simulator"><div class="main-col"><div class="t">Vergi simülatörü</div><div class="st">Eviye ithalatında depo giriş maliyeti, gümrük vergisi ve kâr hesabı (kayıt oluşturmaz)</div></div></div>
       <div class="row" data-go="#/odemeler"><div class="main-col"><div class="t">Ödemeler</div><div class="st">Yapılacak ödemeler, çekler, platform ödemeleri, müşteri taksitleri, aylık nakit akışı</div></div></div>
-      <div class="row" data-go="#/ev-planlama"><div class="main-col"><div class="t">Gizem Ev Planlama</div><div class="st">GİZEM EV PLANLAMA PROGRAMI’nda girilen harcamalar, kullanıcılar</div></div></div>
+      <div class="row" data-go="#/ev-planlama"><div class="main-col"><div class="t">Gizem Ev Planlama</div><div class="st">GİZEM EV PLANLAMA PROGRAMI: harcamalar, yapılacaklar, mutfak ve ev eksikleri</div></div></div>
       <div class="row" data-go="#/giderler"><div class="main-col"><div class="t">Gelir / Gider</div><div class="st">Gider defteri, gelirler, sabit gelir ve giderler (kira, maaş, fatura), aylık özet</div></div></div>
       <div class="row" data-go="#/paytr"><div class="main-col"><div class="t">PayTR tahsilatları</div><div class="st">Kart ödemelerini cariye tahsilat olarak işle, makbuz al</div></div></div>
       <div class="row" data-go="#/fabrikalar"><div class="main-col"><div class="t">Fabrikalar</div><div class="st">Tedarikçi fabrikalar ve bakiyeleri</div></div></div>
@@ -6947,7 +6947,36 @@ const giderProgUrl = () => `${location.origin}${location.pathname.replace(/[^/]*
 /* GİZEM EV PLANLAMA PROGRAMI'nda (harcama) girilenler: ay ay, kategoriye ve kisiye gore. Isletme gider defterine karismaz. */
 async function viewEvPlan() {
   const ui = state.ui.ev ||= { ay: today().slice(0, 7), kisi: null };
+  ui.tab ||= 'harcama'; ui.liste ||= 'Yapılacak';
   topbar('Gizem Ev Planlama', { back: !wideScr(), actions: isAdmin() ? `<button class="tb-btn" id="ev-kul">${icon('users')}Kullanıcılar</button>` : '' });
+  const evSekme = `<div class="chips" id="ev-tab" style="margin-bottom:10px">${[['harcama', 'Harcamalar'], ['ihtiyac', 'Ev İhtiyaçları']].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
+  const sekmeBagla = () => $$('#ev-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); }));
+  if (ui.tab === 'ihtiyac') {
+    // Yapılacaklar / Mutfak eksikleri / Ev eksikleri: GİZEM EV PLANLAMA PROGRAMI ile ortak listeler
+    const LST = [['Yapılacak', 'Yapılacaklar'], ['Mutfak', 'Mutfak Eksikleri'], ['Ev', 'Ev Eksikleri']];
+    const tum = await api.get('ev_ihtiyaclari', `select=*&or=${encodeURIComponent(`(tamam.is.false,tamam_zamani.gte.${new Date(Date.now() - 30 * 86400e3).toISOString()})`)}&order=olusturma.desc&limit=500`);
+    $('#ev-kul')?.addEventListener('click', () => giderLinkleri());
+    const acik = tum.filter((x) => x.liste === ui.liste && !x.tamam), biten = tum.filter((x) => x.liste === ui.liste && x.tamam);
+    const tk = (iso) => fmtD(String(iso).slice(0, 10)).slice(0, 5);
+    const satir = (x) => `<div class="row" style="cursor:default;gap:10px"><label style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;cursor:pointer">
+        <input type="checkbox" data-tm="${x.id}" ${x.tamam ? 'checked' : ''} style="width:20px;height:20px;flex:none;accent-color:var(--green)">
+        <span class="main-col"><span class="t" style="display:block;${x.tamam ? 'text-decoration:line-through;color:var(--text-3)' : ''}">${esc(x.metin)}</span>
+        <span class="st" style="display:block">${x.aciklama ? `${esc(x.aciklama)} · ` : ''}${esc(x.ekleyen || '')} · ${tk(x.olusturma)}${x.tamam && x.tamam_zamani ? ` · ✓ ${tk(x.tamam_zamani)}` : ''}</span></span></label>
+        <button class="icon-btn" data-isil="${x.id}">${icon('trash')}</button></div>`;
+    $('#view').innerHTML = `${evSekme}
+      <div class="chips" id="ev-lst">${LST.map(([k, t]) => { const n = tum.filter((x) => x.liste === k && !x.tamam).length; return `<button class="chip ${k === ui.liste ? 'on' : ''}" data-l="${k}">${t}${n ? ` · ${n}` : ''}</button>`; }).join('')}</div>
+      <div class="card" style="display:flex;gap:8px;align-items:center;padding:10px"><input class="input" id="ev-yeni" maxlength="200" placeholder="Listeye ekle…" style="flex:1;min-width:0"><button class="btn primary" id="ev-ekle">Ekle</button></div>
+      <div class="list">${acik.length ? acik.map(satir).join('') : '<div class="empty">Liste boş.</div>'}</div>
+      ${biten.length ? `<div class="section-title">Tamamlananlar <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· son 30 gün</span></div><div class="list">${biten.map(satir).join('')}</div>` : ''}`;
+    sekmeBagla();
+    $('#ev-lst').onclick = (e) => { const b = e.target.closest('[data-l]'); if (!b) return; ui.liste = b.dataset.l; render(); };
+    const ekle = () => busy($('#ev-ekle'), async () => { const v = $('#ev-yeni').value.trim(); if (!v) return; await api.insert('ev_ihtiyaclari', { liste: ui.liste, metin: v, ekleyen: state.profil?.ad || 'Yönetici' }); await render(); setTimeout(() => $('#ev-yeni')?.focus(), 50); }).catch(fail);
+    $('#ev-ekle').onclick = ekle;
+    $('#ev-yeni').addEventListener('keydown', (e) => { if (e.key === 'Enter') ekle(); });
+    $$('[data-tm]').forEach((c) => (c.onchange = async () => { try { await api.update('ev_ihtiyaclari', `id=eq.${c.dataset.tm}`, { tamam: c.checked, tamam_zamani: c.checked ? new Date().toISOString() : null }); render(); } catch (err) { fail(err); } }));
+    $$('[data-isil]').forEach((b) => (b.onclick = async () => { if (!(await confirmBox('Silinsin mi?', 'Bu madde listeden kalıcı olarak silinir.', 'Sil', true))) return; try { await api.del('ev_ihtiyaclari', `id=eq.${b.dataset.isil}`); render(); } catch (err) { fail(err); } }));
+    return;
+  }
   const [liste, kisiler] = await Promise.all([
     api.get('odeme_plani', `select=${GG_SEC},olusturma&gider_link_id=not.is.null&order=odeme_tarihi.desc,id.desc&limit=5000`),
     isAdmin() ? api.get('gider_linkleri', 'select=id,ad,aktif,kullanici&order=ad.asc').catch(() => []) : []
@@ -6966,7 +6995,7 @@ async function viewEvPlan() {
   const kat = {}; sec.forEach((p) => { const k = giderKat(p); kat[k] = (kat[k] || 0) + giderTL(p); });
   const katS = Object.entries(kat).sort((a, b) => b[1] - a[1]), katMax = Math.max(1, ...katS.map((x) => x[1]));
   const gun = {}; sec.forEach((p) => (gun[giderTarih(p)] ||= []).push(p));
-  $('#view').innerHTML = `
+  $('#view').innerHTML = `${evSekme}
     <div class="toolbar" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
       <select class="input" id="ev-ay" style="max-width:220px">${aylar.map((a) => `<option value="${a}" ${a === ui.ay ? 'selected' : ''}>${ayAd(a)}</option>`).join('')}</select>
       ${kisiler.length > 1 ? `<select class="input" id="ev-kisi" style="max-width:220px"><option value="">Herkes</option>${kisiler.map((x) => `<option value="${x.id}" ${x.id === ui.kisi ? 'selected' : ''}>${esc(x.ad)}</option>`).join('')}</select>` : ''}
@@ -6980,6 +7009,7 @@ async function viewEvPlan() {
       <div class="list">${gun[d].map((p) => `<div class="row" data-ev="${p.id}"><div class="main-col"><div class="t">${esc(p.aciklama || giderKat(p))} <span class="badge">${esc(giderKat(p))}</span>${p.faturali ? ' <span class="badge b-blue">Fişli</span>' : ''}</div>
         <div class="st">${ad(p) ? `${esc(ad(p))} · ` : ''}${esc(p.odeme_sekli || '')}${p.kasa_hareket_id ? ' · kasadan düştü' : ''}</div></div><div class="end"><div class="amt">${fmtTL(p.tutar)}</div></div></div>`).join('')}</div>`).join('')
       || `<div class="card empty">${ayAd(ui.ay)} için girilmiş harcama yok.${isAdmin() && !kisiler.length ? ' Sağ üstteki “Kullanıcılar”dan programı kullanacak kişiyi ekleyin.' : ''}</div>`}`;
+  sekmeBagla();
   $('#ev-ay').onchange = (e) => { ui.ay = e.target.value; render(); };
   $('#ev-kisi')?.addEventListener('change', (e) => { ui.kisi = +e.target.value || null; render(); });
   $$('[data-ev]').forEach((r) => (r.onclick = () => giderForm(liste.find((p) => p.id === +r.dataset.ev), render)));
@@ -7304,7 +7334,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.60';
+const APP_V = '2.61';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
