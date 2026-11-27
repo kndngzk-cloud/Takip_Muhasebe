@@ -4033,16 +4033,44 @@ async function yedekGetir(gun) {
   return dosyalar;
 }
 // dosyalar onceden indirilir: iPhone paylasim penceresi dokunustan hemen sonra acilmali
+// bilgisayarda (Chrome / Edge) secilen yedek klasoru hatirlanir: ilk seferde Belgeler › GRADDE Yedekler secilir, sonra hep oraya yazilir
+const klasorDb = (islem, deger) => new Promise((ok, red) => {
+  const r = indexedDB.open('ssc_klasor', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onerror = () => red(r.error);
+  r.onsuccess = () => { const tx = r.result.transaction('kv', islem === 'al' ? 'readonly' : 'readwrite'); const st = tx.objectStore('kv');
+    const q = islem === 'al' ? st.get('yedek') : islem === 'sil' ? st.delete('yedek') : st.put(deger, 'yedek'); q.onsuccess = () => ok(q.result); q.onerror = () => red(q.error); };
+});
+const klasorDestek = () => !cihazMobil() && 'showDirectoryPicker' in window;
+async function yedekKlasoreYaz(dosyalar, yeniSec = false) {
+  let h = yeniSec ? null : await klasorDb('al').catch(() => null);
+  if (h) { let izin = await h.queryPermission({ mode: 'readwrite' }); if (izin !== 'granted') izin = await h.requestPermission({ mode: 'readwrite' }); if (izin !== 'granted') h = null; }
+  if (!h) {
+    toast('Belgeler › GRADDE Yedekler klasörünü seçin; bundan sonra hep oraya kaydedilir', 'ok');
+    h = await window.showDirectoryPicker({ id: 'gradde-yedek', mode: 'readwrite', startIn: 'documents' });
+    await klasorDb('yaz', h).catch(() => {});
+  }
+  for (const f of dosyalar) { const fh = await h.getFileHandle(f.name, { create: true }); const w = await fh.createWritable(); await w.write(f); await w.close(); }
+  return h.name;
+}
 async function yedekCihazaKaydet(gun, hazir) {
   const dosyalar = hazir || await yedekGetir(gun);
-  // paylasim menusu sadece telefon / tablette: Mac'te paylasim menusunde "Dosyalar'a Kaydet" yok, dosyalar indirilir
-  if (cihazMobil() && navigator.canShare && navigator.canShare({ files: dosyalar })) {
+  let yer = '';
+  if (klasorDestek()) {
+    // bilgisayar (Chrome / Edge): dogrudan GRADDE Yedekler klasorune
+    try { yer = await yedekKlasoreYaz(dosyalar); } catch (e) { if (e.name === 'AbortError') return false; throw e; }
+  } else if (cihazMobil() && navigator.canShare && navigator.canShare({ files: dosyalar })) {
+    // telefon / tablet: Dosyalar'a Kaydet → iCloud Drive › Belgeler › GRADDE Yedekler (iOS son klasoru hatirlar)
     try { await navigator.share({ files: dosyalar, title: `GRADDE yedek ${fmtD(gun)}` }); }
     catch (e) { if (e.name === 'AbortError') return false; throw e; }
   } else {
     for (const f of dosyalar) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+    yer = 'İndirilenler';
   }
-  cihazYedekSon(gun); return true;
+  cihazYedekSon(gun);
+  // iCloud'daki klasore bir cihazdan kaydedildi: diger cihazlar ayni yedegi tekrar istemesin
+  try { await api.req('PATCH', `ayarlar?id=eq.1&or=(son_mac_yedek.is.null,son_mac_yedek.lt.${gun})`, { body: { son_mac_yedek: gun }, prefer: 'return=minimal', _gonder: true }); } catch { /* */ }
+  return yer || true;
 }
 async function cihazYedek() {
   const el = $('#h-yedek'); if (!el || !isAdmin() || !cihazYedekAcik() || sessionStorage.getItem('ssc_yedek_sonra')) return;
@@ -4052,13 +4080,13 @@ async function cihazYedek() {
     // bilgisayar bu yedegi iCloud'daki GRADDE Yedekler klasorune zaten indirdiyse telefonda tekrar istenmez (ayni klasor)
     const ay = await cache.ayarlar(true).catch(() => ({})); if ((ay?.son_mac_yedek || '') >= gun || !$('#h-yedek')) return;
     el.innerHTML = `<div class="card" style="border-left:4px solid var(--accent);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:180px"><b>${fmtD(gun)} yedeği bu cihaza kaydedilmedi</b><div class="tiny">Bilgisayar bugün açılmadığı için iCloud'daki yedek klasörüne gelmedi · ${cihazMobil() ? 'Kaydet → “Dosyalar’a Kaydet” → iCloud Drive › Belgeler › GRADDE Yedekler' : 'Kaydet → dosyalar İndirilenler klasörüne iner; isterseniz Belgeler › GRADDE Yedekler’e taşıyın'}</div></div>
+      <div style="flex:1;min-width:180px"><b>${fmtD(gun)} yedeği bu cihaza kaydedilmedi</b><div class="tiny">Bilgisayar bugün açılmadığı için iCloud'daki yedek klasörüne gelmedi · ${cihazMobil() ? 'Kaydet → “Dosyalar’a Kaydet” → iCloud Drive › Belgeler › GRADDE Yedekler' : klasorDestek() ? 'Kaydet → ilk seferde Belgeler › GRADDE Yedekler klasörünü seçin, sonra hep oraya kaydeder' : 'Bu tarayıcı klasöre doğrudan kaydedemiyor (Chrome kullanın); dosyalar İndirilenler’e iner'}</div></div>
       <div class="btn-row" style="margin:0"><button class="btn sm" id="hy-sonra">Sonra</button><button class="btn sm primary" id="hy-kaydet">${icon('download')}Kaydet</button></div></div>`;
     $('#hy-sonra').onclick = () => { try { sessionStorage.setItem('ssc_yedek_sonra', '1'); } catch {} el.innerHTML = ''; };
     let hazir = null; yedekGetir(gun).then((d) => { hazir = d; }).catch(() => {});
     $('#hy-kaydet').onclick = async () => {
-      try { if (!hazir) hazir = await yedekGetir(gun); if (await yedekCihazaKaydet(gun, hazir)) { el.innerHTML = ''; toast('Yedek bu cihaza kaydedildi', 'ok'); } }
-      catch (e) { if (e.name === 'NotAllowedError') toast('Dosyalar hazırlandı, Kaydet\'e bir kez daha dokunun', 'ok'); else fail(e); }
+      try { if (!hazir) hazir = await yedekGetir(gun); const r = await yedekCihazaKaydet(gun, hazir); if (r) { el.innerHTML = ''; toast(typeof r === 'string' ? `Yedek “${r}” klasörüne kaydedildi` : 'Yedek kaydedildi', 'ok'); } }
+      catch (e) { if (['NotAllowedError', 'SecurityError'].includes(e.name)) toast('Dosyalar hazırlandı, Kaydet\'e bir kez daha dokunun', 'ok'); else fail(e); }
     };
   } catch { /* yedek listesi okunamazsa sessiz */ }
 }
@@ -7335,7 +7363,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.62';
+const APP_V = '2.63';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
