@@ -3336,35 +3336,36 @@ async function raporSermaye(el) {
 
   // ---- detay pencereleri ----
   const tablo = (bas, satirlar, bos) => `<div class="table-wrap" style="margin:0 -4px"><table class="tbl sermaye-tbl"><thead><tr>${bas.map(([t, r]) => `<th class="${r ? 'r' : ''}">${t}</th>`).join('')}</tr></thead><tbody>${satirlar.length ? satirlar.join('') : `<tr><td colspan="${bas.length}" class="empty">${bos}</td></tr>`}</tbody></table></div>`;
+  const pay = (v) => `<td class="r" style="white-space:nowrap"><b>${num(v) > 0.005 ? yzT(v) : '–'}</b></td>`, PAY = ['Sermayeye oranı', 1];
   const ust = (k) => { const x = K.find((y) => y[0] === k); return `<div class="sm-d-ust" style="border-left-color:${x[3]}"><div class="v num">${fmtTL(x[2])}</div><div class="tiny">Sermayenin <b style="color:${x[3]}">${yzT(x[2])}</b>'i · ${x[4]}</div></div>`; };
   const ac = async (k) => {
     const x = K.find((y) => y[0] === k); let govde = '';
     if (k === 'stok') {
       const urn = (oz.stok?.urunler || []).map((y) => ({ ...y, u: uBy[y.urun_id] })).sort((a, b) => num(b.deger) - num(a.deger));
-      govde = tablo([['Ürün'], ['Miktar', 1], ['Birim maliyet', 1], ['Değer', 1]], urn.map((y) => `<tr><td><b>${esc(y.u?.ad || '#' + y.urun_id)}</b><div class="tiny">${esc(y.u?.kod || '')} · ${yzT(y.deger)}</div></td><td class="r">${fmtN(y.miktar)}</td><td class="r">${fmtTL(num(y.deger) / num(y.miktar))}</td><td class="r"><b>${fmtTL(y.deger)}</b></td></tr>`), 'Depoda stok yok')
+      govde = tablo([['Ürün'], ['Miktar', 1], ['Birim maliyet', 1], ['Değer', 1], PAY], urn.map((y) => `<tr><td><b>${esc(y.u?.ad || '#' + y.urun_id)}</b><div class="tiny">${esc(y.u?.kod || '')}</div></td><td class="r">${fmtN(y.miktar)}</td><td class="r">${fmtTL(num(y.deger) / num(y.miktar))}</td><td class="r"><b>${fmtTL(y.deger)}</b></td>${pay(y.deger)}</tr>`), 'Depoda stok yok')
         + (num(oz.stok?.maliyetsiz_adet) > 0 ? `<p class="tiny">${fmtN(oz.stok.maliyetsiz_adet)} adet ürünün alış maliyeti girilmediği için değere katılmadı.</p>` : '');
     } else if (k === 'yolda') {
-      govde = tablo([['Sipariş'], ['Ödenen', 1]], yl.map((c) => `<tr data-go="#/cin/${c.id}" style="cursor:pointer"><td><b>${esc(cinNo(c.no, c.kod))}</b> <span class="badge">${esc(c.durum)}</span><div class="tiny">${esc(c.fabrika || '')}</div></td>
-        <td class="r"><b>${fmtTL(num(c.fabrika_tl) + num(c.masraf_tl))}</b><div class="tiny">fabrikaya ${fmtPB(c.fabrika_odenen, c.pb)} / ${fmtPB(c.toplam, c.pb)}</div>${num(c.masraf_tl) ? `<div class="tiny">masraf ${fmtTL(c.masraf_tl)}</div>` : ''}</td></tr>`), 'Yolda ithalat siparişi yok')
+      govde = tablo([['Sipariş'], ['Ödenen', 1], PAY], yl.map((c) => `<tr data-go="#/cin/${c.id}" style="cursor:pointer"><td><b>${esc(cinNo(c.no, c.kod))}</b> <span class="badge">${esc(c.durum)}</span><div class="tiny">${esc(c.fabrika || '')}</div></td>
+        <td class="r"><b>${fmtTL(num(c.fabrika_tl) + num(c.masraf_tl))}</b><div class="tiny">fabrikaya ${fmtPB(c.fabrika_odenen, c.pb)} / ${fmtPB(c.toplam, c.pb)}</div>${num(c.masraf_tl) ? `<div class="tiny">masraf ${fmtTL(c.masraf_tl)}</div>` : ''}</td>${pay(num(c.fabrika_tl) + num(c.masraf_tl))}</tr>`), 'Yolda ithalat siparişi yok')
         + '<p class="tiny">Teslim alınmamış siparişler için fabrikaya ve masraflara ödenmiş paralar (ödendiği kurla). Teslim alınınca stoğa geçer.</p>';
     } else if (k === 'alacak') {
       const ls = alC.filter((c) => num(c.bakiye) > 0.005).map((c) => ({ ...c, net: num(c.bakiye) - num(c.ithalat_tahsil) })).sort((a, b) => b.net - a.net);
-      govde = tablo([['Cari'], ['Bakiye', 1], ['Sermayeye giren', 1]], ls.map((c) => `<tr data-go="#/cari/${c.id}" style="cursor:pointer"><td><b>${esc(c.unvan)}</b><div class="tiny">${esc(c.tip || '')}${c.son_hareket ? ' · son hareket ' + fmtD(c.son_hareket) : ''}</div></td>
+      govde = tablo([['Cari'], ['Bakiye', 1], ['Sermayeye giren', 1], PAY], ls.map((c) => `<tr data-go="#/cari/${c.id}" style="cursor:pointer"><td><b>${esc(c.unvan)}</b><div class="tiny">${esc(c.tip || '')}${c.son_hareket ? ' · son hareket ' + fmtD(c.son_hareket) : ''}</div></td>
         <td class="r">${fmtTL(c.bakiye)}${num(c.ithalat_tahsil) > 0.005 ? `<div class="tiny">ithalat avansı −${fmtTL(c.ithalat_tahsil)}</div>` : ''}</td>
-        <td class="r"><b>${fmtTL(Math.max(c.net, 0))}</b>${c.net > 0.005 ? `<div class="tiny">${yzT(c.net)}</div>` : `<div class="tiny">avans borcu karşılıyor${c.net < -0.005 ? `; ${fmtTL(-c.net)} fazlası bizim borcumuz` : ''}</div>`}</td></tr>`), 'Alacak yok')
+        <td class="r"><b>${fmtTL(Math.max(c.net, 0))}</b>${c.net > 0.005 ? '' : `<div class="tiny">avans borcu karşılıyor${c.net < -0.005 ? `; ${fmtTL(-c.net)} fazlası bizim borcumuz` : ''}</div>`}</td>${pay(Math.max(c.net, 0))}</tr>`), 'Alacak yok')
         + `<p class="tiny">Ana sayfadaki <b>Açık alacak</b> (${fmtTL(alBrut)}) carilerin bakiyelerinin toplamıdır. Sermayede ise müşterinin henüz sevk edilmemiş ithalat siparişi için verdiği avans, aynı carinin açık borcundan düşülür${alMahsup > 0.5 ? ` (toplam −${fmtTL(alMahsup)})` : ''}; çünkü o para kasaya zaten girmiş ve karşılığında müşteriye mal borçluyuz.</p>`;
     } else if (k === 'cek') {
       const ls = await api.get('v_nakit_girisleri', `select=*&durum=eq.Bekliyor&tur=neq.Platform&order=vade.asc&limit=1000`).catch(() => api.get('nakit_girisleri', `select=*&durum=eq.Bekliyor&tur=neq.Platform&order=vade.asc&limit=1000`));
-      govde = tablo([['Çek / senet'], ['Vade', 1], ['Tutar', 1]], ls.map((n) => `<tr><td><b>${esc(n.kesideci || n.cari_unvan || n.kaynak || n.tur || 'Çek')}</b><div class="tiny">${esc([n.tur, n.kaynak, n.belge_no].filter(Boolean).join(' · '))}</div></td>
-        <td class="r">${n.vade ? fmtD(n.vade) : '–'}${n.vade && n.vade < today() ? '<div class="tiny" style="color:var(--red)">vadesi geçti</div>' : ''}</td><td class="r"><b>${fmtPB(n.tutar, n.para_birimi || 'TRY')}</b></td></tr>`), 'Portföyde çek yok')
+      govde = tablo([['Çek / senet'], ['Vade', 1], ['Tutar', 1], PAY], ls.map((n) => `<tr><td><b>${esc(n.kesideci || n.cari_unvan || n.kaynak || n.tur || 'Çek')}</b><div class="tiny">${esc([n.tur, n.kaynak, n.belge_no].filter(Boolean).join(' · '))}</div></td>
+        <td class="r">${n.vade ? fmtD(n.vade) : '–'}${n.vade && n.vade < today() ? '<div class="tiny" style="color:var(--red)">vadesi geçti</div>' : ''}</td><td class="r"><b>${fmtPB(n.tutar, n.para_birimi || 'TRY')}</b>${(n.para_birimi || 'TRY') !== 'TRY' ? `<div class="tiny">≈ ${fmtTL(num(n.tutar) * (guncelKur(n.para_birimi) || 0))}</div>` : ''}</td>${pay(num(n.tutar) * ((n.para_birimi || 'TRY') === 'TRY' ? 1 : guncelKur(n.para_birimi) || 0))}</tr>`), 'Portföyde çek yok')
         + '<p class="tiny">Ödemeler bölümünde "Bekliyor" duran, tahsil ya da ciro edilmemiş çek ve senetler.</p>';
     } else if (k === 'platform') {
-      govde = tablo([['Platform'], ['Tutar', 1]], [...(oz.platform || []).map((y) => [y.kaynak, `${y.adet} ödeme günü${num(y.hesapta) ? ` · ${fmtTL(y.hesapta)} hesaba yattı, kasaya işlenmedi` : ''}`, y.tl]),
+      govde = tablo([['Platform'], ['Tutar', 1], PAY], [...(oz.platform || []).map((y) => [y.kaynak, `${y.adet} ödeme günü${num(y.hesapta) ? ` · ${fmtTL(y.hesapta)} hesaba yattı, kasaya işlenmedi` : ''}`, y.tl]),
         ...(oz.platform_teslim || []).map((y) => [y.platform + ' · teslim bekleyen', `${y.adet} sipariş · teslimden sonra hakedişe girer (net tahmini)`, y.tl])]
-        .sort((a, b) => num(b[2]) - num(a[2])).map(([a, d, t]) => `<tr><td><b>${esc(a)}</b><div class="tiny">${d}</div></td><td class="r"><b>${fmtTL(t)}</b><div class="tiny">${yzT(t)}</div></td></tr>`), 'Bekleyen platform ödemesi yok')
+        .sort((a, b) => num(b[2]) - num(a[2])).map(([a, d, t]) => `<tr><td><b>${esc(a)}</b><div class="tiny">${d}</div></td><td class="r"><b>${fmtTL(t)}</b></td>${pay(t)}</tr>`), 'Bekleyen platform ödemesi yok')
         + '<p class="tiny">Gün gün dökümü Ödemeler bölümünde.</p>';
     } else if (k === 'kasa') {
-      govde = tablo([['Hesap'], ['Bakiye', 1]], kasa.map((y) => `<tr><td><b>${esc(y.ad)}</b>${y.aciklama ? `<div class="tiny">${esc(y.aciklama)}</div>` : ''}</td><td class="r"><b>${fmtTL(kasaTL(y))}</b>${y.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(y.tutar, y.para_birimi)}</div>` : ''}</td></tr>`), 'Kasa hesabı yok');
+      govde = tablo([['Hesap'], ['Bakiye', 1], PAY], kasa.map((y) => `<tr><td><b>${esc(y.ad)}</b>${y.aciklama ? `<div class="tiny">${esc(y.aciklama)}</div>` : ''}</td><td class="r"><b>${fmtTL(kasaTL(y))}</b>${y.para_birimi !== 'TRY' ? `<div class="tiny">${fmtPB(y.tutar, y.para_birimi)}</div>` : ''}</td>${pay(kasaTL(y))}</tr>`), 'Kasa hesabı yok');
     }
     modal({ title: x[1], body: ust(k) + govde, foot: '<button class="btn" data-close>Kapat</button>', wide: true, onMount: ({ el: m, close }) => { $$('[data-go]', m).forEach((r) => (r.onclick = () => { close(); go(r.dataset.go); })); } });
   };
@@ -7363,7 +7364,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.63';
+const APP_V = '2.64';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
