@@ -6716,7 +6716,7 @@ async function viewGiderler() {
   topbar('Gelir / Gider', { back: !wideScr(), actions: `<button class="tb-btn" id="gd-yeni">${icon('plus')}${ui.tab === 'sabit' ? 'Sabit kalem' : gelir ? 'Gelir ekle' : 'Gider ekle'}</button>` });
   const [liste, sabitler, gelirler0] = await Promise.all([gelir ? gelirSorgu() : giderSorgu(), api.get('sabit_giderler', 'select=*&order=aktif.desc,gun.asc,id.asc'), ui.tab === 'plan' ? gelirSorgu() : []]);
   const sa = sabitler.filter((s) => s.aktif).length;
-  const sekme = `<div class="chips" id="gd-tab" style="margin-bottom:10px">${[['defter', 'Gider defteri'], ['plan', 'Planlanan'], ['gelir', 'Gelirler'], ['sabit', `Sabit gelir / gider${sa ? ` · ${sa}` : ''}`]].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
+  const sekme = `<div class="chips" id="gd-tab" style="margin-bottom:10px">${[['defter', 'Gider defteri'], ['gelir', 'Gelir defteri'], ['sabit', `Sabit gelir / gider${sa ? ` · ${sa}` : ''}`], ['plan', 'Planlanan']].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
   $('#gd-yeni').onclick = () => (ui.tab === 'sabit' ? sabitGiderForm(null, render) : giderForm(null, render, { gelir }));
 
   if (ui.tab === 'plan') {
@@ -7175,7 +7175,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.55';
+const APP_V = '2.56';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
