@@ -4894,6 +4894,12 @@ function odemeYap(p) {
       }
       const kh = () => { const k = parseNum($('#o-k', m.el)?.value); if ($('#o-kh', m.el)) $('#o-kh', m.el).innerHTML = k > 0 ? `= <b>${fmtTL(num(p.tutar_hesap) * k)}</b>` : ''; };
       if (dvz) { $('#o-k', m.el).oninput = kh; kh(); }
+      // gelir / gider kalemlerinde kur, odeme gunu TCMB kurundan gelir (elle degistirilebilir)
+      if (dvz && ['Gider', 'Gelir'].includes(p.kaynak)) {
+        let elle = false; $('#o-k', m.el).addEventListener('input', () => { elle = true; });
+        const al = () => { if (elle) return; const t = $('#o-t', m.el).value || today(); tcmbGecmis(t, p.para_birimi).then((r) => { if (!elle && ($('#o-t', m.el).value || today()) === t) { $('#o-k', m.el).value = fmtK(r.kur); kh(); if ($('#o-kh', m.el)) $('#o-kh', m.el).innerHTML += ` <span class="tiny">· TCMB ${fmtD(r.kaynak_tarih)}</span>`; } }).catch(() => {}); };
+        $('#o-t', m.el).addEventListener('change', al); al();
+      }
       const cek = cariTah ? cekBind(m.el, 'o-os', 'o-cek') : null;
       const ks = await kasaSecBind(m.el, 'o-ks', tah ? 'giris' : 'cikis');
       let ttip = 'R';
@@ -6686,7 +6692,20 @@ const giderPlanKat = (k) => (k === 'Kira' ? 'Kira' : ['Maaş / SGK', 'Maaş'].in
 const GIDER_ESKI = { Kira: 'Kira', Maaş: 'Maaş / SGK', 'Vergi / SGK': 'Vergi', 'Fatura / abonelik': 'Elektrik / su / doğalgaz' };
 const giderKat = (p) => p.gider_kategori || GIDER_ESKI[p.kategori] || p.kategori;
 const giderTarih = (p) => (p.odendi ? p.odeme_tarihi || p.vade_tarihi : p.vade_tarihi);
-const giderTL = (p) => Math.round(num(p.tutar) * (p.para_birimi === 'TRY' ? 1 : num(p.odenen_kur || p.kur) || guncelKur(p.para_birimi) || 1) * 100) / 100;
+// toplamlar (ozet, kategori, planlanan, sabit aylik) dovizli kalemlerde BUGUNUN TCMB kuruyla hesaplanir
+const giderTL = (p) => Math.round(num(p.tutar) * (p.para_birimi === 'TRY' ? 1 : guncelKur(p.para_birimi) || num(p.odenen_kur || p.kur) || 1) * 100) / 100;
+// dovizli kalemin altinda: bugunku karsiligi, odendiyse odeme gunu kuruyla karsiligi
+const giderDvz = (p) => (p.para_birimi === 'TRY' ? '' : `<div class="tiny">≈ ${fmtTL(giderTL(p))} bugünkü kur${p.odendi && num(p.odenen_kur) ? ` · ödeme günü ${fmtK(p.odenen_kur)} → ${fmtTL(num(p.tutar) * num(p.odenen_kur))}` : ''}</div>`);
+// belirli bir gunun TCMB doviz satis kuru (hafta sonu / tatilde onceki is gunu)
+const tcmbGecmisOn = {};
+async function tcmbGecmis(tarih, pb) {
+  if (pb === 'TRY') return { kur: 1, kaynak_tarih: tarih };
+  const k = `${tarih}|${pb}`; if (tcmbGecmisOn[k]) return tcmbGecmisOn[k];
+  const r = await (await api.raw('functions/v1/tcmb-gecmis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tarih, pb }) })).json();
+  if (!(num(r.kur) > 0)) throw new Error(r.hata || 'TCMB kuru alınamadı');
+  if (tarih < today()) tcmbGecmisOn[k] = r;
+  return r;
+}
 const GG_SEC = 'id,yon,kategori,gider_kategori,aciklama,tutar,para_birimi,kur,odenen_kur,vade_tarihi,odendi,odeme_tarihi,odeme_sekli,faturali,sabit_gider_id,kasa_hareket_id,kaynak';
 const giderSorgu = () => api.get('odeme_plani', `select=${GG_SEC}&yon=eq.${encodeURIComponent('Ödeme')}&siparis_id=is.null&cin_siparis_id=is.null&cari_id=is.null&tetik=eq.Tarih&or=${encodeURIComponent('(kaynak.eq.Gider,kategori.in.("Kira","Maaş","Vergi / SGK","Fatura / abonelik"))')}&order=vade_tarihi.desc,id.desc&limit=5000`);
 const gelirSorgu = () => api.get('odeme_plani', `select=${GG_SEC}&yon=eq.Tahsilat&kaynak=eq.Gelir&order=vade_tarihi.desc,id.desc&limit=5000`);
@@ -6711,7 +6730,7 @@ async function viewGiderler() {
     const kalem = (p) => { const gl = p.yon === 'Tahsilat', gec = p.vade_tarihi < b0; return `<div class="row" data-pl="${p.id}">
       <div class="main-col"><div class="t">${esc(p.aciklama || giderKat(p))} <span class="badge">${esc(giderKat(p))}</span>${p.sabit_gider_id ? ' <span class="badge b-purple">Sabit</span>' : ''}</div>
         <div class="st"><span style="color:${gec ? 'var(--red)' : 'var(--text-2)'}">${gec ? 'Gecikti · ' : ''}${fmtD(p.vade_tarihi)}</span> · ${gl ? 'gelir' : 'gider'}</div></div>
-      <div class="end"><div class="amt" style="color:${gl ? 'var(--green)' : 'var(--orange)'}">${gl ? '+' : '−'}${fmtTL(giderTL(p))}</div><button class="btn sm green" data-plo="${p.id}">${gl ? 'Tahsil edildi' : 'Ödendi'}</button></div></div>`; };
+      <div class="end"><div class="amt" style="color:${gl ? 'var(--green)' : 'var(--orange)'}">${gl ? '+' : '−'}${p.para_birimi !== 'TRY' ? fmtPB(p.tutar, p.para_birimi) : fmtTL(p.tutar)}</div>${giderDvz(p)}<button class="btn sm green" data-plo="${p.id}">${gl ? 'Tahsil edildi' : 'Ödendi'}</button></div></div>`; };
     $('#view').innerHTML = `${sekme}
       <div class="kpis">
         <div class="kpi orange"><div class="l">Planlanan gider</div><div class="v num">${fmtTL(gTop)}</div><div class="s">${hepsi.filter((p) => p.yon !== 'Tahsilat').length} kalem</div></div>
@@ -6732,19 +6751,20 @@ async function viewGiderler() {
 
   if (ui.tab === 'sabit') {
     const ak = sabitler.filter((s) => s.aktif);
-    const gid = ak.filter((s) => s.yon !== 'Tahsilat').reduce((a, s) => a + num(s.tutar), 0), gel = ak.filter((s) => s.yon === 'Tahsilat').reduce((a, s) => a + num(s.tutar), 0);
+    const sTL = (s) => num(s.tutar) * (s.para_birimi && s.para_birimi !== 'TRY' ? guncelKur(s.para_birimi) || 1 : 1);
+    const gid = ak.filter((s) => s.yon !== 'Tahsilat').reduce((a, s) => a + sTL(s), 0), gel = ak.filter((s) => s.yon === 'Tahsilat').reduce((a, s) => a + sTL(s), 0);
     const ek = (g) => ([1, 5, 8, 11, 12, 15, 18, 21, 22, 25, 28, 31].includes(g) ? 'i' : [3, 4, 13, 14, 23, 24].includes(g) ? 'ü' : [6, 16, 26].includes(g) ? 'sı' : [9, 10, 19, 20, 29, 30].includes(g) ? 'u' : 'si');
     const satirS = (s) => `<div class="row" data-sg="${s.id}" ${s.aktif ? '' : 'style="opacity:.55"'}>
         <div class="main-col"><div class="t">${esc(s.ad)} <span class="badge">${esc(s.kategori)}</span>${s.faturali ? ' <span class="badge b-blue">Faturalı</span>' : ''}${s.aktif ? '' : ' <span class="badge">Pasif</span>'}</div>
           <div class="st">Her ayın ${s.gun}’${ek(s.gun)} · ${fmtD(s.baslangic).slice(3)} başlangıç${s.bitis ? ` · ${fmtD(s.bitis)} bitiş` : ''}${s.aciklama ? ` · ${esc(s.aciklama)}` : ''}</div></div>
-        <div class="end"><div class="amt" style="color:${s.yon === 'Tahsilat' ? 'var(--green)' : 'var(--text)'}">${s.yon === 'Tahsilat' ? '+' : ''}${fmtTL(s.tutar)}</div><div class="tiny">aylık</div></div></div>`;
+        <div class="end"><div class="amt" style="color:${s.yon === 'Tahsilat' ? 'var(--green)' : 'var(--text)'}">${s.yon === 'Tahsilat' ? '+' : ''}${fmtPB(s.tutar, s.para_birimi || 'TRY')}</div><div class="tiny">aylık${s.para_birimi && s.para_birimi !== 'TRY' ? ` · ≈ ${fmtTL(sTL(s))}` : ''}</div></div></div>`;
     const gelirler = sabitler.filter((s) => s.yon === 'Tahsilat'), giderler = sabitler.filter((s) => s.yon !== 'Tahsilat');
     $('#view').innerHTML = `${sekme}
       <div class="card"><div class="kpis" style="margin:0">
         <div class="kpi green"><div class="l">Aylık sabit gelir</div><div class="v num">${fmtTL(gel)}</div><div class="s">${ak.filter((s) => s.yon === 'Tahsilat').length} kalem</div></div>
         <div class="kpi orange"><div class="l">Aylık sabit gider</div><div class="v num">${fmtTL(gid)}</div><div class="s">${ak.filter((s) => s.yon !== 'Tahsilat').length} kalem</div></div>
         <div class="kpi ${gel - gid >= 0 ? 'green' : 'red'}"><div class="l">Net (aylık)</div><div class="v num">${fmtTL(gel - gid)}</div><div class="s">sabit gelir − sabit gider</div></div></div>
-      <p class="tiny" style="margin:10px 2px 0">Sabit gelir ve giderler önümüzdeki 6 ay için <b>Ödemeler</b>’e kendiliğinden eklenir ve aylık nakit akışında görünür; her ay yeni ay eklenir. Ödeyince / tahsil edince “ödendi” ya da “tahsil edildi” yapın, seçtiğiniz kasaya işlenir.</p></div>
+      <p class="tiny" style="margin:10px 2px 0">Dövizli kalemler toplamlarda bugünkü TCMB kuruyla hesaplanır. Sabit gelir ve giderler önümüzdeki 6 ay için <b>Ödemeler</b>’e kendiliğinden eklenir ve aylık nakit akışında görünür; her ay yeni ay eklenir. Ödeyince / tahsil edince “ödendi” ya da “tahsil edildi” yapın, seçtiğiniz kasaya işlenir.</p></div>
       ${sabitler.length ? '' : '<div class="card empty">Henüz sabit kalem yok. Sağ üstteki “Sabit kalem” ile kira geliri, kira, maaş, internet gibi her ay tekrarlayan gelir ve giderlerinizi ekleyin.</div>'}
       ${gelirler.length ? `<div class="section-title">Sabit gelirler</div><div class="list">${gelirler.map(satirS).join('')}</div>` : ''}
       ${giderler.length ? `<div class="section-title">Sabit giderler</div><div class="list">${giderler.map(satirS).join('')}</div>` : ''}`;
@@ -6775,7 +6795,7 @@ async function viewGiderler() {
     return `<div class="row" data-gd="${p.id}">
       <div class="main-col"><div class="t">${esc(p.aciklama || giderKat(p))} <span class="badge">${esc(giderKat(p))}</span>${p.faturali ? ' <span class="badge b-blue">Faturalı</span>' : ''}${p.sabit_gider_id ? ' <span class="badge b-purple">Sabit</span>' : ''}</div>
         <div class="st">${p.odendi ? `${fmtD(giderTarih(p))} ${gelir ? 'tahsil edildi' : 'ödendi'}${p.odeme_sekli ? ` · ${esc(p.odeme_sekli)}` : ''}${p.kasa_hareket_id ? (gelir ? ' · kasaya girdi' : ' · kasadan düştü') : ''}` : `<span style="color:${gec ? 'var(--red)' : 'var(--orange)'}">${gec ? 'Gecikti · ' : ''}Vade ${fmtD(p.vade_tarihi)}</span>`}</div></div>
-      <div class="end"><div class="amt" style="color:${!p.odendi ? 'var(--orange)' : gelir ? 'var(--green)' : 'var(--text)'}">${gelir ? '+' : ''}${p.para_birimi !== 'TRY' ? fmtPB(p.tutar, p.para_birimi) : fmtTL(p.tutar)}</div>${p.odendi ? '' : `<button class="btn sm green" data-gode="${p.id}">${gelir ? 'Tahsil edildi' : 'Ödendi'}</button>`}</div></div>`;
+      <div class="end"><div class="amt" style="color:${!p.odendi ? 'var(--orange)' : gelir ? 'var(--green)' : 'var(--text)'}">${gelir ? '+' : ''}${p.para_birimi !== 'TRY' ? fmtPB(p.tutar, p.para_birimi) : fmtTL(p.tutar)}</div>${giderDvz(p)}${p.odendi ? '' : `<button class="btn sm green" data-gode="${p.id}">${gelir ? 'Tahsil edildi' : 'Ödendi'}</button>`}</div></div>`;
   };
   $('#view').innerHTML = `${sekme}
     <div class="toolbar" style="margin-bottom:10px"><select class="input" id="gd-ay" style="max-width:220px">${aylar.map((a) => `<option value="${a}" ${a === ui.ay ? 'selected' : ''}>${ayAd(a)}</option>`).join('')}</select></div>
@@ -6804,11 +6824,12 @@ async function giderForm(p, sonra, { ode = false, gelir = false } = {}) {
   const katlar = [...new Set([...(gelir ? GELIR_KAT : GIDER_KAT), ...(k0 ? [k0] : [])])];
   const W = gelir ? { ad: 'Gelir', odendi: 'Tahsil edildi', odenecek: 'Tahsil edilecek', tarih: 'Tahsil tarihi', kasa: 'Para hangi kasaya / hesaba girdi?', yon: 'giris' } : { ad: 'Gider', odendi: 'Ödendi', odenecek: 'Ödenecek', tarih: 'Ödeme tarihi', kasa: 'Hangi kasadan / hesaptan ödendi?', yon: 'cikis' };
   let durum = yeni ? 'odendi' : odendi0 || ode ? 'odendi' : 'odenecek';
+  let pb = p?.para_birimi || 'TRY', kurElle = !!(odendi0 && num(p.odenen_kur));
   const m = modal({
     title: yeni ? `${W.ad} ekle` : odendi0 ? W.ad : ode ? (gelir ? 'Geliri tahsil et' : 'Gideri öde') : `${W.odenecek} ${W.ad.toLocaleLowerCase('tr-TR')}`,
     body: `
       <div class="grid2">
-        <div class="field"><label>Tutar (₺)</label><input class="input" id="gf-t" inputmode="decimal" value="${p ? fmtN(p.tutar) : ''}" placeholder="0,00" ${p && p.para_birimi !== 'TRY' ? 'disabled' : ''}></div>
+        <div class="field"><label>Tutar</label><div style="display:flex;gap:6px"><input class="input" id="gf-t" inputmode="decimal" value="${p ? fmtN(p.tutar) : ''}" placeholder="0,00" style="flex:1;min-width:0"><select class="input" id="gf-pb" style="width:92px;flex:none">${['TRY', 'USD', 'EUR', 'GBP'].map((x) => `<option value="${x}" ${x === pb ? 'selected' : ''}>${x === 'TRY' ? 'TL' : x}</option>`).join('')}</select></div><div class="hint" id="gf-th"></div></div>
         <div class="field"><label id="gf-tl">${durum === 'odendi' ? W.tarih : 'Vade'}</label><input class="input" type="date" id="gf-d" value="${(durum === 'odendi' ? p?.odeme_tarihi || (ode ? today() : p?.vade_tarihi) : p?.vade_tarihi) || today()}"></div>
       </div>
       <div class="field"><label>Kategori</label><select class="input" id="gf-k">${['', ...katlar].map((k) => `<option value="${esc(k)}" ${k === k0 ? 'selected' : ''}>${k ? esc(k) : 'Seçin…'}</option>`).join('')}<option value="__yeni">+ Yeni kategori…</option></select>
@@ -6818,6 +6839,7 @@ async function giderForm(p, sonra, { ode = false, gelir = false } = {}) {
       ${odendi0 ? '' : `<div class="field"><label>Durum</label><div class="seg" id="gf-s"><button type="button" data-v="odendi">${W.odendi}</button><button type="button" data-v="odenecek">${W.odenecek}</button></div>
         <div class="hint" id="gf-sh"></div></div>`}
       <div id="gf-od">
+        <div class="field" id="gf-kf"><label id="gf-kl">Kur</label><input class="input" id="gf-kur" inputmode="decimal" value="${odendi0 && num(p.odenen_kur) ? fmtK(p.odenen_kur) : ''}"><div class="hint" id="gf-kh"></div></div>
         <div class="field"><label>${gelir ? 'Tahsil şekli' : 'Ödeme şekli'}</label><select class="input" id="gf-os">${GIDER_OS.map((o) => `<option ${o === (p?.odeme_sekli || 'Nakit') ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
         ${odendi0 ? `<p class="tiny" style="margin:-4px 0 10px">${p.kasa_hareket_id ? `Bu ${gelir ? 'tahsilat kasaya girdi' : 'ödeme kasadan düştü'}; tutarı değiştirirseniz kasa hareketi de düzelir.` : 'Kasaya işlenmemiş.'}</p>` : kasaSecHtml('gf-ks', W.kasa)}
       </div>
@@ -6827,7 +6849,29 @@ async function giderForm(p, sonra, { ode = false, gelir = false } = {}) {
   });
   const el = m.el;
   const ks = odendi0 ? null : await kasaSecBind(el, 'gf-ks', W.yon);
+  // doviz: odeme / tahsil gunu TCMB kuru otomatik gelir (degistirilebilir); odenmemiste bugunku kurla tahmini TL
+  const kurIst = async () => {
+    if (pb === 'TRY' || durum !== 'odendi' || kurElle) return dvzYaz();
+    const t = $('#gf-d', el).value || today(), istenen = `${t}|${pb}`; kurIst.son = istenen;
+    $('#gf-kh', el).textContent = 'TCMB kuru alınıyor…';
+    try { const r = await tcmbGecmis(t, pb); if (kurIst.son !== istenen || kurElle) return; $('#gf-kur', el).value = fmtK(r.kur); $('#gf-kur', el).dataset.kt = r.kaynak_tarih; }
+    catch (err) { $('#gf-kh', el).textContent = `${err.message}; kuru elle girin`; return; }
+    dvzYaz();
+  };
+  const dvzYaz = () => {
+    const t = parseNum($('#gf-t', el).value) || 0, d = pb !== 'TRY';
+    $('#gf-kf', el).style.display = d && durum === 'odendi' ? '' : 'none';
+    $('#gf-kl', el).textContent = `Kur (1 ${pb} = ? ₺) · ${gelir ? 'tahsil' : 'ödeme'} günü`;
+    const k = parseNum($('#gf-kur', el).value) || 0, kt = $('#gf-kur', el).dataset.kt;
+    $('#gf-kh', el).textContent = k > 0 ? `${kurElle ? 'Elle girilen kur' : `TCMB döviz satış${kt ? ` (${fmtD(kt)})` : ''}`} · ${t ? `= ${fmtTL(t * k)}` : ''}` : '';
+    $('#gf-th', el).textContent = d && t && guncelKur(pb) ? `≈ ${fmtTL(t * guncelKur(pb))} (bugünkü kur ${fmtK(guncelKur(pb))})` : '';
+  };
+  $('#gf-pb', el).onchange = (e) => { pb = e.target.value; kurElle = false; $('#gf-kur', el).value = ''; kurIst(); };
+  $('#gf-d', el).addEventListener('change', () => { if (!kurElle) kurIst(); });
+  $('#gf-t', el).addEventListener('input', dvzYaz);
+  $('#gf-kur', el).addEventListener('input', () => { kurElle = true; dvzYaz(); });
   const ciz = () => {
+    kurIst();
     $$('#gf-s button', el).forEach((b) => b.classList.toggle('on', b.dataset.v === durum));
     $('#gf-od', el).style.display = durum === 'odendi' ? '' : 'none';
     $('#gf-tl', el).textContent = durum === 'odendi' ? W.tarih : 'Vade';
@@ -6845,8 +6889,11 @@ async function giderForm(p, sonra, { ode = false, gelir = false } = {}) {
     try { await api.del('odeme_plani', `id=eq.${p.id}`); m.close(); toast('Silindi', 'ok'); sonra && sonra(); } catch (err) { fail(err); }
   });
   $('#gf-ok', el).onclick = (e) => busy(e.currentTarget, async () => {
-    const tutar = p && p.para_birimi !== 'TRY' ? num(p.tutar) : Math.round(parseNum($('#gf-t', el).value) * 100) / 100;
+    const tutar = Math.round(parseNum($('#gf-t', el).value) * 100) / 100;
     if (!(tutar > 0)) throw new Error('Tutarı girin');
+    const dvz = pb !== 'TRY', kur = dvz ? Math.round(parseNum($('#gf-kur', el).value) * 10000) / 10000 : 1;
+    if (dvz && durum === 'odendi' && !(kur > 0)) throw new Error(`${pb} kurunu girin`);
+    const tl = Math.round(tutar * (durum === 'odendi' ? kur : 1) * 100) / 100, okur = dvz && durum === 'odendi' ? kur : null;
     let k = $('#gf-k', el).value; if (k === '__yeni') k = $('#gf-ky', el).value.trim();
     if (!k) throw new Error('Kategori seçin');
     const tarih = $('#gf-d', el).value || today(), ac = $('#gf-a', el).value.trim() || null, faturali = $('#gf-f', el).checked, os = $('#gf-os', el).value;
@@ -6854,22 +6901,23 @@ async function giderForm(p, sonra, { ode = false, gelir = false } = {}) {
     const kasaAc = `${W.ad} · ${k}${ac ? ' · ' + ac : ''}`, isaret = gelir ? 1 : -1;
     if (yeni) {
       let khId = null;
-      if (durum === 'odendi' && ks.kasa()) { khId = await kasaIsle(ks.kasa(), { tl: tutar, tarih, aciklama: kasaAc, kaynak: gelir ? 'tahsilat' : 'gider', isaret }); ks.hatirla(); }
-      await api.insert('odeme_plani', [{ yon: gelir ? 'Tahsilat' : 'Ödeme', ...ortak, tetik: 'Tarih', vade_tarihi: tarih, tutar, para_birimi: 'TRY', kaynak: gelir ? 'Gelir' : 'Gider',
+      if (durum === 'odendi' && ks.kasa()) { khId = await kasaIsle(ks.kasa(), { tl, pb, tutar, tarih, aciklama: kasaAc, kaynak: gelir ? 'tahsilat' : 'gider', isaret }); ks.hatirla(); }
+      await api.insert('odeme_plani', [{ yon: gelir ? 'Tahsilat' : 'Ödeme', ...ortak, tetik: 'Tarih', vade_tarihi: tarih, tutar, para_birimi: pb, kaynak: gelir ? 'Gelir' : 'Gider', odenen_kur: okur,
         odendi: durum === 'odendi', odeme_tarihi: durum === 'odendi' ? tarih : null, odeme_sekli: durum === 'odendi' ? os : null, kasa_hareket_id: khId }]);
     } else if (odendi0) {
       // odenmis kaydi duzelt: kasa hareketi de tutar/tarihle birlikte duzelir (TL kasada)
-      await api.update('odeme_plani', `id=eq.${p.id}`, { ...ortak, tutar, odeme_tarihi: tarih, odeme_sekli: os });
-      if (p.kasa_hareket_id && (tutar !== num(p.tutar) || tarih !== p.odeme_tarihi)) {
+      await api.update('odeme_plani', `id=eq.${p.id}`, { ...ortak, tutar, para_birimi: pb, odenen_kur: okur, odeme_tarihi: tarih, odeme_sekli: os });
+      if (p.kasa_hareket_id && (tutar !== num(p.tutar) || tarih !== p.odeme_tarihi || pb !== p.para_birimi || num(okur) !== num(p.odenen_kur))) {
         const [kh] = await api.get('kasa_hareketleri', `select=id,kasa(para_birimi)&id=eq.${p.kasa_hareket_id}`).catch(() => []);
-        if (kh && (kh.kasa?.para_birimi || 'TRY') === 'TRY') await api.update('kasa_hareketleri', `id=eq.${kh.id}`, { tutar: isaret * tutar, tarih, aciklama: kasaAc });
+        const kpb = kh?.kasa?.para_birimi || 'TRY';
+        if (kh && (kpb === 'TRY' || kpb === pb)) await api.update('kasa_hareketleri', `id=eq.${kh.id}`, { tutar: isaret * (kpb === pb ? tutar : tl), tarih, aciklama: kasaAc });
       }
     } else if (durum === 'odendi') {
       let khId = null;
-      if (ks.kasa()) { khId = await kasaIsle(ks.kasa(), { tl: tutar, pb: p.para_birimi, tutar: p.para_birimi !== 'TRY' ? num(p.tutar) : null, tarih, aciklama: kasaAc, kaynak: gelir ? 'tahsilat' : 'gider', isaret }); ks.hatirla(); }
-      await api.update('odeme_plani', `id=eq.${p.id}`, { ...ortak, tutar, odendi: true, odeme_tarihi: tarih, odeme_sekli: os, kasa_hareket_id: khId });
+      if (ks.kasa()) { khId = await kasaIsle(ks.kasa(), { tl, pb, tutar, tarih, aciklama: kasaAc, kaynak: gelir ? 'tahsilat' : 'gider', isaret }); ks.hatirla(); }
+      await api.update('odeme_plani', `id=eq.${p.id}`, { ...ortak, tutar, para_birimi: pb, odenen_kur: okur, odendi: true, odeme_tarihi: tarih, odeme_sekli: os, kasa_hareket_id: khId });
     } else {
-      await api.update('odeme_plani', `id=eq.${p.id}`, { ...ortak, tutar, vade_tarihi: tarih });
+      await api.update('odeme_plani', `id=eq.${p.id}`, { ...ortak, tutar, para_birimi: pb, vade_tarihi: tarih });
     }
     m.close(); toast(durum === 'odendi' && !odendi0 ? `${W.ad} ${W.odendi.toLocaleLowerCase('tr-TR')} olarak kaydedildi` : 'Kaydedildi', 'ok'); sonra && sonra();
   }).catch(fail);
@@ -6886,7 +6934,7 @@ function sabitGiderForm(s, sonra) {
       <div class="field"><label>Adı</label><input class="input" id="sg-ad" value="${esc(s?.ad || '')}" placeholder="Örn. Depo kirası, Turkcell internet, dükkan kira geliri"></div>
       <div class="grid2">
         <div class="field"><label>Kategori</label><select class="input" id="sg-k">${katSec()}</select></div>
-        <div class="field"><label>Aylık tutar (₺)</label><input class="input" id="sg-t" inputmode="decimal" value="${s ? fmtN(s.tutar) : ''}" placeholder="0,00"></div>
+        <div class="field"><label>Aylık tutar</label><div style="display:flex;gap:6px"><input class="input" id="sg-t" inputmode="decimal" value="${s ? fmtN(s.tutar) : ''}" placeholder="0,00" style="flex:1;min-width:0"><select class="input" id="sg-pb" style="width:92px;flex:none">${['TRY', 'USD', 'EUR', 'GBP'].map((x) => `<option value="${x}" ${x === (s?.para_birimi || 'TRY') ? 'selected' : ''}>${x === 'TRY' ? 'TL' : x}</option>`).join('')}</select></div><div class="hint">Dövizde ödeme günü TCMB kuruyla TL’ye çevrilir</div></div>
       </div>
       <div class="grid2">
         <div class="field"><label>Her ayın kaçında?</label><select class="input" id="sg-g">${Array.from({ length: 31 }, (_, i) => i + 1).map((g) => `<option ${g === (s?.gun || 1) ? 'selected' : ''}>${g}</option>`).join('')}</select><div class="hint">Kısa aylarda ayın son günü</div></div>
@@ -6912,7 +6960,7 @@ function sabitGiderForm(s, sonra) {
     if (!ad) throw new Error('Adını yazın'); if (!(tutar > 0)) throw new Error('Tutarı girin');
     const b = $('#sg-b', el).value, bt = $('#sg-bt', el).value;
     const sonGun = (ym) => { const [y, mo] = ym.split('-').map(Number); return `${ym}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`; };
-    const veri = { yon, ad, kategori: $('#sg-k', el).value, tutar, gun: +$('#sg-g', el).value, baslangic: `${b || today().slice(0, 7)}-01`, bitis: bt ? sonGun(bt) : null, faturali: $('#sg-f', el).checked, aciklama: $('#sg-a', el).value.trim() || null };
+    const veri = { yon, ad, para_birimi: $('#sg-pb', el).value, kategori: $('#sg-k', el).value, tutar, gun: +$('#sg-g', el).value, baslangic: `${b || today().slice(0, 7)}-01`, bitis: bt ? sonGun(bt) : null, faturali: $('#sg-f', el).checked, aciklama: $('#sg-a', el).value.trim() || null };
     if (s) veri.aktif = $('#sg-ak', el).checked;
     if (veri.bitis && veri.bitis < veri.baslangic) throw new Error('Bitiş, başlangıçtan önce olamaz');
     if (s) await api.update('sabit_giderler', `id=eq.${s.id}`, veri); else await api.insert('sabit_giderler', [veri]);
@@ -7115,7 +7163,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.53';
+const APP_V = '2.54';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
