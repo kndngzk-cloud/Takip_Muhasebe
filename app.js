@@ -6674,15 +6674,35 @@ function nakitAkisi(items, baslangic = 0) {
   if (!sira.length) return '';
   const ad = (k) => (k === 'gec' ? 'Gecikmiş' : k === 'sonra' ? 'Daha sonra' : `${AY_AD[+k.slice(5) - 1]} ${k.slice(0, 4)}`);
   const max = Math.max(...sira.map((k) => Math.max(B[k].g, B[k].c)), 1);
-  let kum = baslangic;
-  return `<div class="card"><h2>Aylık nakit akışı${baslangic ? ` <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· kasadaki ${fmtTL(baslangic)} ile başlar</span>` : ''} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· döviz kalemler yaklaşık kurla</span></h2>
-    <div class="akis">${sira.map((k) => { const o = B[k]; kum += o.g - o.c; return `<div class="ak-row">
+  // her ayin sonundaki kumulatif (kasa + o aya kadarki net) bakiye
+  let kum = baslangic; const K = {}; sira.forEach((k) => { kum += B[k].g - B[k].c; K[k] = kum; });
+  const kmax = Math.max(...sira.map((k) => Math.abs(K[k])), 1);
+  let mod = 'normal'; try { mod = localStorage.getItem('ak_mod') === 'kum' ? 'kum' : 'normal'; } catch { /* */ }
+  const normal = sira.map((k) => { const o = B[k]; return `<div class="ak-row">
       <div class="ak-ad">${ad(k)}</div>
       <div class="ak-bar"><i class="g" style="width:${(o.g / max) * 100}%"></i><i class="c" style="width:${(o.c / max) * 100}%"></i></div>
-      <div class="ak-n"><span class="zero">+${fmtTL(o.g)}</span><span class="pos">−${fmtTL(o.c)}</span><b class="${o.g - o.c >= 0 ? 'zero' : 'pos'}">${fmtTL(o.g - o.c)}</b><span class="tiny">${baslangic ? 'kasa + ' : ''}kümülatif ${fmtTL(kum)}</span></div>
-    </div>`; }).join('')}</div>
-    <div class="tiny" style="margin-top:8px"><span class="lg g"></span> gelecek (çek, platform, müşteri taksiti) &nbsp; <span class="lg c"></span> ödenecek (fabrika, vergi, çek, kira, diğer)</div></div>`;
+      <div class="ak-n"><span class="zero">+${fmtTL(o.g)}</span><span class="pos">−${fmtTL(o.c)}</span><b class="${o.g - o.c >= 0 ? 'zero' : 'pos'}">${fmtTL(o.g - o.c)}</b></div>
+    </div>`; }).join('');
+  const kumul = sira.map((k) => { const o = B[k], v = K[k]; return `<div class="ak-row">
+      <div class="ak-ad">${ad(k)}</div>
+      <div class="ak-bar"><i class="${v >= 0 ? 'g' : 'c'}" style="width:${(Math.abs(v) / kmax) * 100}%"></i></div>
+      <div class="ak-n"><span class="tiny">ay neti ${o.g - o.c >= 0 ? '+' : ''}${fmtTL(o.g - o.c)}</span><b class="${v >= 0 ? 'zero' : 'pos'}">${fmtTL(v)}</b></div>
+    </div>`; }).join('');
+  return `<div class="card ak-kart" data-mod="${mod}"><h2>Aylık nakit akışı${baslangic ? ` <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· kasadaki ${fmtTL(baslangic)} ile başlar</span>` : ''} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· döviz kalemler yaklaşık kurla</span></h2>
+    <div class="seg ak-sec" style="max-width:280px;margin:0 0 12px"><button type="button" data-akmod="normal" class="${mod === 'normal' ? 'on' : ''}">Normal</button><button type="button" data-akmod="kum" class="${mod === 'kum' ? 'on' : ''}">Kümülatif</button></div>
+    <div class="akis ak-normal">${normal}</div>
+    <div class="akis ak-kum">${kumul}</div>
+    <div class="tiny ak-normal" style="margin-top:8px"><span class="lg g"></span> gelecek (çek, platform, müşteri taksiti) &nbsp; <span class="lg c"></span> ödenecek (fabrika, vergi, çek, kira, diğer) · her ayın kendi girişi, çıkışı ve neti</div>
+    <div class="tiny ak-kum" style="margin-top:8px"><span class="lg g"></span> artıda &nbsp; <span class="lg c"></span> eksiye düşüyor · ${baslangic ? 'kasadaki para + ' : ''}o aya kadarki tüm giriş ve çıkışlar, ay sonu bakiyesi</div></div>`;
 }
+// Aylik nakit akisi: Normal / Kumulatif secimi (secim bu cihazda hatirlanir)
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-akmod]'); if (!b) return;
+  const kart = b.closest('.ak-kart'); if (!kart) return;
+  kart.dataset.mod = b.dataset.akmod;
+  $$('[data-akmod]', kart).forEach((x) => x.classList.toggle('on', x === b));
+  try { localStorage.setItem('ak_mod', b.dataset.akmod); } catch { /* */ }
+});
 
 /* Cek / senet / platform odemesi ekle - duzenle - durum degistir */
 async function nakitForm(n = null, tur0 = 'Çek') {
@@ -6838,7 +6858,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.48';
+const APP_V = '2.49';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
