@@ -6683,10 +6683,10 @@ function nakitAkisi(items, baslangic = 0) {
       <div class="ak-bar"><i class="g" style="width:${(o.g / max) * 100}%"></i><i class="c" style="width:${(o.c / max) * 100}%"></i></div>
       <div class="ak-n"><span class="zero">+${fmtTL(o.g)}</span><span class="pos">−${fmtTL(o.c)}</span><b class="${o.g - o.c >= 0 ? 'zero' : 'pos'}">${fmtTL(o.g - o.c)}</b></div>
     </div>`; }).join('');
-  const kumul = sira.map((k) => { const o = B[k], v = K[k]; return `<div class="ak-row">
+  const kumul = sira.map((k) => { const o = B[k], v = K[k], bas = v - (o.g - o.c); return `<div class="ak-row ak-k">
       <div class="ak-ad">${ad(k)}</div>
       <div class="ak-bar"><i class="${v >= 0 ? 'g' : 'c'}" style="width:${(Math.abs(v) / kmax) * 100}%"></i></div>
-      <div class="ak-n"><span class="tiny">ay neti ${o.g - o.c >= 0 ? '+' : ''}${fmtTL(o.g - o.c)}</span><b class="${v >= 0 ? 'zero' : 'pos'}">${fmtTL(v)}</b></div>
+      <div class="ak-n"><span class="ak-kv"><small>${k === 'gec' ? 'Başlangıç' : 'Ay başı'}</small>${fmtTL(bas)}</span><span class="ak-kv zero"><small>Girecek</small>+${fmtTL(o.g)}</span><span class="ak-kv pos"><small>Çıkacak</small>−${fmtTL(o.c)}</span><b class="ak-kv ${v >= 0 ? 'zero' : 'pos'}"><small>${k === 'gec' ? 'Kalan' : 'Ay sonu kalan'}</small>${fmtTL(v)}</b></div>
     </div>`; }).join('');
   return `<div class="card ak-kart" data-mod="${mod}"><h2>Aylık nakit akışı${baslangic ? ` <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· kasadaki ${fmtTL(baslangic)} ile başlar</span>` : ''} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· döviz kalemler yaklaşık kurla</span></h2>
     <div class="seg ak-sec" style="max-width:280px;margin:0 0 12px"><button type="button" data-akmod="normal" class="${mod === 'normal' ? 'on' : ''}">Normal</button><button type="button" data-akmod="kum" class="${mod === 'kum' ? 'on' : ''}">Kümülatif</button></div>
@@ -6858,7 +6858,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.49';
+const APP_V = '2.50';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
