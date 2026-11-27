@@ -23,3 +23,9 @@
   from = "/odeme"
   to = "/odeme.html"
   status = 200
+
+# Kisiye ozel gider giris sayfasi: /gider#<token>
+[[redirects]]
+  from = "/gider"
+  to = "/gider.html"
+  status = 200

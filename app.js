@@ -6706,7 +6706,7 @@ async function tcmbGecmis(tarih, pb) {
   if (tarih < today()) tcmbGecmisOn[k] = r;
   return r;
 }
-const GG_SEC = 'id,yon,kategori,gider_kategori,aciklama,tutar,para_birimi,kur,odenen_kur,vade_tarihi,odendi,odeme_tarihi,odeme_sekli,faturali,sabit_gider_id,kasa_hareket_id,kaynak';
+const GG_SEC = 'id,yon,kategori,gider_kategori,aciklama,tutar,para_birimi,kur,odenen_kur,vade_tarihi,odendi,odeme_tarihi,odeme_sekli,faturali,sabit_gider_id,kasa_hareket_id,kaynak,gider_link_id';
 const giderSorgu = () => api.get('odeme_plani', `select=${GG_SEC}&yon=eq.${encodeURIComponent('Ödeme')}&siparis_id=is.null&cin_siparis_id=is.null&cari_id=is.null&tetik=eq.Tarih&or=${encodeURIComponent('(kaynak.eq.Gider,kategori.in.("Kira","Maaş","Vergi / SGK","Fatura / abonelik"))')}&order=vade_tarihi.desc,id.desc&limit=5000`);
 const gelirSorgu = () => api.get('odeme_plani', `select=${GG_SEC}&yon=eq.Tahsilat&kaynak=eq.Gelir&order=vade_tarihi.desc,id.desc&limit=5000`);
 
@@ -6714,7 +6714,9 @@ async function viewGiderler() {
   const ui = state.ui.gider ||= { tab: 'defter', ay: today().slice(0, 7) };
   const gelir = ui.tab === 'gelir';
   topbar('Gelir / Gider', { back: !wideScr(), actions: `<button class="tb-btn" id="gd-yeni">${icon('plus')}${ui.tab === 'sabit' ? 'Sabit kalem' : gelir ? 'Gelir ekle' : 'Gider ekle'}</button>` });
-  const [liste, sabitler, gelirler0] = await Promise.all([gelir ? gelirSorgu() : giderSorgu(), api.get('sabit_giderler', 'select=*&order=aktif.desc,gun.asc,id.asc'), ui.tab === 'plan' ? gelirSorgu() : []]);
+  const [liste, sabitler, gelirler0, gLinkler] = await Promise.all([gelir ? gelirSorgu() : giderSorgu(), api.get('sabit_giderler', 'select=*&order=aktif.desc,gun.asc,id.asc'), ui.tab === 'plan' ? gelirSorgu() : [],
+    isAdmin() ? api.get('gider_linkleri', 'select=id,ad').catch(() => []) : []]);
+  const kimAd = (p) => (p.gider_link_id ? gLinkler.find((x) => x.id === p.gider_link_id)?.ad || 'link' : '');
   const sa = sabitler.filter((s) => s.aktif).length;
   const sekme = `<div class="chips" id="gd-tab" style="margin-bottom:10px">${[['defter', 'Gider Defteri'], ['gelir', 'Gelir Defteri'], ['sabit', `Sabit Gelir / Gider${sa ? ` · ${sa}` : ''}`], ['plan', 'Planlanan']].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
   $('#gd-yeni').onclick = () => (ui.tab === 'sabit' ? sabitGiderForm(null, render) : giderForm(null, render, { gelir }));
@@ -6802,11 +6804,11 @@ async function viewGiderler() {
     const gec = !p.odendi && p.vade_tarihi < bugun;
     return `<div class="row" data-gd="${p.id}">
       <div class="main-col"><div class="t">${esc(p.aciklama || giderKat(p))} <span class="badge">${esc(giderKat(p))}</span>${p.faturali ? ' <span class="badge b-blue">Faturalı</span>' : ''}${p.sabit_gider_id ? ' <span class="badge b-purple">Sabit</span>' : ''}</div>
-        <div class="st">${p.odendi ? `${fmtD(giderTarih(p))} ${gelir ? 'tahsil edildi' : 'ödendi'}${p.odeme_sekli ? ` · ${esc(p.odeme_sekli)}` : ''}${p.kasa_hareket_id ? (gelir ? ' · kasaya girdi' : ' · kasadan düştü') : ''}` : `<span style="color:${gec ? 'var(--red)' : 'var(--orange)'}">${gec ? 'Gecikti · ' : ''}Vade ${fmtD(p.vade_tarihi)}</span>`}</div></div>
+        <div class="st">${kimAd(p) ? `<span class="badge b-orange" style="margin-right:4px">${esc(kimAd(p))} girdi</span>` : ''}${p.odendi ? `${fmtD(giderTarih(p))} ${gelir ? 'tahsil edildi' : 'ödendi'}${p.odeme_sekli ? ` · ${esc(p.odeme_sekli)}` : ''}${p.kasa_hareket_id ? (gelir ? ' · kasaya girdi' : ' · kasadan düştü') : ''}` : `<span style="color:${gec ? 'var(--red)' : 'var(--orange)'}">${gec ? 'Gecikti · ' : ''}Vade ${fmtD(p.vade_tarihi)}</span>`}</div></div>
       <div class="end"><div class="amt" style="color:${!p.odendi ? 'var(--orange)' : gelir ? 'var(--green)' : 'var(--text)'}">${gelir ? '+' : ''}${p.para_birimi !== 'TRY' ? fmtPB(p.tutar, p.para_birimi) : fmtTL(p.tutar)}</div>${giderDvz(p)}${p.odendi ? '' : `<button class="btn sm green" data-gode="${p.id}">${gelir ? 'Tahsil edildi' : 'Ödendi'}</button>`}</div></div>`;
   };
   $('#view').innerHTML = `${sekme}
-    <div class="toolbar" style="margin-bottom:10px"><select class="input" id="gd-ay" style="max-width:220px">${aylar.map((a) => `<option value="${a}" ${a === ui.ay ? 'selected' : ''}>${ayAd(a)}</option>`).join('')}</select></div>
+    <div class="toolbar" style="margin-bottom:10px;gap:8px;flex-wrap:wrap"><select class="input" id="gd-ay" style="max-width:220px">${aylar.map((a) => `<option value="${a}" ${a === ui.ay ? 'selected' : ''}>${ayAd(a)}</option>`).join('')}</select>${!gelir && isAdmin() ? `<button class="btn" id="gd-link">Gider giriş linkleri${gLinkler.length ? ` · ${gLinkler.length}` : ''}</button>` : ''}</div>
     <div class="kpis">
       <div class="kpi ${gelir ? 'green' : ''}"><div class="l">${ayAd(ui.ay)} · ${gelir ? 'tahsil edilen' : 'ödenen'}</div><div class="v num">${fmtTL(odT)}</div><div class="s">${odenen.length} kalem</div></div>
       <div class="kpi orange"><div class="l">${gelir ? 'Tahsil edilecek' : 'Ödenecek'}${gecikmis.length ? ' (gecikmiş dahil)' : ''}</div><div class="v num">${fmtTL(bkT)}</div><div class="s">${bekleyen.length} kalem</div></div>
@@ -6824,6 +6826,7 @@ async function viewGiderler() {
   $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); }));
   $('#gd-ay').onchange = (e) => { ui.ay = e.target.value; render(); };
   $('#gd-sabitler')?.addEventListener('click', (e) => { e.preventDefault(); ui.tab = 'sabit'; render(); });
+  $('#gd-link')?.addEventListener('click', () => giderLinkleri());
   $$('[data-gd]').forEach((r) => r.addEventListener('click', (e) => { if (e.target.closest('button')) return; giderForm(liste.find((p) => p.id === +r.dataset.gd), render, { gelir }); }));
   $$('[data-gode]').forEach((b) => (b.onclick = () => giderForm(liste.find((p) => p.id === +b.dataset.gode), render, { ode: true, gelir })));
 }
@@ -6933,6 +6936,62 @@ async function giderForm(p, sonra, { ode = false, gelir = false } = {}) {
     }
     m.close(); toast(durum === 'odendi' && !odendi0 ? `${W.ad} ${W.odendi.toLocaleLowerCase('tr-TR')} olarak kaydedildi` : 'Kaydedildi', 'ok'); sonra && sonra();
   }).catch(fail);
+}
+
+/* Baskasinin telefonundan sadece gider girebilmesi icin kisiye ozel link (gider#token).
+   Kisi programa girmez; kasa, cari ya da baska veri goremez. Secilen kasa varsa gider o kasadan duser (kisi gormez). */
+const giderLinkUrl = (t) => `${location.origin}${location.pathname.replace(/[^/]*$/, '')}gider#${t}`;
+async function giderLinkleri() {
+  const [linkler, kasalar, sayim] = await Promise.all([
+    api.get('gider_linkleri', 'select=*&order=aktif.desc,olusturma.desc'),
+    api.get('kasa', 'select=id,ad,para_birimi&order=sira.asc,id.asc').catch(() => []),
+    api.get('odeme_plani', 'select=gider_link_id,tutar&gider_link_id=not.is.null&limit=5000').catch(() => [])
+  ]);
+  const tlKasa = kasalar.filter((k) => k.para_birimi === 'TRY');
+  const firma = state.ayarlar?.firma_adi || '';
+  const mesaj = (l) => `Merhaba ${l.ad},${firma ? ` ${firma}` : ''} için yaptığınız harcamaları bu linkten girebilirsiniz:
+${giderLinkUrl(l.token)}
+
+Telefonunuzda “Ana ekrana ekle” ile uygulama gibi kullanabilirsiniz.`;
+  const satir = (l) => {
+    const g = sayim.filter((x) => x.gider_link_id === l.id), k = kasalar.find((x) => x.id === l.kasa_id);
+    return `<div class="row" style="align-items:flex-start;gap:10px">
+      <div class="main-col"><div class="t"><b>${esc(l.ad)}</b> ${l.aktif ? '<span class="badge b-green">Açık</span>' : '<span class="badge b-red">Kapalı</span>'}</div>
+        <div class="st">${k ? `${esc(k.ad)} kasasından düşer` : 'Kasaya işlenmez'} · ${g.length ? `${g.length} gider, ${fmtTL(g.reduce((a, x) => a + num(x.tutar), 0))}` : 'henüz giriş yok'}</div></div>
+      <div class="btn-row" style="margin:0;justify-content:flex-end">${l.aktif ? `<button class="btn sm" data-kp="${l.id}">Kopyala</button><a class="btn sm green" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(mesaj(l))}">WhatsApp</a>` : ''}
+        <button class="btn sm" data-ac="${l.id}">${l.aktif ? 'Kapat' : 'Aç'}</button>${g.length ? '' : `<button class="btn sm red" data-sil="${l.id}">Sil</button>`}</div></div>`;
+  };
+  modal({
+    title: 'Gider giriş linkleri',
+    wide: true,
+    body: `<p class="small" style="margin:0 0 12px">Kişiye özel bir link oluşturup telefonuna gönderin. O kişi programa giriş yapmadan, sadece <b>gider girer</b>: tutar, kategori, açıklama, tarih. Kasanızı, carilerinizi ya da başka bir bilgiyi göremez. Girdiği giderler gider defterinize “… girdi” etiketiyle düşer.</p>
+      <div class="card" style="margin:0 0 14px"><div class="grid2">
+        <div class="field"><label>Kişinin adı</label><input class="input" id="gl-ad" placeholder="Örn. Ahmet"></div>
+        <div class="field"><label>Giderler hangi kasadan düşsün?</label><select class="input" id="gl-ks"><option value="">Kasaya işleme</option>${tlKasa.map((k) => `<option value="${k.id}">${esc(k.ad)}</option>`).join('')}</select><div class="hint">Kişi kasayı görmez</div></div>
+      </div><button class="btn primary" id="gl-yeni">Link oluştur</button></div>
+      <div class="list" id="gl-lst">${linkler.length ? linkler.map(satir).join('') : '<div class="empty">Henüz link yok</div>'}</div>`,
+    foot: '<button class="btn" data-close>Kapat</button>',
+    onMount: (m) => {
+      const kopyala = async (l) => { try { await navigator.clipboard.writeText(giderLinkUrl(l.token)); toast('Link kopyalandı', 'ok'); } catch { toast(giderLinkUrl(l.token)); } };
+      $('#gl-yeni', m.el).onclick = (e) => busy(e.currentTarget, async () => {
+        const ad = $('#gl-ad', m.el).value.trim(); if (!ad) throw new Error('Kişinin adını yazın');
+        const [l] = await api.insert('gider_linkleri', { ad, kasa_id: +$('#gl-ks', m.el).value || null });
+        m.close(); await giderLinkleri(); await kopyala(l);
+      }).catch(fail);
+      $('#gl-lst', m.el).addEventListener('click', async (e) => {
+        const b = e.target.closest('button'); if (!b) return;
+        const l = linkler.find((x) => x.id === +(b.dataset.kp || b.dataset.ac || b.dataset.sil)); if (!l) return;
+        if (b.dataset.kp) return kopyala(l);
+        if (b.dataset.sil) {
+          if (!(await confirmBox('Link silinsin mi?', `${esc(l.ad)} için oluşturulan link kalıcı olarak silinir.`, 'Sil', true))) return;
+          try { await api.del('gider_linkleri', `id=eq.${l.id}`); m.close(); giderLinkleri(); } catch (err) { fail(err); }
+          return;
+        }
+        if (l.aktif && !(await confirmBox('Link kapatılsın mı?', `${esc(l.ad)} bu linkle artık gider giremez. Daha önce girdikleri kalır.`, 'Kapat', true))) return;
+        try { await api.update('gider_linkleri', `id=eq.${l.id}`, { aktif: !l.aktif }); m.close(); giderLinkleri(); } catch (err) { fail(err); }
+      });
+    }
+  });
 }
 
 /* Sabit gider ekle / duzenle */
@@ -7175,7 +7234,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.57';
+const APP_V = '2.58';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

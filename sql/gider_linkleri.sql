@@ -1,0 +1,3 @@
+-- (Supabase'e gider_linkleri migration'i ile uygulandi) Kisiye ozel gider giris linkleri: gider.html#token, edge function gider-gir
+-- create table public.gider_linkleri (id, token, ad, kasa_id, aktif, olusturan, olusturma) + RLS (sadece yonetici)
+-- alter table public.odeme_plani add column gider_link_id bigint references public.gider_linkleri(id) on delete set null;
