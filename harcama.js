@@ -1,4 +1,4 @@
-// GRADDE Gider: sadece gider girilen ayri program (harcama.html). Kullanici adi + sifre ile girilir.
+// GİZEM EV PLANLAMA PROGRAMI: sadece harcama girilen ayri program (harcama.html). Kullanici adi + sifre ile girilir.
 // Kasa, cari ya da baska veri gorulmez; tum islemler gider-gir edge function'indan gecer.
 (() => {
   const FN = `${window.APP_CONFIG.url}/functions/v1/gider-gir`;
@@ -32,9 +32,9 @@
 
   /* ---------- giris ---------- */
   function giris(mesaj = '') {
-    document.title = 'Gider · Giriş';
+    document.title = 'GİZEM EV PLANLAMA PROGRAMI';
     $('#app').innerHTML = `<div class="hc-giris"><div class="card">
-      <div class="hc-marka"><div class="hc-amblem"><img src="icons/lama.png" alt=""></div><div><b>Gider Girişi</b><small>Size verilen kullanıcı adı ve şifreyle girin</small></div></div>
+      <div class="hc-marka"><div class="hc-amblem"><img src="icons/ev-192.png" alt=""></div><div><b>GİZEM EV PLANLAMA PROGRAMI</b><small>Kullanıcı adı ve şifrenizle girin</small></div></div>
       <div class="field"><label>Kullanıcı adı</label><input class="input" id="g-k" autocapitalize="off" autocomplete="username"></div>
       <div class="field"><label>Şifre</label><input class="input" id="g-s" type="password" autocomplete="current-password"></div>
       <button class="btn primary" id="g-ok" style="width:100%;margin-top:4px">Giriş yap</button>
@@ -52,14 +52,14 @@
   let sekme = 'ekle', bilgi = null, ay = bugun().slice(0, 7);
   async function ana() {
     const t = tOku(); if (!t) return giris();
-    $('#app').innerHTML = `<div class="main"><header class="topbar"><div class="hc-ust" style="flex:1;min-width:0"><img src="icons/lama.png" alt=""><h1 id="u-bas">Gider</h1></div><button class="tb-btn" id="u-cik">${ik('cikis')}Çıkış</button></header>
+    $('#app').innerHTML = `<div class="main"><header class="topbar"><div class="hc-ust" style="flex:1;min-width:0"><img src="icons/ev-192.png" alt=""><h1 id="u-bas">Gizem Ev Planlama</h1></div><button class="tb-btn" id="u-cik">${ik('cikis')}Çıkış</button></header>
       <main class="view" id="view"><div class="loading"><div class="spinner"></div>Yükleniyor…</div></main></div>
-      <nav class="bottomnav"><a data-s="ekle">${ik('plus')}Gider Ekle</a><a data-s="liste">${ik('list')}Girdiklerim</a></nav>`;
+      <nav class="bottomnav"><a data-s="ekle">${ik('plus')}Harcama Ekle</a><a data-s="liste">${ik('list')}Harcamalarım</a></nav>`;
     $('#u-cik').onclick = () => { if (confirm('Çıkış yapılsın mı?')) { tYaz(''); giris(); } };
     $$('.bottomnav a').forEach((a) => (a.onclick = () => { sekme = a.dataset.s; ciz(); }));
     try { bilgi = await cagir({ islem: 'bilgi', t }); } catch (e) { if (tOku()) $('#view').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-    $('#u-bas').textContent = `Gider · ${bilgi.ad}`;
-    document.title = `Gider · ${bilgi.ad}`;
+    $('#u-bas').textContent = 'Gizem Ev Planlama';
+    document.title = 'GİZEM EV PLANLAMA PROGRAMI';
     ciz();
   }
   const yenile = async () => { bilgi = await cagir({ islem: 'bilgi', t: tOku() }); };
@@ -77,16 +77,16 @@
       <div class="card">
         <div class="field"><label>Tutar (₺)</label><input class="input hc-tutar" id="e-t" inputmode="decimal" placeholder="0,00" autocomplete="off"></div>
         <div class="field"><label>Kategori</label><div class="kats" id="e-k">${bilgi.kategoriler.map((k) => `<button type="button" data-k="${esc(k)}">${esc(k)}</button>`).join('')}</div></div>
-        <div class="field"><label>Açıklama</label><input class="input" id="e-a" maxlength="200" placeholder="Örn. Opet benzin, öğle yemeği, kargo"></div>
+        <div class="field"><label>Açıklama</label><input class="input" id="e-a" maxlength="200" placeholder="Örn. Migros market, elektrik faturası"></div>
         <div class="grid2">
           <div class="field"><label>Tarih</label><input class="input" type="date" id="e-d" value="${bugun()}" max="${bugun()}"></div>
           <div class="field"><label>Nasıl ödendi?</label><select class="input" id="e-o">${bilgi.odeme_sekilleri.map((o) => `<option>${esc(o)}</option>`).join('')}</select></div>
         </div>
         <label class="check" style="margin:2px 0 12px"><input type="checkbox" id="e-f"> <span>Faturası / fişi var</span></label>
-        <button class="btn green" id="e-ok" style="width:100%;font-size:17px;padding:14px">Gideri kaydet</button>
+        <button class="btn green" id="e-ok" style="width:100%;font-size:17px;padding:14px">Harcamayı kaydet</button>
         <div class="hc-msj" id="e-m"></div>
       </div>
-      <p class="tiny" style="margin:0 4px">Bugün girdiğiniz: <b>${tl(bugunT)}</b>. Girdiğiniz giderler doğrudan firmanın gider defterine işlenir; yanlış girişi 24 saat içinde “Girdiklerim”den silebilirsiniz.</p>`;
+      <p class="tiny" style="margin:0 4px">Bugün girdiğiniz: <b>${tl(bugunT)}</b>. Yanlış girişi 24 saat içinde “Harcamalarım”dan silebilirsiniz.</p>`;
     $('#e-k').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; kat = b.dataset.k; $$('#e-k button').forEach((x) => x.classList.toggle('on', x === b)); };
     $('#e-o').onchange = (e) => { os = e.target.value; };
     $('#e-ok').onclick = async () => {
@@ -98,7 +98,7 @@
         await cagir({ islem: 'ekle', t: tOku(), tutar, kategori: kat, aciklama: $('#e-a').value, tarih: $('#e-d').value, odeme_sekli: os, faturali: $('#e-f').checked });
         await yenile(); ekleCiz();
         const m2 = $('#e-m'); m2.className = 'hc-msj ok'; m2.textContent = `✓ ${tl(tutar)} · ${kat} kaydedildi`;
-      } catch (e) { m.className = 'hc-msj err'; m.textContent = e.message; b.disabled = false; b.textContent = 'Gideri kaydet'; }
+      } catch (e) { m.className = 'hc-msj err'; m.textContent = e.message; b.disabled = false; b.textContent = 'Harcamayı kaydet'; }
     };
   }
 
@@ -110,13 +110,13 @@
     const gun = {}; k.forEach((x) => (gun[x.tarih] ||= []).push(x));
     $('#view').innerHTML = `
       <div class="toolbar" style="margin-bottom:10px"><select class="input" id="l-ay" style="max-width:220px">${aylar.map((a) => `<option value="${a}" ${a === ay ? 'selected' : ''}>${AY[+a.slice(5) - 1]} ${a.slice(0, 4)}</option>`).join('')}</select></div>
-      <div class="kpis"><div class="kpi orange"><div class="l">${AY[+ay.slice(5) - 1]} toplamı</div><div class="v num">${tl(top)}</div><div class="s">${k.length} gider</div></div></div>
+      <div class="kpis"><div class="kpi orange"><div class="l">${AY[+ay.slice(5) - 1]} toplamı</div><div class="v num">${tl(top)}</div><div class="s">${k.length} harcama</div></div></div>
       ${Object.keys(gun).sort().reverse().map((d) => `<div class="section-title">${fmtD(d)} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${tl(gun[d].reduce((a, x) => a + x.tutar, 0))}</span></div>
         <div class="list">${gun[d].map((x) => `<div class="row" style="cursor:default"><div class="main-col"><div class="t">${esc(x.aciklama || x.kategori)} <span class="badge">${esc(x.kategori)}</span>${x.faturali ? ' <span class="badge b-blue">Faturalı</span>' : ''}</div><div class="st">${esc(x.odeme_sekli || '')}</div></div>
-          <div class="end"><div class="amt">${tl(x.tutar)}</div>${x.silinebilir ? `<button class="btn sm red" data-sil="${x.id}">Sil</button>` : ''}</div></div>`).join('')}</div>`).join('') || '<div class="card empty">Bu ay girdiğiniz gider yok.</div>'}`;
+          <div class="end"><div class="amt">${tl(x.tutar)}</div>${x.silinebilir ? `<button class="btn sm red" data-sil="${x.id}">Sil</button>` : ''}</div></div>`).join('')}</div>`).join('') || '<div class="card empty">Bu ay girdiğiniz harcama yok.</div>'}`;
     $('#l-ay').onchange = (e) => { ay = e.target.value; listeCiz(); };
     $$('[data-sil]').forEach((b) => (b.onclick = async () => {
-      if (!confirm('Bu gider silinsin mi?')) return;
+      if (!confirm('Bu harcama silinsin mi?')) return;
       b.disabled = true;
       try { await cagir({ islem: 'sil', t: tOku(), id: +b.dataset.sil }); await yenile(); listeCiz(); } catch (e) { alert(e.message); b.disabled = false; }
     }));

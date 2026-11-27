@@ -1,4 +1,4 @@
-// Gider programi (harcama.html) ve kisiye ozel gider giris linki (gider.html#token) — herkese acik, token ile dogrular.
+// GİZEM EV PLANLAMA PROGRAMI (harcama.html) ve kisiye ozel giris linki (gider.html#token) — herkese acik, token ile dogrular.
 //  POST {islem:"giris", kullanici, sifre}        -> { t } (gider programi girisi; t cihazda saklanir)
 //  POST {islem:"bilgi", t}                       -> { ad, firma, kategoriler, son: [...] } (sadece bu linkle girilenler)
 //  POST {islem:"ekle", t, tarih, tutar, kategori, aciklama, faturali, odeme_sekli}
@@ -15,8 +15,9 @@ async function rest(path: string, init: RequestInit = {}) {
   if (!r.ok) throw new Error(`${path.split("?")[0]}: ${r.status} ${t.slice(0, 200)}`);
   return t ? JSON.parse(t) : null;
 }
-const KAT = ["Yakıt / araç", "Yemek", "Kargo / ambalaj", "Ofis / kırtasiye", "Bakım / onarım", "Elektrik / su / doğalgaz", "İnternet / telefon", "Reklam", "Kira", "Maaş / SGK", "Muhasebe", "Banka / POS komisyonu", "Vergi", "Diğer"];
-const planKat = (k: string) => (k === "Kira" ? "Kira" : k === "Maaş / SGK" ? "Maaş" : k === "Vergi" ? "Vergi / SGK" : ["Elektrik / su / doğalgaz", "İnternet / telefon"].includes(k) ? "Fatura / abonelik" : "Diğer");
+// GİZEM EV PLANLAMA PROGRAMI: ev harcamasi kategorileri
+const KAT = ["Market / gıda", "Fatura (elektrik, su, doğalgaz)", "İnternet / telefon", "Kira / aidat", "Ulaşım / yakıt", "Sağlık", "Eğitim", "Giyim", "Ev eşyası / temizlik", "Dışarıda yemek / eğlence", "Çocuk", "Diğer"];
+const planKat = (k: string) => (k === "Kira / aidat" ? "Kira" : ["Fatura (elektrik, su, doğalgaz)", "İnternet / telefon"].includes(k) ? "Fatura / abonelik" : "Diğer");
 const OS = ["Nakit", "Kredi kartı", "Havale / EFT", "Diğer"];
 const bugun = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
@@ -62,7 +63,7 @@ Deno.serve(async (req) => {
       if (l.kasa_id) {
         const [k] = await rest(`kasa?select=id,para_birimi&id=eq.${l.kasa_id}`);
         if (k && k.para_birimi === "TRY") {
-          const [h] = await rest("kasa_hareketleri", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ kasa_id: k.id, tarih, tutar: -tutar, aciklama: `Gider · ${kat}${aciklama ? " · " + aciklama : ""} · ${l.ad}`, kaynak: "gider" }) });
+          const [h] = await rest("kasa_hareketleri", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ kasa_id: k.id, tarih, tutar: -tutar, aciklama: `Ev harcaması · ${kat}${aciklama ? " · " + aciklama : ""} · ${l.ad}`, kaynak: "gider" }) });
           khId = h?.id ?? null;
         }
       }

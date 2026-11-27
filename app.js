@@ -584,6 +584,7 @@ const NAV = [
   { h: '#/odemeler', k: 'odeme', t: 'Ödemeler', i: 'cash', side: true },
   { h: '#/paytr', k: 'paytr', t: 'PayTR tahsilatları', i: 'card', side: true, sub: true },
   { h: '#/giderler', k: 'gider', t: 'Gelir / Gider', i: 'gider', side: true },
+  { h: '#/ev-planlama', k: 'ev', t: 'Gizem Ev Planlama', i: 'home', side: true, sub: true },
   { h: '#/raporlar', k: 'rapor', t: 'Raporlar', i: 'chart', side: true },
   { h: '#/ayarlar', k: 'ayar', t: 'Ayarlar', i: 'gear', side: true },
   { h: '#/daha', k: 'daha', t: 'Daha', i: 'more', bottom: true }
@@ -613,6 +614,7 @@ const ROUTES = [
   [/^#\/odemeler$/, 'odeme', viewOdemeTakvimi],
   [/^#\/paytr$/, 'paytr', viewPaytr],
   [/^#\/giderler$/, 'gider', viewGiderler],
+  [/^#\/ev-planlama$/, 'ev', viewEvPlan],
   [/^#\/tahsilatlar$/, 'odeme', viewOdemeTakvimi],
   [/^#\/fabrikalar$/, 'cin', viewFabrikalar],
   [/^#\/fiyat-listeleri$/, 'fiyat', viewFiyatListeleri],
@@ -634,7 +636,7 @@ function shell(active) {
         <main class="view" id="view"><div class="loading"><div class="spinner"></div>Yükleniyor…</div></main>
       </div>
       <nav class="bottomnav">
-        ${NAV.filter((n) => !n.side).map((n) => `<a href="${n.h}" class="${n.k === active || (n.k === 'daha' && ['rapor', 'ayar', 'cin', 'odeme', 'paytr', 'gider', 'vsim', 'fiyat', 'soru'].includes(active)) ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
+        ${NAV.filter((n) => !n.side).map((n) => `<a href="${n.h}" class="${n.k === active || (n.k === 'daha' && ['rapor', 'ayar', 'cin', 'odeme', 'paytr', 'gider', 'ev', 'vsim', 'fiyat', 'soru'].includes(active)) ? 'active' : ''}">${icon(n.i)}${n.t}</a>`).join('')}
       </nav>
     </div>`;
 }
@@ -3467,6 +3469,7 @@ async function viewDaha() {
       <div class="row" data-go="#/cin"><div class="main-col"><div class="t">İthalat</div><div class="st">Fabrika siparişleri, aşamalar, yoldaki mallar, gümrük vergisi</div></div></div>
       <div class="row" data-go="#/vergi-simulator"><div class="main-col"><div class="t">Vergi simülatörü</div><div class="st">Eviye ithalatında depo giriş maliyeti, gümrük vergisi ve kâr hesabı (kayıt oluşturmaz)</div></div></div>
       <div class="row" data-go="#/odemeler"><div class="main-col"><div class="t">Ödemeler</div><div class="st">Yapılacak ödemeler, çekler, platform ödemeleri, müşteri taksitleri, aylık nakit akışı</div></div></div>
+      <div class="row" data-go="#/ev-planlama"><div class="main-col"><div class="t">Gizem Ev Planlama</div><div class="st">GİZEM EV PLANLAMA PROGRAMI’nda girilen harcamalar, kullanıcılar</div></div></div>
       <div class="row" data-go="#/giderler"><div class="main-col"><div class="t">Gelir / Gider</div><div class="st">Gider defteri, gelirler, sabit gelir ve giderler (kira, maaş, fatura), aylık özet</div></div></div>
       <div class="row" data-go="#/paytr"><div class="main-col"><div class="t">PayTR tahsilatları</div><div class="st">Kart ödemelerini cariye tahsilat olarak işle, makbuz al</div></div></div>
       <div class="row" data-go="#/fabrikalar"><div class="main-col"><div class="t">Fabrikalar</div><div class="st">Tedarikçi fabrikalar ve bakiyeleri</div></div></div>
@@ -6707,7 +6710,7 @@ async function tcmbGecmis(tarih, pb) {
   return r;
 }
 const GG_SEC = 'id,yon,kategori,gider_kategori,aciklama,tutar,para_birimi,kur,odenen_kur,vade_tarihi,odendi,odeme_tarihi,odeme_sekli,faturali,sabit_gider_id,kasa_hareket_id,kaynak,gider_link_id';
-const giderSorgu = () => api.get('odeme_plani', `select=${GG_SEC}&yon=eq.${encodeURIComponent('Ödeme')}&siparis_id=is.null&cin_siparis_id=is.null&cari_id=is.null&tetik=eq.Tarih&or=${encodeURIComponent('(kaynak.eq.Gider,kategori.in.("Kira","Maaş","Vergi / SGK","Fatura / abonelik"))')}&order=vade_tarihi.desc,id.desc&limit=5000`);
+const giderSorgu = () => api.get('odeme_plani', `select=${GG_SEC}&yon=eq.${encodeURIComponent('Ödeme')}&gider_link_id=is.null&siparis_id=is.null&cin_siparis_id=is.null&cari_id=is.null&tetik=eq.Tarih&or=${encodeURIComponent('(kaynak.eq.Gider,kategori.in.("Kira","Maaş","Vergi / SGK","Fatura / abonelik"))')}&order=vade_tarihi.desc,id.desc&limit=5000`);
 const gelirSorgu = () => api.get('odeme_plani', `select=${GG_SEC}&yon=eq.Tahsilat&kaynak=eq.Gelir&order=vade_tarihi.desc,id.desc&limit=5000`);
 
 async function viewGiderler() {
@@ -6783,8 +6786,7 @@ async function viewGiderler() {
 
   // ---- gider defteri / gelirler: sabit kalemler burada listelenmez (Sabit sekmesinde ve Planlanan'da) ----
   const sabitKalem = liste.filter((p) => p.sabit_gider_id);
-  if (ui.kisi && !gLinkler.some((x) => x.id === ui.kisi)) ui.kisi = null;
-  liste.splice(0, liste.length, ...liste.filter((p) => !p.sabit_gider_id && (!ui.kisi || gelir || p.gider_link_id === ui.kisi)));
+  liste.splice(0, liste.length, ...liste.filter((p) => !p.sabit_gider_id));
   const bugun = today(), ay0 = bugun.slice(0, 7);
   const aylar = [...new Set([ay0, ...liste.map((p) => String(giderTarih(p) || '').slice(0, 7)).filter(Boolean)])].sort().reverse();
   if (!aylar.includes(ui.ay)) ui.ay = ay0;
@@ -6809,7 +6811,7 @@ async function viewGiderler() {
       <div class="end"><div class="amt" style="color:${!p.odendi ? 'var(--orange)' : gelir ? 'var(--green)' : 'var(--text)'}">${gelir ? '+' : ''}${p.para_birimi !== 'TRY' ? fmtPB(p.tutar, p.para_birimi) : fmtTL(p.tutar)}</div>${giderDvz(p)}${p.odendi ? '' : `<button class="btn sm green" data-gode="${p.id}">${gelir ? 'Tahsil edildi' : 'Ödendi'}</button>`}</div></div>`;
   };
   $('#view').innerHTML = `${sekme}
-    <div class="toolbar" style="margin-bottom:10px;gap:8px;flex-wrap:wrap"><select class="input" id="gd-ay" style="max-width:220px">${aylar.map((a) => `<option value="${a}" ${a === ui.ay ? 'selected' : ''}>${ayAd(a)}</option>`).join('')}</select>${!gelir && gLinkler.length ? `<select class="input" id="gd-kisi" style="max-width:220px"><option value="">Herkesin girdikleri</option>${gLinkler.map((x) => `<option value="${x.id}" ${x.id === ui.kisi ? 'selected' : ''}>${esc(x.ad)} girdikleri</option>`).join('')}</select>` : ''}${!gelir && isAdmin() ? `<button class="btn" id="gd-link">Gider programı kullanıcıları${gLinkler.length ? ` · ${gLinkler.length}` : ''}</button>` : ''}</div>
+    <div class="toolbar" style="margin-bottom:10px;gap:8px;flex-wrap:wrap"><select class="input" id="gd-ay" style="max-width:220px">${aylar.map((a) => `<option value="${a}" ${a === ui.ay ? 'selected' : ''}>${ayAd(a)}</option>`).join('')}</select></div>
     <div class="kpis">
       <div class="kpi ${gelir ? 'green' : ''}"><div class="l">${ayAd(ui.ay)} · ${gelir ? 'tahsil edilen' : 'ödenen'}</div><div class="v num">${fmtTL(odT)}</div><div class="s">${odenen.length} kalem</div></div>
       <div class="kpi orange"><div class="l">${gelir ? 'Tahsil edilecek' : 'Ödenecek'}${gecikmis.length ? ' (gecikmiş dahil)' : ''}</div><div class="v num">${fmtTL(bkT)}</div><div class="s">${bekleyen.length} kalem</div></div>
@@ -6827,8 +6829,6 @@ async function viewGiderler() {
   $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); }));
   $('#gd-ay').onchange = (e) => { ui.ay = e.target.value; render(); };
   $('#gd-sabitler')?.addEventListener('click', (e) => { e.preventDefault(); ui.tab = 'sabit'; render(); });
-  $('#gd-link')?.addEventListener('click', () => giderLinkleri());
-  $('#gd-kisi')?.addEventListener('change', (e) => { ui.kisi = +e.target.value || null; render(); });
   $$('[data-gd]').forEach((r) => r.addEventListener('click', (e) => { if (e.target.closest('button')) return; giderForm(liste.find((p) => p.id === +r.dataset.gd), render, { gelir }); }));
   $$('[data-gode]').forEach((b) => (b.onclick = () => giderForm(liste.find((p) => p.id === +b.dataset.gode), render, { ode: true, gelir })));
 }
@@ -6943,6 +6943,47 @@ async function giderForm(p, sonra, { ode = false, gelir = false } = {}) {
 /* Gider programi kullanicilari: baska biri kendi telefonundaki "GRADDE Gider" programina (harcama) kullanici adi + sifreyle girer,
    sadece gider girer. Kasa, cari ya da baska veri goremez. Secilen kasa varsa gider o kasadan duser (kisi gormez). */
 const giderProgUrl = () => `${location.origin}${location.pathname.replace(/[^/]*$/, '')}harcama`;
+
+/* GİZEM EV PLANLAMA PROGRAMI'nda (harcama) girilenler: ay ay, kategoriye ve kisiye gore. Isletme gider defterine karismaz. */
+async function viewEvPlan() {
+  const ui = state.ui.ev ||= { ay: today().slice(0, 7), kisi: null };
+  topbar('Gizem Ev Planlama', { back: !wideScr(), actions: isAdmin() ? `<button class="tb-btn" id="ev-kul">${icon('users')}Kullanıcılar</button>` : '' });
+  const [liste, kisiler] = await Promise.all([
+    api.get('odeme_plani', `select=${GG_SEC},olusturma&gider_link_id=not.is.null&order=odeme_tarihi.desc,id.desc&limit=5000`),
+    isAdmin() ? api.get('gider_linkleri', 'select=id,ad,aktif,kullanici&order=ad.asc').catch(() => []) : []
+  ]);
+  $('#ev-kul')?.addEventListener('click', () => giderLinkleri());
+  const ad = (p) => kisiler.find((x) => x.id === p.gider_link_id)?.ad || '';
+  const ay0 = today().slice(0, 7);
+  const aylar = [...new Set([ay0, ...liste.map((p) => String(giderTarih(p) || '').slice(0, 7)).filter(Boolean)])].sort().reverse();
+  if (!aylar.includes(ui.ay)) ui.ay = ay0;
+  if (ui.kisi && !kisiler.some((x) => x.id === ui.kisi)) ui.kisi = null;
+  const ayAd = (a) => `${AY_AD[+a.slice(5) - 1]} ${a.slice(0, 4)}`;
+  const onceki = (a) => { const d = new Date(a + '-15T12:00:00'); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
+  const suz = (a) => liste.filter((p) => String(giderTarih(p) || '').slice(0, 7) === a && (!ui.kisi || p.gider_link_id === ui.kisi));
+  const sec = suz(ui.ay), top = sec.reduce((t, p) => t + giderTL(p), 0), gec = suz(onceki(ui.ay)).reduce((t, p) => t + giderTL(p), 0);
+  const fark = gec > 0 ? ((top - gec) / gec) * 100 : null;
+  const kat = {}; sec.forEach((p) => { const k = giderKat(p); kat[k] = (kat[k] || 0) + giderTL(p); });
+  const katS = Object.entries(kat).sort((a, b) => b[1] - a[1]), katMax = Math.max(1, ...katS.map((x) => x[1]));
+  const gun = {}; sec.forEach((p) => (gun[giderTarih(p)] ||= []).push(p));
+  $('#view').innerHTML = `
+    <div class="toolbar" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
+      <select class="input" id="ev-ay" style="max-width:220px">${aylar.map((a) => `<option value="${a}" ${a === ui.ay ? 'selected' : ''}>${ayAd(a)}</option>`).join('')}</select>
+      ${kisiler.length > 1 ? `<select class="input" id="ev-kisi" style="max-width:220px"><option value="">Herkes</option>${kisiler.map((x) => `<option value="${x.id}" ${x.id === ui.kisi ? 'selected' : ''}>${esc(x.ad)}</option>`).join('')}</select>` : ''}
+    </div>
+    <div class="kpis">
+      <div class="kpi orange"><div class="l">${ayAd(ui.ay)} · harcama</div><div class="v num">${fmtTL(top)}</div><div class="s">${sec.length} kalem</div></div>
+      <div class="kpi ${fark === null ? '' : fark > 0 ? 'red' : 'green'}"><div class="l">Geçen aya göre</div><div class="v num">${fark === null ? '–' : `${fark > 0 ? '+' : '−'}%${fmtN(Math.abs(Math.round(fark)))}`}</div><div class="s">${ayAd(onceki(ui.ay))}: ${fmtTL(gec)}</div></div>
+    </div>
+    ${katS.length ? `<div class="card"><h2>Kategoriye göre</h2><div class="akis">${katS.map(([k, v]) => `<div class="ak-row"><div class="ak-ad">${esc(k)}</div><div class="ak-bar"><i class="c" style="width:${(v / katMax) * 100}%"></i></div><div class="ak-n"><span class="tiny">%${fmtN(Math.round((v / (top || 1)) * 100))}</span><b>${fmtTL(v)}</b></div></div>`).join('')}</div></div>` : ''}
+    ${Object.keys(gun).sort().reverse().map((d) => `<div class="section-title">${fmtD(d)} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${fmtTL(gun[d].reduce((t, p) => t + giderTL(p), 0))}</span></div>
+      <div class="list">${gun[d].map((p) => `<div class="row" data-ev="${p.id}"><div class="main-col"><div class="t">${esc(p.aciklama || giderKat(p))} <span class="badge">${esc(giderKat(p))}</span>${p.faturali ? ' <span class="badge b-blue">Fişli</span>' : ''}</div>
+        <div class="st">${ad(p) ? `${esc(ad(p))} · ` : ''}${esc(p.odeme_sekli || '')}${p.kasa_hareket_id ? ' · kasadan düştü' : ''}</div></div><div class="end"><div class="amt">${fmtTL(p.tutar)}</div></div></div>`).join('')}</div>`).join('')
+      || `<div class="card empty">${ayAd(ui.ay)} için girilmiş harcama yok.${isAdmin() && !kisiler.length ? ' Sağ üstteki “Kullanıcılar”dan programı kullanacak kişiyi ekleyin.' : ''}</div>`}`;
+  $('#ev-ay').onchange = (e) => { ui.ay = e.target.value; render(); };
+  $('#ev-kisi')?.addEventListener('change', (e) => { ui.kisi = +e.target.value || null; render(); });
+  $$('[data-ev]').forEach((r) => (r.onclick = () => giderForm(liste.find((p) => p.id === +r.dataset.ev), render)));
+}
 const rastSifre = () => { const h = 'abcdefghjkmnpqrstuvwxyz23456789'; return Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => h[b % h.length]).join(''); };
 async function giderLinkleri() {
   const [linkler, kasalar, sayim] = await Promise.all([
@@ -6952,7 +6993,7 @@ async function giderLinkleri() {
   ]);
   const tlKasa = kasalar.filter((k) => k.para_birimi === 'TRY');
   const firma = state.ayarlar?.firma_adi || '';
-  const mesaj = (l, sifre) => `Merhaba ${l.ad},\n${firma ? `${firma} ` : ''}gider programına buradan girebilirsiniz:\n${giderProgUrl()}\n\nKullanıcı adı: ${l.kullanici}\n${sifre ? `Şifre: ${sifre}` : 'Şifrenizi ayrıca ileteceğim.'}\n\nTelefonda açtıktan sonra Paylaş → “Ana Ekrana Ekle” ile uygulama gibi kullanabilirsiniz.`;
+  const mesaj = (l, sifre) => `Merhaba ${l.ad},\nGİZEM EV PLANLAMA PROGRAMI’na buradan girebilirsiniz:\n${giderProgUrl()}\n\nKullanıcı adı: ${l.kullanici}\n${sifre ? `Şifre: ${sifre}` : 'Şifrenizi ayrıca ileteceğim.'}\n\nTelefonda açtıktan sonra Paylaş → “Ana Ekrana Ekle” ile uygulama gibi kullanabilirsiniz.`;
   const kurulum = (l, sifre) => modal({
     title: `${l.ad} · program bilgileri`,
     body: `<p class="small" style="margin:0 0 10px">Bu bilgileri ${esc(l.ad)}’a gönderin. ${sifre ? '<b>Şifre bir daha gösterilmez</b>; unutulursa yeni şifre belirlersiniz.' : ''}</p>
@@ -6983,9 +7024,9 @@ async function giderLinkleri() {
     }).catch(fail); }
   });
   modal({
-    title: 'Gider programı kullanıcıları',
+    title: 'Program kullanıcıları',
     wide: true,
-    body: `<p class="small" style="margin:0 0 12px">Gider girecek kişiye ayrı bir <b>Gider programı</b> açın. Kişi kendi telefonunda programa kullanıcı adı ve şifresiyle girer, <b>sadece gider girer</b> ve kendi girdiklerini görür. Kasanızı, carilerinizi ya da başka bir bilgiyi göremez. Girdiği giderler gider defterinize anında “… girdi” etiketiyle düşer.</p>
+    body: `<p class="small" style="margin:0 0 12px"><b>GİZEM EV PLANLAMA PROGRAMI</b>’nı kullanacak kişiler. Kişi kendi telefonunda programa kullanıcı adı ve şifresiyle girer, <b>sadece harcama girer</b> ve kendi girdiklerini görür. Kasanızı, carilerinizi ya da işletmeye ait başka bir bilgiyi göremez. Girdikleri bu menüde (Gizem Ev Planlama) görünür; işletmenin gider defterine karışmaz.</p>
       <div class="card" style="margin:0 0 14px"><div class="grid2">
         <div class="field"><label>Kişinin adı</label><input class="input" id="gl-ad" placeholder="Örn. Ahmet"></div>
         <div class="field"><label>Kullanıcı adı</label><input class="input" id="gl-k" autocapitalize="off" placeholder="örn. ahmet"></div>
@@ -7008,7 +7049,7 @@ async function giderLinkleri() {
       $('#gl-lst', m.el).addEventListener('click', async (e) => {
         const b = e.target.closest('button'); if (!b) return;
         const id = +(b.dataset.gor || b.dataset.kur || b.dataset.sf || b.dataset.ac || b.dataset.sil), l = linkler.find((x) => x.id === id); if (!l) return;
-        if (b.dataset.gor) { m.close(); const ui = state.ui.gider ||= {}; ui.tab = 'defter'; ui.kisi = l.id; render(); return; }
+        if (b.dataset.gor) { m.close(); const ui = state.ui.ev ||= {}; ui.kisi = l.id; if (location.hash !== '#/ev-planlama') location.hash = '#/ev-planlama'; else render(); return; }
         if (b.dataset.kur) return kurulum(l, null);
         if (b.dataset.sf) return sifreForm(l);
         if (b.dataset.sil) {
@@ -7263,7 +7304,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.59';
+const APP_V = '2.60';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
