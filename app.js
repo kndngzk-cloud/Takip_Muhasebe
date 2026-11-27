@@ -3327,6 +3327,7 @@ async function raporSermaye(el) {
         <text x="90" y="84" text-anchor="middle" class="sm-g-l">TOPLAM</text><text x="90" y="104" text-anchor="middle" class="sm-g-v">${fmtTL(Math.round(toplam)).replace(/,\d+/, '')}</text></svg></div>
       <div class="sm-lejant">${K.map(([k, ad, v, renk]) => `<button class="sm-lj" data-sd="${k}"><i style="background:${renk}"></i><span>${esc(ad)}</span><b>${yzT(v)}</b><em>${fmtTL(v)}</em></button>`).join('')}</div>
     </div>
+    <div class="card" id="sm-trend"><div class="tiny">Günlük değişim yükleniyor…</div></div>
     <div class="card sermaye-top"><div class="l">Toplam sermaye</div><div class="v num">${fmtTL(toplam)}</div>
       <div class="tiny">${fmtD(today())} · ayrıntı için bir kaleme dokunun</div></div>
     <div class="kpis">${K.map(([k, ad, v, renk, alt]) => `<button class="kpi sm-kpi" data-sd="${k}" style="border-top-color:${renk}"><div class="l">${esc(ad)}</div><div class="v num">${fmtTL(v)}</div>
@@ -3370,6 +3371,78 @@ async function raporSermaye(el) {
     modal({ title: x[1], body: ust(k) + govde, foot: '<button class="btn" data-close>Kapat</button>', wide: true, onMount: ({ el: m, close }) => { $$('[data-go]', m).forEach((r) => (r.onclick = () => { close(); go(r.dataset.go); })); } });
   };
   $$('[data-sd]', el).forEach((b) => (b.onclick = () => ac(b.dataset.sd).catch(fail)));
+  sermayeTrend($('#sm-trend', el), K).catch((e) => { const t = $('#sm-trend', el); if (t) t.innerHTML = `<div class="tiny">Günlük değişim yüklenemedi: ${esc(e.message || e)}</div>`; });
+}
+
+// Sermaye kalemlerinin gun gun degisimi (cizgi grafik). Veri sermaye_gunluk tablosundan: her saat basi o gunun fotografi alinir.
+async function sermayeTrend(kutu, K) {
+  if (!kutu) return;
+  await api.rpc('sermaye_gunluk_kaydet').catch(() => {}); // bugunun degeri guncel olsun
+  const tum = await api.get('sermaye_gunluk', 'select=*&order=tarih.asc&limit=5000');
+  const ilk = tum[0]?.tarih || today(), son = today();
+  let t1 = addDays(son, -29) < ilk ? ilk : addDays(son, -29), t2 = son, mod = 'kalem';
+  const gizli = new Set();
+  const seri = () => (mod === 'kalem' ? K.map(([k, ad, , renk]) => ({ k, ad, renk }))
+    : [{ k: 'toplam', ad: 'Toplam sermaye', renk: '#0f1b33' }, { k: 'net', ad: 'Borç düşülünce (net)', renk: '#8a93a8', kesik: true }]);
+  const deger = (r, k) => (k === 'net' ? num(r.toplam) - num(r.borc) : num(r[k]));
+  const kisa = (v) => { const a = Math.abs(v); return a >= 1e6 ? `${fmtN(Math.round(v / 1e5) / 10)} Mn` : a >= 1e3 ? `${fmtN(Math.round(v / 1e2) / 10)} B` : fmtN(Math.round(v)); };
+  const ciz = () => {
+    const ls = tum.filter((x) => x.tarih >= t1 && x.tarih <= t2), S = seri().filter((x) => !gizli.has(x.k));
+    const W = 680, H = 280, pl = 58, pr = 12, pt = 12, pb = 30, iw = W - pl - pr, ih = H - pt - pb;
+    let svg = '', ozet = '';
+    if (!ls.length) svg = '<div class="empty" style="padding:30px 0">Bu tarih aralığında kayıt yok.</div>';
+    else {
+      const vs = ls.flatMap((r) => S.map((x) => deger(r, x.k)));
+      let mn = mod === 'toplam' ? Math.min(...vs) : Math.min(0, ...vs), mx = Math.max(1, ...vs);
+      const adim = (() => { const ham = (mx - mn) / 5, us = 10 ** Math.floor(Math.log10(ham || 1)); return [1, 2, 2.5, 5, 10].map((c) => c * us).find((c) => c >= ham) || ham; })();
+      mn = Math.floor(mn / adim) * adim; mx = Math.ceil(mx / adim) * adim;
+      const X = (i) => pl + (ls.length === 1 ? iw / 2 : (i / (ls.length - 1)) * iw), Y = (v) => pt + ih - ((v - mn) / (mx - mn || 1)) * ih;
+      let g = '';
+      for (let v = mn; v <= mx + adim / 2; v += adim) g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${pl - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="var(--text-3)">${kisa(v)}</text>`;
+      const xAdim = Math.max(1, Math.ceil(ls.length / 7));
+      ls.forEach((r, i) => { if (i % xAdim === 0 || (i === ls.length - 1 && i % xAdim >= xAdim / 2)) g += `<text x="${X(i)}" y="${H - 10}" text-anchor="middle" font-size="11" fill="var(--text-3)">${fmtD(r.tarih).slice(0, 5)}</text>`; });
+      const nokta = ls.length <= 45;
+      const cizgi = S.map((x) => `<polyline fill="none" stroke="${x.renk}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"${x.kesik ? ' stroke-dasharray="5 4"' : ''} points="${ls.map((r, i) => `${X(i).toFixed(1)},${Y(deger(r, x.k)).toFixed(1)}`).join(' ')}"/>`
+        + (nokta || ls.length === 1 ? ls.map((r, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(deger(r, x.k)).toFixed(1)}" r="${ls.length === 1 ? 4 : 2.6}" fill="${x.renk}"/>`).join('') : '')).join('');
+      svg = `<svg id="smt-svg" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;touch-action:pan-y" role="img" aria-label="Sermaye kalemlerinin günlük değişimi">${g}${cizgi}
+        <line id="smt-imlec" x1="0" x2="0" y1="${pt}" y2="${pt + ih}" stroke="var(--text-3)" stroke-dasharray="3 3" visibility="hidden"/><rect x="${pl}" y="${pt}" width="${iw}" height="${ih}" fill="transparent" id="smt-alan"/></svg>
+        <div id="smt-bilgi" class="tiny" style="min-height:20px;margin-top:4px">Değerleri görmek için grafiğin üzerine gelin ya da dokunun.</div>`;
+      kutu._noktalar = { ls, X, S };
+      const a = ls[0], b = ls[ls.length - 1];
+      ozet = `<div class="table-wrap" style="margin:10px -4px 0"><table class="tbl"><thead><tr><th>Kalem</th><th class="r">${fmtD(a.tarih)}</th><th class="r">${fmtD(b.tarih)}</th><th class="r">Değişim</th></tr></thead><tbody>${seri().map((x) => {
+        const d1 = deger(a, x.k), d2 = deger(b, x.k), f = d2 - d1;
+        return `<tr><td><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${x.renk};margin-right:6px"></i>${esc(x.ad)}</td><td class="r">${fmtTL(d1)}</td><td class="r"><b>${fmtTL(d2)}</b></td>
+          <td class="r" style="color:${f > 0.5 ? 'var(--green)' : f < -0.5 ? 'var(--red)' : 'inherit'}"><b>${f > 0.5 ? '+' : ''}${fmtTL(f)}</b>${Math.abs(d1) > 0.5 ? `<div class="tiny">${f > 0 ? '+' : f < 0 ? '−' : ''}%${fmtN(Math.abs(Math.round((f / Math.abs(d1)) * 1000) / 10))}</div>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+    }
+    kutu.innerHTML = `<h2 style="margin-bottom:10px">Günlük değişim</h2>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+        <input type="date" id="smt-1" value="${t1}" min="${ilk}" max="${son}" style="width:auto"> <span>–</span> <input type="date" id="smt-2" value="${t2}" min="${ilk}" max="${son}" style="width:auto">
+        <div class="seg" id="smt-hiz" style="display:inline-flex">${[[7, '7 gün'], [30, '30 gün'], [90, '90 gün'], [0, 'Tümü']].map(([n, a]) => `<button type="button" data-n="${n}" style="padding:4px 10px">${a}</button>`).join('')}</div>
+        <div class="seg" id="smt-mod" style="display:inline-flex"><button type="button" data-v="kalem" class="${mod === 'kalem' ? 'on' : ''}" style="padding:4px 10px">Kalemler</button><button type="button" data-v="toplam" class="${mod === 'toplam' ? 'on' : ''}" style="padding:4px 10px">Toplam</button></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-bottom:6px">${seri().map((x) => `<button type="button" data-gz="${x.k}" style="background:none;border:0;padding:2px 0;font:inherit;font-size:13px;color:inherit;cursor:pointer;opacity:${gizli.has(x.k) ? 0.35 : 1}"><i style="display:inline-block;width:14px;height:${x.kesik ? 2 : 3}px;background:${x.renk};vertical-align:middle;margin-right:6px;border-radius:2px"></i>${esc(x.ad)}</button>`).join('')}</div>
+      ${svg}${ozet}
+      <p class="tiny" style="margin-top:8px">Kayıtlar ${fmtD(ilk)} tarihinden itibaren her saat otomatik alınır; her günün son kaydı o günün değeridir. Bu tarihten öncesi için kayıt yoktur. Bir kaleme dokunarak grafikte gizleyip gösterebilirsiniz.</p>`;
+    $('#smt-1', kutu).onchange = (e) => { t1 = e.target.value || ilk; if (t1 > t2) t2 = t1; ciz(); };
+    $('#smt-2', kutu).onchange = (e) => { t2 = e.target.value || son; if (t2 < t1) t1 = t2; ciz(); };
+    $('#smt-hiz', kutu).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const n = +b.dataset.n; t2 = son; t1 = n ? (addDays(son, -(n - 1)) < ilk ? ilk : addDays(son, -(n - 1))) : ilk; ciz(); };
+    $('#smt-mod', kutu).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; mod = b.dataset.v; gizli.clear(); ciz(); };
+    $$('[data-gz]', kutu).forEach((b) => (b.onclick = () => { gizli.has(b.dataset.gz) ? gizli.delete(b.dataset.gz) : gizli.add(b.dataset.gz); ciz(); }));
+    const alan = $('#smt-alan', kutu);
+    if (alan) {
+      const svgEl = $('#smt-svg', kutu), im = $('#smt-imlec', kutu), bilgi = $('#smt-bilgi', kutu);
+      const goster = (ev) => {
+        const { ls: L, X: XX, S: SS } = kutu._noktalar, bx = svgEl.getBoundingClientRect(), x = ((ev.clientX - bx.left) / bx.width) * W;
+        let i = 0, en = Infinity; L.forEach((_, j) => { const d = Math.abs(XX(j) - x); if (d < en) { en = d; i = j; } });
+        im.setAttribute('x1', XX(i)); im.setAttribute('x2', XX(i)); im.setAttribute('visibility', 'visible');
+        bilgi.innerHTML = `<b>${fmtD(L[i].tarih)}</b> · ${SS.map((s) => `<span style="color:${s.renk};font-weight:700">●</span> ${esc(s.ad)} ${fmtTL(deger(L[i], s.k))}`).join(' · ')}${mod === 'kalem' ? ` · <b>Toplam ${fmtTL(L[i].toplam)}</b>` : ''}`;
+      };
+      alan.addEventListener('pointermove', goster); alan.addEventListener('pointerdown', goster);
+    }
+    const hb = $$('#smt-hiz button', kutu), sec = t2 !== son ? null : hb.find((x) => +x.dataset.n && t1 === addDays(son, -(+x.dataset.n - 1))) || (t1 === ilk ? hb.find((x) => x.dataset.n === '0') : null);
+    hb.forEach((x) => x.classList.toggle('on', x === sec));
+  };
+  ciz();
 }
 
 /* ---- 7) Nakit akisi tahmini (haftalik) ---- */
@@ -7364,7 +7437,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.64';
+const APP_V = '2.65';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

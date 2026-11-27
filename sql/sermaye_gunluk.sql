@@ -1,0 +1,4 @@
+-- Sermaye gunluk fotografi (Raporlar > Sermaye > Gunluk degisim grafigi). Supabase'e uygulandi 27.11.2026.
+-- tablo public.sermaye_gunluk (tarih pk, stok, yolda, alacak, cek, platform, kasa, borc, toplam), RLS: sadece admin okur.
+-- public.sermaye_gunluk_kaydet(): sermaye_ozet() + kasa (TL) ile bugunun satirini upsert eder.
+-- cron 'sermaye-gunluk' '53 * * * *' (saat basi); uygulama sermaye ekrani acilinca da cagirir.
