@@ -7664,7 +7664,7 @@ async function viewB2B() {
   $$('[data-c]').forEach((r) => (r.onclick = () => go(`#/cari/${r.dataset.c}`)));
 }
 
-const APP_V = '2.68';
+const APP_V = '2.69';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

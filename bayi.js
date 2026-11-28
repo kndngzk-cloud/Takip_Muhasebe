@@ -57,7 +57,7 @@
     document.title = 'Bayi Portalı';
     $('#modal-root').innerHTML = ''; document.body.style.overflow = '';
     $('#app').innerHTML = `<div class="by-giris"><div class="card">
-      <div class="by-marka"><img src="icons/icon-192-v4.png" alt=""><div><b>Bayi Portalı</b><small>Size verilen kullanıcı adı ve şifreyle girin</small></div></div>
+      <div class="by-marka"><img src="icons/lama-192.png" alt=""><div><b>Bayi Portalı</b><small>Size verilen kullanıcı adı ve şifreyle girin</small></div></div>
       <div class="field"><label>Kullanıcı adı</label><input class="input" id="g-k" autocapitalize="off" autocomplete="username"></div>
       <div class="field"><label>Şifre</label><input class="input" id="g-s" type="password" autocomplete="current-password"></div>
       <button class="btn primary" id="g-ok" style="width:100%;margin-top:4px">Giriş yap</button>
@@ -81,7 +81,7 @@
 
   async function ana() {
     if (!tOku()) return giris();
-    $('#app').innerHTML = `<div class="main"><header class="topbar"><h1 id="u-bas">Bayi Portalı</h1><button class="tb-btn" id="u-hes">${ik('kisi')}Hesabım</button></header>
+    $('#app').innerHTML = `<div class="main"><header class="topbar"><img class="by-logo" src="icons/lama-192.png" alt=""><h1 id="u-bas">Bayi Portalı</h1><button class="tb-btn" id="u-hes">${ik('kisi')}Hesabım</button></header>
       <main class="view" id="view"><div class="loading"><div class="spinner"></div>Yükleniyor…</div></main></div><nav class="bottomnav" id="nav"></nav>`;
     try { bilgi = await cagir({ islem: 'bilgi' }); } catch (e) { if (tOku()) hataGoster(e); return; }
     const y = bilgi.yetkiler;
