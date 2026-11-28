@@ -7496,13 +7496,13 @@ const B2B_YETKI = [
 ];
 const b2bYetkiOzet = (y) => {
   y = { ...B2B_VARS, ...(y || {}) };
-  return [y.siparis && `Sipariş${y.oto_onay ? ' (onaysız)' : ''} · ${y.fatura === 'ikisi' ? 'R+GR' : y.fatura}`, y.siparislerim && 'Geçmiş', (y.ekstre_r || y.ekstre_gr) && `Ekstre ${[y.ekstre_r && 'R', y.ekstre_gr && 'GR'].filter(Boolean).join('+')}`, y.kart_odeme && `Kart (${y.odeme_tipi}${y.max_taksit > 1 ? `, ${y.max_taksit} taksit` : ''})`].filter(Boolean).join(' · ') || 'Yetki yok';
+  return [y.siparis && `Sipariş${y.oto_onay ? ' (onaysız)' : ''} · ${y.fatura === 'ikisi' ? 'R+GR' : y.fatura}`, y.siparislerim && 'Geçmiş', (y.ekstre_r || y.ekstre_gr) && `Ekstre ${[y.ekstre_r && 'R', y.ekstre_gr && 'GR'].filter(Boolean).join('+')}`, y.kart_odeme && `Kart (${y.odeme_tipi === 'ikisi' ? 'R/GR' : y.odeme_tipi}${y.max_taksit > 1 ? `, ${y.max_taksit} taksit` : ''})`].filter(Boolean).join(' · ') || 'Yetki yok';
 };
 function b2bYetkiFormu(y) {
   y = { ...B2B_VARS, ...(y || {}) };
   return `${B2B_YETKI.map(([g, l]) => `<div class="section-title" style="margin-top:10px">${g}</div><div class="card" style="margin:0 0 6px;padding:6px 12px">${l.map(([k, t, a]) => `<label class="check" style="display:flex;gap:10px;align-items:flex-start;padding:7px 0"><input type="checkbox" data-y="${k}" ${y[k] ? 'checked' : ''} style="margin-top:3px"><span><b style="font-weight:600">${t}</b>${a ? `<div class="tiny">${a}</div>` : ''}</span></label>`).join('')}
       ${g === 'Sipariş' ? `<div class="field" style="margin:6px 0"><label>Siparişler hangi faturayla girilsin?</label><select class="input" data-yv="fatura"><option value="R" ${y.fatura === 'R' ? 'selected' : ''}>R (faturalı, KDV eklenir)</option><option value="GR" ${y.fatura === 'GR' ? 'selected' : ''}>GR (faturasız)</option><option value="ikisi" ${y.fatura === 'ikisi' ? 'selected' : ''}>Müşteri seçsin (R ya da GR)</option></select></div>` : ''}
-      ${g === 'Ödeme' ? `<div class="grid2" style="margin:6px 0"><div class="field"><label>Ödeme hangi hesaba düşsün?</label><select class="input" data-yv="odeme_tipi"><option value="R" ${y.odeme_tipi === 'R' ? 'selected' : ''}>R hesabı</option><option value="GR" ${y.odeme_tipi === 'GR' ? 'selected' : ''}>GR hesabı</option></select></div>
+      ${g === 'Ödeme' ? `<div class="grid2" style="margin:6px 0"><div class="field"><label>Ödeme hangi hesaba düşsün?</label><select class="input" data-yv="odeme_tipi"><option value="R" ${y.odeme_tipi === 'R' ? 'selected' : ''}>R hesabı</option><option value="GR" ${y.odeme_tipi === 'GR' ? 'selected' : ''}>GR hesabı</option><option value="ikisi" ${y.odeme_tipi === 'ikisi' ? 'selected' : ''}>Müşteri seçsin (R ya da GR)</option></select></div>
         <div class="field"><label>En fazla taksit</label><select class="input" data-yv="max_taksit">${[1, 2, 3].map((n) => `<option value="${n}" ${+y.max_taksit === n ? 'selected' : ''}>${n === 1 ? 'Tek çekim' : `${n} taksit`}</option>`).join('')}</select></div></div>` : ''}</div>`).join('')}`;
 }
 const b2bYetkiOku = (el) => {
@@ -7664,7 +7664,7 @@ async function viewB2B() {
   $$('[data-c]').forEach((r) => (r.onclick = () => go(`#/cari/${r.dataset.c}`)));
 }
 
-const APP_V = '2.69';
+const APP_V = '2.70';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

@@ -10,7 +10,7 @@
 //  POST {islem:"siparis_detay", t, id} | {islem:"talep_detay", t, id}
 //  POST {islem:"talep_iptal", t, id}                 -> onay bekleyen talebini iptal eder
 //  POST {islem:"ekstre", t, tip:"R"|"GR"}            -> cari hareketleri, yuruyen bakiye
-//  POST {islem:"odeme", t}                           -> kartla odeme sayfasi (odeme.html) anahtari
+//  POST {islem:"odeme", t, tip:"R"|"GR"}             -> kartla odeme sayfasi (odeme.html) anahtari (tip: odemenin dusecegi hesap)
 //  POST {islem:"sifre", t, eski, yeni}               -> { t } (yeni oturum anahtari)
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -35,7 +35,7 @@ type Yetki = typeof VARS;
 const yetki = (y: Record<string, unknown>): Yetki => {
   const v = { ...VARS, ...(y || {}) } as Yetki;
   if (!["R", "GR", "ikisi"].includes(v.fatura)) v.fatura = "R";
-  if (!["R", "GR"].includes(v.odeme_tipi)) v.odeme_tipi = "R";
+  if (!["R", "GR", "ikisi"].includes(v.odeme_tipi)) v.odeme_tipi = "R";
   v.max_taksit = Math.min(3, Math.max(1, Math.round(n(v.max_taksit) || 1)));
   return v;
 };
@@ -205,17 +205,24 @@ Deno.serve(async (req) => {
 
     if (b.islem === "odeme") {
       if (!y.kart_odeme) return yok();
-      const ist = { cari_id: c.id, fatura_tipi: y.odeme_tipi, max_taksit: y.max_taksit, bakiye_goster: y.odeme_tipi === "R" ? y.ekstre_r : y.ekstre_gr, aktif: true };
-      let l = null;
-      if (u.odeme_link_id) [l] = await rest(`odeme_linkleri?select=id,token,fatura_tipi,max_taksit,bakiye_goster,aktif,cari_id&id=eq.${u.odeme_link_id}`);
-      if (l && l.cari_id !== c.id) l = null;
-      if (!l) {
-        [l] = await rest("odeme_linkleri", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...ist, ad: `Bayi portalı · ${u.ad}`, aciklama: "Bayi portalından kartla ödeme" }) });
-        await rest(`b2b_kullanicilari?id=eq.${u.id}`, { method: "PATCH", body: JSON.stringify({ odeme_link_id: l.id }) });
-      } else if (l.fatura_tipi !== ist.fatura_tipi || l.max_taksit !== ist.max_taksit || l.bakiye_goster !== ist.bakiye_goster || !l.aktif) {
-        await rest(`odeme_linkleri?id=eq.${l.id}`, { method: "PATCH", body: JSON.stringify({ fatura_tipi: ist.fatura_tipi, max_taksit: ist.max_taksit, bakiye_goster: ist.bakiye_goster, aktif: true }) });
+      // odeme_tipi "ikisi" ise musteri R ya da GR hesabina odemeyi secer; her hesap icin ayri odeme linki tutulur
+      const izinli = y.odeme_tipi === "ikisi" ? ["R", "GR"] : [y.odeme_tipi];
+      const tip = izinli.includes(b.tip) ? b.tip : izinli[0];
+      const ist = { cari_id: c.id, fatura_tipi: tip, max_taksit: y.max_taksit, bakiye_goster: tip === "R" ? y.ekstre_r : y.ekstre_gr, aktif: true };
+      const isaret = `Bayi portalı #${u.id} · ${tip}`; // linkin adi (yonetici odeme linkleri listesinde gorur; musteriye gosterilmez)
+      const SEC = "id,token,fatura_tipi,max_taksit,bakiye_goster,aktif,cari_id";
+      let [l] = await rest(`odeme_linkleri?select=${SEC}&cari_id=eq.${c.id}&ad=eq.${encodeURIComponent(isaret)}&order=id.desc&limit=1`);
+      if (!l && u.odeme_link_id) { // ilk surumde acilan link (tek hesap)
+        const [e] = await rest(`odeme_linkleri?select=${SEC}&id=eq.${u.odeme_link_id}`);
+        if (e && e.cari_id === c.id && e.fatura_tipi === tip) { l = e; await rest(`odeme_linkleri?id=eq.${e.id}`, { method: "PATCH", body: JSON.stringify({ ad: isaret }) }); }
       }
-      return json({ token: l.token });
+      if (!l) {
+        [l] = await rest("odeme_linkleri", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...ist, ad: isaret, aciklama: "Bayi portalından kartla ödeme" }) });
+        if (!u.odeme_link_id) await rest(`b2b_kullanicilari?id=eq.${u.id}`, { method: "PATCH", body: JSON.stringify({ odeme_link_id: l.id }) });
+      } else if (l.max_taksit !== ist.max_taksit || l.bakiye_goster !== ist.bakiye_goster || !l.aktif) {
+        await rest(`odeme_linkleri?id=eq.${l.id}`, { method: "PATCH", body: JSON.stringify({ max_taksit: ist.max_taksit, bakiye_goster: ist.bakiye_goster, aktif: true }) });
+      }
+      return json({ token: l.token, tip });
     }
 
     if (b.islem === "sifre") {

@@ -323,26 +323,33 @@
       <p class="tiny no-print" style="margin:0 4px">Pozitif bakiye size ait borcu gösterir. Sevk edilmemiş siparişler sevk edilince bakiyeye girer.</p>`;
     $('#e-tip')?.addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (!b) return; eTip = b.dataset.t; cizNo++; hesapCiz(); });
     $('#e-yaz').onclick = () => window.print();
-    $('#e-ode')?.addEventListener('click', odemeAc);
+    $('#e-ode')?.addEventListener('click', (ev) => (odemeTipleri().includes(eTip) ? odemeAc(ev, eTip) : (sekme = 'odeme', ciz())));
   }
 
   /* ---------- Ödeme (PayTR, odeme.html) ---------- */
-  async function odemeAc(e) {
+  const odemeTipleri = () => (bilgi.yetkiler.odeme_tipi === 'ikisi' ? ['R', 'GR'] : [bilgi.yetkiler.odeme_tipi || 'R']);
+  async function odemeAc(e, tip) {
     const b = e?.currentTarget; if (b) b.disabled = true;
     const w = window.open('', '_blank');
-    try { const r = await cagir({ islem: 'odeme' }); const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}odeme#${r.token}`; if (w) w.location = url; else location.href = url; }
+    try { const r = await cagir({ islem: 'odeme', tip: tip || odemeTipleri()[0] }); const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}odeme#${r.token}`; if (w) w.location = url; else location.href = url; }
     catch (err) { if (w) w.close(); toast(err.message, 'err'); }
     if (b) b.disabled = false;
   }
   function odemeCiz() {
-    const y = bilgi.yetkiler, bk = y.odeme_tipi === 'R' ? bilgi.bakiye.r : bilgi.bakiye.gr;
+    const y = bilgi.yetkiler, tipler = odemeTipleri();
+    const ad = (t) => (t === 'R' ? 'Faturalı (R)' : 'Faturasız (GR)');
+    const bak = (t) => (t === 'R' ? bilgi.bakiye.r : bilgi.bakiye.gr);
+    const bkHtml = (t) => { const v = bak(t); if (v === null || v === undefined) return ''; return `<div class="l">${ad(t)} hesap · ${v > 0.005 ? 'borcunuz' : v < -0.005 ? 'alacağınız' : 'borç yok'}</div><div class="v">${tl(Math.abs(v))}</div>`; };
+    // odenemeyen ama gorulebilen hesapta borc varsa bilgi olarak goster
+    const diger = ['R', 'GR'].filter((t) => !tipler.includes(t) && (bak(t) ?? 0) > 0.005);
     $('#view').innerHTML = `<div class="card">
         <h3 style="margin:0 0 6px">Kredi kartı ile ödeme</h3>
-        <p class="small" style="margin:0 0 12px">Ödemeniz güvenli PayTR ödeme sayfasında alınır ve ${y.odeme_tipi === 'R' ? 'faturalı' : 'faturasız'} cari hesabınıza otomatik işlenir.${y.max_taksit > 1 ? ` ${y.max_taksit} taksite kadar ödeyebilirsiniz.` : ''}</p>
-        ${bk !== null && bk !== undefined ? `<div class="stat" style="margin-bottom:12px"><div class="l">${bk > 0.005 ? 'Güncel borcunuz' : 'Bakiye'}</div><div class="v">${tl(Math.abs(bk))}</div></div>` : ''}
-        <button class="btn green" id="p-ode" style="width:100%;font-size:17px;padding:14px">${ik('kart')} Ödeme sayfasını aç</button>
+        <p class="small" style="margin:0 0 12px">Ödemeniz güvenli PayTR ödeme sayfasında alınır ve ${tipler.length > 1 ? 'seçtiğiniz' : tipler[0] === 'R' ? 'faturalı (R)' : 'faturasız (GR)'} cari hesabınıza otomatik işlenir.${y.max_taksit > 1 ? ` ${y.max_taksit} taksite kadar ödeyebilirsiniz.` : ''}</p>
+        ${tipler.map((t) => `<div class="stat" style="margin-bottom:10px">${bkHtml(t) || `<div class="l">${ad(t)} hesap</div>`}
+          <button class="btn green" data-ode="${t}" style="width:100%;margin-top:8px;font-size:16px;padding:12px">${ik('kart')} ${tipler.length > 1 ? `${ad(t)} hesabıma öde` : 'Ödeme sayfasını aç'}</button></div>`).join('')}
+        ${diger.map((t) => `<div class="stat" style="margin-bottom:10px;opacity:.85">${bkHtml(t)}<div class="tiny" style="margin-top:4px">Bu hesaba kartla ödeme için firmamızla görüşün.</div></div>`).join('')}
         <p class="tiny" style="margin:10px 0 0">Ödeme sayfası yeni sekmede açılır; tutarı orada yazarsınız. Ödeme tamamlanınca makbuzunuz görünür.</p></div>`;
-    $('#p-ode').onclick = odemeAc;
+    $$('#view [data-ode]').forEach((b) => (b.onclick = (e) => odemeAc(e, b.dataset.ode)));
   }
 
   tOku() ? ana() : giris();
