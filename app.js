@@ -585,7 +585,6 @@ const NAV = [
   { h: '#/odemeler', k: 'odeme', t: 'Ödemeler', i: 'cash', side: true },
   { h: '#/paytr', k: 'paytr', t: 'PayTR tahsilatları', i: 'card', side: true, sub: true },
   { h: '#/giderler', k: 'gider', t: 'Gelir / Gider', i: 'gider', side: true },
-  { h: '#/ev-planlama', k: 'ev', t: 'Gizem Ev Planlama', i: 'home', side: true, sub: true },
   { h: '#/raporlar', k: 'rapor', t: 'Raporlar', i: 'chart', side: true },
   { h: '#/ayarlar', k: 'ayar', t: 'Ayarlar', i: 'gear', side: true },
   { h: '#/daha', k: 'daha', t: 'Daha', i: 'more', bottom: true }
@@ -616,7 +615,7 @@ const ROUTES = [
   [/^#\/odemeler$/, 'odeme', viewOdemeTakvimi],
   [/^#\/paytr$/, 'paytr', viewPaytr],
   [/^#\/giderler$/, 'gider', viewGiderler],
-  [/^#\/ev-planlama$/, 'ev', viewEvPlan],
+  [/^#\/ev-planlama$/, 'gider', viewEvPlan],
   [/^#\/tahsilatlar$/, 'odeme', viewOdemeTakvimi],
   [/^#\/fabrikalar$/, 'cin', viewFabrikalar],
   [/^#\/fiyat-listeleri$/, 'fiyat', viewFiyatListeleri],
@@ -3554,8 +3553,7 @@ async function viewDaha() {
       <div class="row" data-go="#/cin"><div class="main-col"><div class="t">İthalat</div><div class="st">Fabrika siparişleri, aşamalar, yoldaki mallar, gümrük vergisi</div></div></div>
       <div class="row" data-go="#/vergi-simulator"><div class="main-col"><div class="t">Vergi simülatörü</div><div class="st">Eviye ithalatında depo giriş maliyeti, gümrük vergisi ve kâr hesabı (kayıt oluşturmaz)</div></div></div>
       <div class="row" data-go="#/odemeler"><div class="main-col"><div class="t">Ödemeler</div><div class="st">Yapılacak ödemeler, çekler, platform ödemeleri, müşteri taksitleri, aylık nakit akışı</div></div></div>
-      <div class="row" data-go="#/ev-planlama"><div class="main-col"><div class="t">Gizem Ev Planlama</div><div class="st">GİZEM EV PLANLAMA PROGRAMI: harcamalar, yapılacaklar, mutfak ve ev eksikleri</div></div></div>
-      <div class="row" data-go="#/giderler"><div class="main-col"><div class="t">Gelir / Gider</div><div class="st">Gider defteri, gelirler, sabit gelir ve giderler (kira, maaş, fatura), aylık özet</div></div></div>
+      <div class="row" data-go="#/giderler"><div class="main-col"><div class="t">Gelir / Gider</div><div class="st">Gider defteri, gelirler, sabit gelir ve giderler (kira, maaş, fatura), aylık özet, Gizem Ev Planlama</div></div></div>
       <div class="row" data-go="#/paytr"><div class="main-col"><div class="t">PayTR tahsilatları</div><div class="st">Kart ödemelerini cariye tahsilat olarak işle, makbuz al</div></div></div>
       <div class="row" data-go="#/fabrikalar"><div class="main-col"><div class="t">Fabrikalar</div><div class="st">Tedarikçi fabrikalar ve bakiyeleri</div></div></div>
       <div class="row" data-go="#/raporlar"><div class="main-col"><div class="t">Raporlar</div><div class="st">Kâr, platform kârlılığı, satış analizi, alacak yaşlandırma, stok ve sipariş önerisi, tahsilatlar</div></div></div>
@@ -6870,7 +6868,7 @@ async function viewGiderler() {
     isAdmin() ? api.get('gider_linkleri', 'select=id,ad').catch(() => []) : []]);
   const kimAd = (p) => (p.gider_link_id ? gLinkler.find((x) => x.id === p.gider_link_id)?.ad || 'link' : '');
   const sa = sabitler.filter((s) => s.aktif).length;
-  const sekme = `<div class="chips" id="gd-tab" style="margin-bottom:10px">${[['defter', 'Gider Defteri'], ['gelir', 'Gelir Defteri'], ['sabit', `Sabit Gelir / Gider${sa ? ` · ${sa}` : ''}`], ['plan', 'Planlanan']].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
+  const sekme = `<div class="chips" id="gd-tab" style="margin-bottom:10px">${[['defter', 'Gider Defteri'], ['gelir', 'Gelir Defteri'], ['sabit', `Sabit Gelir / Gider${sa ? ` · ${sa}` : ''}`], ['plan', 'Planlanan'], ['ev', 'Gizem Ev Planlama']].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
   $('#gd-yeni').onclick = () => (ui.tab === 'sabit' ? sabitGiderForm(null, render) : giderForm(null, render, { gelir }));
 
   if (ui.tab === 'plan') {
@@ -6897,7 +6895,7 @@ async function viewGiderler() {
         return `<div class="section-title">${ayAd(a)} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· gider ${fmtTL(g)}${l ? ` · gelir ${fmtTL(l)}` : ''}</span></div><div class="list">${k.map(kalem).join('')}</div>`; }).join('')
         : '<div class="card empty">Planlanan gelir ya da gider yok.</div>'}`;
     const bul = (id) => hepsi.find((p) => p.id === id);
-    $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); }));
+    $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { if (b.dataset.t === 'ev') return go('#/ev-planlama'); ui.tab = b.dataset.t; render(); }));
     $$('[data-pl]').forEach((r) => r.addEventListener('click', (e) => { if (e.target.closest('button')) return; giderForm(bul(+r.dataset.pl), render); }));
     $$('[data-plo]').forEach((b) => (b.onclick = () => giderForm(bul(+b.dataset.plo), render, { ode: true })));
     return;
@@ -6927,7 +6925,7 @@ async function viewGiderler() {
       ${sabitler.length ? '' : '<div class="card empty">Henüz sabit kalem yok. Sağ üstteki “Sabit kalem” ile kira geliri, kira, maaş, internet gibi her ay tekrarlayan gelir ve giderlerinizi ekleyin.</div>'}
       ${gelirler.length ? `<div class="section-title">Sabit gelirler</div><div class="list">${gelirler.map(satirS).join('')}</div>` : ''}
       ${giderler.length ? `<div class="section-title">Sabit giderler</div><div class="list">${giderler.map(satirS).join('')}</div>` : ''}`;
-    $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); }));
+    $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { if (b.dataset.t === 'ev') return go('#/ev-planlama'); ui.tab = b.dataset.t; render(); }));
     $$('[data-sg]').forEach((r) => r.addEventListener('click', (e) => { if (e.target.closest('button')) return; sabitGiderForm(sabitler.find((s) => s.id === +r.dataset.sg), render); }));
     $$('[data-sgo]').forEach((b) => (b.onclick = () => giderForm(buAy.find((p) => p.id === +b.dataset.sgo), render, { ode: true })));
     return;
@@ -6975,7 +6973,7 @@ async function viewGiderler() {
     ${bekleyen.length ? `<div class="section-title">${gelir ? 'Tahsil edilecek' : 'Ödenecek'} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${fmtTL(bkT)}</span></div><div class="list">${bekleyen.map(satir).join('')}</div>` : ''}
     <div class="section-title">${gelir ? 'Tahsil edilen' : 'Ödenen'} <span class="tiny" style="text-transform:none;letter-spacing:0;font-weight:500">· ${fmtTL(odT)}</span></div>
     <div class="list">${odenen.length ? odenen.sort((a, b) => String(giderTarih(b)).localeCompare(String(giderTarih(a))) || b.id - a.id).map(satir).join('') : `<div class="empty">${ayAd(ui.ay)} için ${gelir ? 'tahsil edilmiş gelir yok. Sağ üstteki “Gelir ekle” ile girin; her ay tekrarlayan gelirleri “Sabit gelir / gider”den ekleyin.' : 'ödenmiş gider yok. Sağ üstteki “Gider ekle” ile girin.'}</div>`}</div>`;
-  $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); }));
+  $$('#gd-tab .chip').forEach((b) => (b.onclick = () => { if (b.dataset.t === 'ev') return go('#/ev-planlama'); ui.tab = b.dataset.t; render(); }));
   $('#gd-ay').onchange = (e) => { ui.ay = e.target.value; render(); };
   $('#gd-sabitler')?.addEventListener('click', (e) => { e.preventDefault(); ui.tab = 'sabit'; render(); });
   $$('[data-gd]').forEach((r) => r.addEventListener('click', (e) => { if (e.target.closest('button')) return; giderForm(liste.find((p) => p.id === +r.dataset.gd), render, { gelir }); }));
@@ -7098,8 +7096,11 @@ async function viewEvPlan() {
   const ui = state.ui.ev ||= { ay: today().slice(0, 7), kisi: null };
   ui.tab ||= 'harcama'; ui.liste ||= 'Yapılacak';
   topbar('Gizem Ev Planlama', { back: !wideScr(), actions: isAdmin() ? `<button class="tb-btn" id="ev-kul">${icon('users')}Kullanıcılar</button>` : '' });
-  const evSekme = `<div class="chips" id="ev-tab" style="margin-bottom:10px">${[['harcama', 'Harcamalar'], ['ihtiyac', 'Ev İhtiyaçları']].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
-  const sekmeBagla = () => $$('#ev-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); }));
+  // Gelir / Gider menusunun bir sekmesi olarak gorunur
+  const gdUst = `<div class="chips" id="gd-ust" style="margin-bottom:6px">${[['defter', 'Gider Defteri'], ['gelir', 'Gelir Defteri'], ['sabit', 'Sabit Gelir / Gider'], ['plan', 'Planlanan'], ['ev', 'Gizem Ev Planlama']].map(([k, t]) => `<button class="chip ${k === 'ev' ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
+  const gdUstBagla = () => $$('#gd-ust .chip').forEach((b) => (b.onclick = () => { if (b.dataset.t === 'ev') return; (state.ui.gider ||= { tab: 'defter', ay: today().slice(0, 7) }).tab = b.dataset.t; go('#/giderler'); }));
+  const evSekme = `${gdUst}<div class="chips" id="ev-tab" style="margin-bottom:10px">${[['harcama', 'Harcamalar'], ['ihtiyac', 'Ev İhtiyaçları']].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>`;
+  const sekmeBagla = () => { gdUstBagla(); $$('#ev-tab .chip').forEach((b) => (b.onclick = () => { ui.tab = b.dataset.t; render(); })); };
   if (ui.tab === 'ihtiyac') {
     // Yapılacaklar / Mutfak eksikleri / Ev eksikleri: GİZEM EV PLANLAMA PROGRAMI ile ortak listeler
     const LST = [['Yapılacak', 'Yapılacaklar'], ['Mutfak', 'Mutfak Eksikleri'], ['Ev', 'Ev Eksikleri']];
@@ -7664,7 +7665,7 @@ async function viewB2B() {
   $$('[data-c]').forEach((r) => (r.onclick = () => go(`#/cari/${r.dataset.c}`)));
 }
 
-const APP_V = '2.70';
+const APP_V = '2.71';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');
