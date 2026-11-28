@@ -578,6 +578,7 @@ const NAV = [
   { h: '#/sorular', k: 'soru', t: 'Müşteri soruları', i: 'soru', side: true, sub: true },
   { h: '#/stok', k: 'stok', t: 'Stok', i: 'box' },
   { h: '#/cariler', k: 'cari', t: 'Cariler', i: 'users' },
+  { h: '#/b2b', k: 'b2b', t: 'Bayi portalı', i: 'users', side: true, sub: true },
   { h: '#/fiyat-listeleri', k: 'fiyat', t: 'Fiyat listeleri', i: 'list', side: true },
   { h: '#/cin', k: 'cin', t: 'İthalat', i: 'ship', side: true },
   { h: '#/vergi-simulator', k: 'vsim', t: 'Vergi simülatörü', i: 'calc', side: true, sub: true },
@@ -604,6 +605,7 @@ const ROUTES = [
   [/^#\/urun\/(\d+)$/, 'stok', viewUrunDetay],
   [/^#\/cariler$/, 'cari', viewCariler],
   [/^#\/cari\/(\d+)$/, 'cari', viewCariDetay],
+  [/^#\/b2b$/, 'b2b', viewB2B],
   [/^#\/raporlar$/, 'rapor', viewRaporlar],
   [/^#\/ayarlar$/, 'ayar', viewAyarlar],
   [/^#\/daha$/, 'daha', viewDaha],
@@ -745,6 +747,7 @@ async function viewHome() {
   const bekTop = (a) => fmtTL(a.reduce((t, s) => t + num(s.genel_toplam), 0));
   const alacak10 = alacakli.filter((c) => num(c.bakiye) > 0.005).sort((a, b) => num(b.bakiye) - num(a.bakiye)).slice(0, 10);
   $('#view').innerHTML = `
+    <div id="h-b2b"></div>
     <div class="quick">
       <button class="q-blue" data-nav="#/siparis/yeni">${icon('order')}Yeni Sipariş</button>
       <button class="q-green" data-fn="malAlisi">${icon('inbox')}Mal Alışı</button>
@@ -779,6 +782,11 @@ async function viewHome() {
     <div class="list" id="h-plan">${plan14.length || nakit14.length ? [...plan14, ...nakit14.map(nakitKalem)].sort((x, y) => String(x.vade).localeCompare(String(y.vade))).map((p) => (p._n ? nakitRow(p) : planRow(p, { baslik: true }))).join('') : '<div class="empty">Önümüzdeki 14 günde ödeme / tahsilat yok</div>'}</div>
     <div class="section-title">Yoldaki ithalat siparişleri <a href="#/cin">Tümü</a></div>
     <div class="list">${cinAktif.length ? cinAktif.map(cinRow).join('') : '<div class="empty">Aktif ithalat siparişi yok</div>'}</div>`;
+  // bayi portalindan gelen ve onay bekleyen siparisler
+  api.get('b2b_talepler', `select=id,genel_toplam&durum=eq.${encodeURIComponent('Onay bekliyor')}&limit=200`).then((t) => {
+    const el = $('#h-b2b'); if (!el || !t.length) return;
+    el.innerHTML = `<a class="card" href="#/b2b" style="display:flex;align-items:center;gap:10px;border-left:4px solid var(--orange);padding:12px 14px;text-decoration:none;color:inherit"><span style="font-size:22px">🛒</span><div style="flex:1"><b>${t.length} bayi portalı siparişi onay bekliyor</b><div class="tiny">${fmtTL(t.reduce((a, x) => a + num(x.genel_toplam), 0))} · onaylayınca siparişe dönüşür</div></div><span class="badge b-orange">Onayla</span></a>`;
+  }).catch(() => {});
   bindRows();
   $$('[data-kay]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); const h = $('#' + a.dataset.kay); if (h) h.scrollIntoView({ behavior: 'smooth', block: 'start' }); else toast('Bekleyen sipariş yok', 'ok'); }));
   $('#h-pl') && $$('[data-pl]', $('#h-pl')).forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; plDetay(plSon.find((x) => x.id === +el.dataset.pl)); }));
@@ -2408,6 +2416,7 @@ async function viewCariDetay(id) {
     <div class="btn-row" style="margin-bottom:6px">
       <button class="btn orange" id="b-tah">${icon('cash')}Tahsilat</button>
       ${c.tip !== 'Tedarikçi' ? `<button class="btn" id="b-olk">${icon('cash')}Kartla ödeme linki</button>` : ''}
+      ${c.tip !== 'Tedarikçi' && isAdmin() ? `<button class="btn" id="b-b2b">${icon('users')}Bayi portalı</button>` : ''}
       <button class="btn primary" id="b-sip">${icon('order')}Yeni sipariş</button>
       <button class="btn" id="b-acl">Açılış / düzeltme</button>
       <button class="btn" id="b-eks">${icon('print')}Ekstre gönder</button>
@@ -2470,6 +2479,7 @@ async function viewCariDetay(id) {
   $('#ed').onclick = () => cariForm(c, null, () => { cache.dirty('cariler'); render(); });
   $('#b-tah').onclick = () => tahsilat(c);
   $('#b-olk')?.addEventListener('click', () => odemeLinkleri(c));
+  $('#b-b2b')?.addEventListener('click', () => b2bKullanicilar(c).catch(fail));
   $('#b-sip').onclick = () => go(`#/siparis/yeni?cari=${c.id}`);
   $('#b-acl').onclick = () => acilisBakiye(c);
   $('#mf-add').onclick = (e) => { e.preventDefault(); musteriFiyat(c); };
@@ -3539,6 +3549,7 @@ async function viewDaha() {
   $('#view').innerHTML = `
     <div class="list">
       <div class="row" data-go="#/sorular"><div class="main-col"><div class="t">Müşteri soruları</div><div class="st">Trendyol, Hepsiburada, N11 ve Koçtaş’taki müşteri soruları ve mesajları; buradan cevaplayın</div></div></div>
+      <div class="row" data-go="#/b2b"><div class="main-col"><div class="t">Bayi portalı</div><div class="st">Müşterilerinizin kendi kullanıcısıyla sipariş verdiği, cari hesabını gördüğü ve kartla ödediği portal; onay bekleyen siparişler</div></div></div>
       <div class="row" data-go="#/fiyat-listeleri"><div class="main-col"><div class="t">Fiyat listeleri</div><div class="st">Ürünler için peşin, kredi kartı, taksit ve çek fiyatları</div></div></div>
       <div class="row" data-go="#/cin"><div class="main-col"><div class="t">İthalat</div><div class="st">Fabrika siparişleri, aşamalar, yoldaki mallar, gümrük vergisi</div></div></div>
       <div class="row" data-go="#/vergi-simulator"><div class="main-col"><div class="t">Vergi simülatörü</div><div class="st">Eviye ithalatında depo giriş maliyeti, gümrük vergisi ve kâr hesabı (kayıt oluşturmaz)</div></div></div>
@@ -3567,12 +3578,12 @@ const b64u8 = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const b =
 // Bildirim turleri (her cihaz kendi secer; push_abonelik.konular). Varsayilan liste bildirim fonksiyonundakiyle ayni.
 const BLD_KONU = [
   ['Para hareketleri', [['kart', 'Kartla ödeme geldi', 'PayTR ödeme linki ve sitedeki kart ödemeleri'], ['tahsilat', 'Müşteriden tahsilat', 'havale / EFT, nakit, çek ile girilen tahsilatlar'], ['cek', 'Çek / senet', 'alındığında ve tahsil edildiğinde'], ['platform_odeme', 'Platform ödemesi yattı', 'Trendyol, Hepsiburada vb. hakedişi hesaba geçince'], ['gelir', 'Ödeme planından gelir alındı', 'planlanan bir tahsilat / gelir “alındı” işaretlenince'], ['odeme_yapildi', 'Ödeme yapıldı', 'fabrika, gider, cari ödemesi “ödendi” işaretlenince'], ['kasa', 'Her kasa / banka hareketi', 'her giriş ve çıkış ayrı bildirim (çok bildirim gelebilir)'], ['vade', 'Sabah vade özeti', 'her sabah 09:00’da bugün vadesi gelen ve geciken ödeme / tahsilat / çekler']]],
-  ['Siparişler', [['platform_siparis', 'Platform siparişi', 'yeni sipariş, onay bekleyen, ürün eşleştirmesi'], ['platform_iade', 'Platform iadesi / talebi', ''], ['musteri_sorusu', 'Müşteri sorusu', ''], ['siparis', 'Programda yeni sipariş açıldı', 'elle açılan siparişler'], ['siparis_durum', 'Sipariş sevk edildi / iptal', ''], ['cari_duzeltme', 'Cariye elle borç / düzeltme', 'açılış bakiyesi, düzeltme, elle borç']]],
+  ['Siparişler', [['platform_siparis', 'Platform siparişi', 'yeni sipariş, onay bekleyen, ürün eşleştirmesi'], ['platform_iade', 'Platform iadesi / talebi', ''], ['musteri_sorusu', 'Müşteri sorusu', ''], ['b2b_siparis', 'Bayi portalından sipariş', 'müşterinin portaldan verdiği sipariş (onay bekleyen / otomatik onaylanan)'], ['siparis', 'Programda yeni sipariş açıldı', 'elle açılan siparişler'], ['siparis_durum', 'Sipariş sevk edildi / iptal', ''], ['cari_duzeltme', 'Cariye elle borç / düzeltme', 'açılış bakiyesi, düzeltme, elle borç']]],
   ['Stok ve ithalat', [['stok', 'Stok girişi / mal alışı', 'bir seferde girilen ürünler tek bildirim'], ['ithalat', 'İthalat siparişi durumu değişti', 'üretim, yükleme, yolda, teslim…']]],
   ['Gizem Ev Planlama', [['ev_harcama', 'Ev harcaması girildi', ''], ['ev_ihtiyac', 'Ev ihtiyaçları listesine eklendi', '']]],
   ['Genel', [['kendi', 'Kendi yaptığım işlemleri de bildir', 'kapalıyken sadece başkalarının ve otomatik gelen işlemlerin bildirimi gelir']]]
 ];
-const BLD_VARSAYILAN = ['platform_siparis', 'platform_iade', 'musteri_sorusu', 'kart', 'tahsilat', 'cek', 'platform_odeme', 'vade', 'ev_harcama', 'ev_ihtiyac'];
+const BLD_VARSAYILAN = ['b2b_siparis', 'platform_siparis', 'platform_iade', 'musteri_sorusu', 'kart', 'tahsilat', 'cek', 'platform_odeme', 'vade', 'ev_harcama', 'ev_ihtiyac'];
 async function bildirimSecenek(sub) {
   const kutu = $('#bld-sec'); if (!kutu) return;
   if (!sub) { kutu.innerHTML = ''; return; }
@@ -7472,7 +7483,188 @@ document.addEventListener('click', (e) => {
   if (el.dataset.nav !== undefined) { e.preventDefault(); go(el.dataset.nav); return; }
   const f = DATA_FN[el.dataset.fn]; if (f) { e.preventDefault(); f(); }
 });
-const APP_V = '2.67';
+/* ------------------------------------------------------------------ */
+/* B2B BAYİ PORTALI: musteri kullanicilari ve portaldan gelen siparisler  */
+/* Musteri bayi.html'e kendi kullanici adi + sifresiyle girer; neleri yapabilecegini burada secilen yetkiler belirler.
+   Portaldan gelen siparis once "Onay bekliyor" talebidir (stok ve cariye dokunmaz); onaylaninca gercek siparis acilir. */
+const bayiUrl = () => `${location.origin}${location.pathname.replace(/[^/]*$/, '')}bayi`;
+const B2B_VARS = { siparis: true, oto_onay: false, tum_urunler: false, stok: true, siparislerim: true, ekstre_r: true, ekstre_gr: false, kart_odeme: false, odeme_tipi: 'R', max_taksit: 1, fatura: 'R' };
+const B2B_YETKI = [
+  ['Sipariş', [['siparis', 'Sipariş verebilsin', 'Sadece size özel fiyatı tanımlı ürünleri görür; fiyatları değiştiremez'], ['tum_urunler', 'Özel fiyatı olmayan ürünleri de liste fiyatıyla görsün', ''], ['stok', 'Stok durumunu görsün', 'Stokta / az stok / yok / yolda (adet gösterilmez)'], ['oto_onay', 'Siparişleri onay beklemeden işlensin', 'Risk limiti aşılırsa yine onayınıza düşer']]],
+  ['Görüntüleme', [['siparislerim', 'Sipariş geçmişini görsün', 'Siparişleri, durumu (hazırlanıyor / sevk edildi), kalemleri'], ['ekstre_r', 'R (faturalı) cari hareketlerini ve bakiyesini görsün', ''], ['ekstre_gr', 'GR (faturasız) cari hareketlerini ve bakiyesini görsün', '']]],
+  ['Ödeme', [['kart_odeme', 'Kredi kartıyla ödeme yapabilsin', 'PayTR ile; ödeme otomatik cariye tahsilat olarak düşer']]]
+];
+const b2bYetkiOzet = (y) => {
+  y = { ...B2B_VARS, ...(y || {}) };
+  return [y.siparis && `Sipariş${y.oto_onay ? ' (onaysız)' : ''} · ${y.fatura === 'ikisi' ? 'R+GR' : y.fatura}`, y.siparislerim && 'Geçmiş', (y.ekstre_r || y.ekstre_gr) && `Ekstre ${[y.ekstre_r && 'R', y.ekstre_gr && 'GR'].filter(Boolean).join('+')}`, y.kart_odeme && `Kart (${y.odeme_tipi}${y.max_taksit > 1 ? `, ${y.max_taksit} taksit` : ''})`].filter(Boolean).join(' · ') || 'Yetki yok';
+};
+function b2bYetkiFormu(y) {
+  y = { ...B2B_VARS, ...(y || {}) };
+  return `${B2B_YETKI.map(([g, l]) => `<div class="section-title" style="margin-top:10px">${g}</div><div class="card" style="margin:0 0 6px;padding:6px 12px">${l.map(([k, t, a]) => `<label class="check" style="display:flex;gap:10px;align-items:flex-start;padding:7px 0"><input type="checkbox" data-y="${k}" ${y[k] ? 'checked' : ''} style="margin-top:3px"><span><b style="font-weight:600">${t}</b>${a ? `<div class="tiny">${a}</div>` : ''}</span></label>`).join('')}
+      ${g === 'Sipariş' ? `<div class="field" style="margin:6px 0"><label>Siparişler hangi faturayla girilsin?</label><select class="input" data-yv="fatura"><option value="R" ${y.fatura === 'R' ? 'selected' : ''}>R (faturalı, KDV eklenir)</option><option value="GR" ${y.fatura === 'GR' ? 'selected' : ''}>GR (faturasız)</option><option value="ikisi" ${y.fatura === 'ikisi' ? 'selected' : ''}>Müşteri seçsin (R ya da GR)</option></select></div>` : ''}
+      ${g === 'Ödeme' ? `<div class="grid2" style="margin:6px 0"><div class="field"><label>Ödeme hangi hesaba düşsün?</label><select class="input" data-yv="odeme_tipi"><option value="R" ${y.odeme_tipi === 'R' ? 'selected' : ''}>R hesabı</option><option value="GR" ${y.odeme_tipi === 'GR' ? 'selected' : ''}>GR hesabı</option></select></div>
+        <div class="field"><label>En fazla taksit</label><select class="input" data-yv="max_taksit">${[1, 2, 3].map((n) => `<option value="${n}" ${+y.max_taksit === n ? 'selected' : ''}>${n === 1 ? 'Tek çekim' : `${n} taksit`}</option>`).join('')}</select></div></div>` : ''}</div>`).join('')}`;
+}
+const b2bYetkiOku = (el) => {
+  const y = { ...B2B_VARS };
+  $$('[data-y]', el).forEach((c) => { y[c.dataset.y] = c.checked; });
+  $$('[data-yv]', el).forEach((s) => { y[s.dataset.yv] = s.dataset.yv === 'max_taksit' ? +s.value : s.value; });
+  return y;
+};
+async function b2bKullanicilar(c) {
+  if (!isAdmin()) return toast('Bayi portalı kullanıcılarını sadece yönetici düzenleyebilir', 'err');
+  const lst = await api.get('b2b_kullanicilari', `select=id,cari_id,ad,kullanici,aktif,yetkiler,son_giris,olusturma&cari_id=eq.${c.id}&order=id.asc`);
+  const mesaj = (u, sifre) => `Merhaba ${u.ad},\n${state.ayarlar?.firma_adi || 'Firmamızın'} bayi portalına buradan girebilirsiniz:\n${bayiUrl()}\n\nKullanıcı adı: ${u.kullanici}\n${sifre ? `Şifre: ${sifre}` : 'Şifrenizi ayrıca ileteceğim.'}\n\nPortaldan size özel fiyatlarla sipariş verebilir${u.yetkiler?.ekstre_r || u.yetkiler?.ekstre_gr ? ', cari hesabınızı görebilir' : ''}${u.yetkiler?.kart_odeme ? ', kartla ödeme yapabilir' : ''}siniz. Telefonda Paylaş → “Ana Ekrana Ekle” ile uygulama gibi kullanabilirsiniz. Şifrenizi portalda “Hesabım”dan değiştirebilirsiniz.`;
+  const kurulum = (u, sifre) => modal({
+    title: `${u.ad} · portal bilgileri`,
+    body: `<p class="small" style="margin:0 0 10px">Bu bilgileri müşteriye gönderin. ${sifre ? '<b>Şifre bir daha gösterilmez</b>; unutulursa yeni şifre belirlersiniz.' : ''}</p>
+      <div class="card" style="margin:0 0 10px;white-space:pre-line;font-size:15px">${esc(mesaj(u, sifre))}</div>`,
+    foot: `<button class="btn" data-close>Kapat</button><button class="btn" id="kr-kp">Kopyala</button><a class="btn green" target="_blank" rel="noopener" href="https://wa.me/${(c.telefon || '').replace(/\D/g, '').replace(/^0/, '90').replace(/^(5\d{9})$/, '90$1')}?text=${encodeURIComponent(mesaj(u, sifre))}">WhatsApp ile gönder</a>`,
+    onMount: (m) => { $('#kr-kp', m.el).onclick = async () => { try { await navigator.clipboard.writeText(mesaj(u, sifre)); toast('Kopyalandı', 'ok'); } catch { toast('Kopyalanamadı', 'err'); } }; }
+  });
+  const yeniden = () => { $('#modal-root').innerHTML = ''; document.body.style.overflow = ''; b2bKullanicilar(c); };
+  const yetkiDuzenle = (u) => modal({
+    title: `${u.ad} · yetkiler`,
+    body: `<div class="field"><label>Kişinin adı</label><input class="input" id="yt-ad" value="${esc(u.ad)}"></div>${b2bYetkiFormu(u.yetkiler)}`,
+    foot: '<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="yt-ok">Kaydet</button>',
+    onMount: (m) => { $('#yt-ok', m.el).onclick = (e) => busy(e.currentTarget, async () => {
+      const ad = $('#yt-ad', m.el).value.trim(); if (!ad) throw new Error('Kişinin adını yazın');
+      await api.req('PATCH', `b2b_kullanicilari?id=eq.${u.id}`, { body: { ad, yetkiler: b2bYetkiOku(m.el) }, prefer: 'return=minimal' });
+      toast('Yetkiler kaydedildi', 'ok'); yeniden();
+    }).catch(fail); }
+  });
+  const sifreForm = (u) => modal({
+    title: `${u.ad} · kullanıcı adı ve şifre`,
+    body: `<div class="field"><label>Kullanıcı adı</label><input class="input" id="sf-k" autocapitalize="off" value="${esc(u.kullanici || '')}"></div>
+      <div class="field"><label>Yeni şifre</label><input class="input" id="sf-s" value="${rastSifre()}${rastSifre().slice(0, 2)}"><div class="hint">En az 6 karakter. Şifre değişince müşterinin açık oturumu kapanır, yeni şifreyle girer.</div></div>`,
+    foot: '<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="sf-ok">Kaydet</button>',
+    onMount: (m) => { $('#sf-ok', m.el).onclick = (e) => busy(e.currentTarget, async () => {
+      const k = $('#sf-k', m.el).value.trim(), s = $('#sf-s', m.el).value;
+      await api.rpc('b2b_kullanici_ayarla', { p_id: u.id, p_kullanici: k, p_sifre: s });
+      $('#modal-root').innerHTML = ''; kurulum({ ...u, kullanici: k.toLocaleLowerCase('tr-TR') }, s);
+    }).catch(fail); }
+  });
+  const kAd = (s) => s.toLocaleLowerCase('tr-TR').replace(/ç/g, 'c').replace(/ğ/g, 'g').replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u').replace(/[^a-z0-9]/g, '').slice(0, 20);
+  modal({
+    title: `${c.unvan} · Bayi portalı`,
+    wide: true,
+    body: `<p class="small" style="margin:0 0 12px">Müşteri <b>${esc(bayiUrl().replace(/^https?:\/\//, ''))}</b> adresinden kendi kullanıcı adı ve şifresiyle girer. <b>Sadece bu carinin</b> bilgilerini görür; neleri yapabileceğini aşağıdaki yetkilerle siz seçersiniz. Sipariş fiyatları bu carinin <b>müşteriye özel fiyatlarından</b> gelir, müşteri değiştiremez. Portaldan gelen siparişler onayınıza düşer (menü: Bayi portalı).</p>
+      <div class="list" id="bk-lst" style="margin-bottom:14px">${lst.length ? lst.map((u) => `<div class="row" style="align-items:flex-start;gap:10px;cursor:default">
+        <div class="main-col"><div class="t"><b>${esc(u.ad)}</b> ${u.kullanici ? `<span class="badge">${esc(u.kullanici)}</span>` : ''} ${u.aktif ? '<span class="badge b-green">Açık</span>' : '<span class="badge b-red">Kapalı</span>'}</div>
+          <div class="st">${esc(b2bYetkiOzet(u.yetkiler))}</div><div class="tiny">${u.son_giris ? `Son giriş ${new Date(u.son_giris).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'Henüz giriş yapmadı'}</div></div>
+        <div class="btn-row" style="margin:0;justify-content:flex-end">
+          <button class="btn sm" data-yt="${u.id}">Yetkiler</button>
+          ${u.aktif ? `<button class="btn sm" data-kur="${u.id}">Bilgileri gönder</button><button class="btn sm" data-sf="${u.id}">Yeni şifre</button>` : ''}
+          <button class="btn sm" data-ac="${u.id}">${u.aktif ? 'Kapat' : 'Aç'}</button><button class="btn sm red" data-sil="${u.id}">Sil</button></div></div>`).join('') : '<div class="empty">Bu cari için henüz portal kullanıcısı yok</div>'}</div>
+      <div class="section-title">Yeni kullanıcı</div>
+      <div class="card" style="margin:0" id="bk-form"><div class="grid2">
+        <div class="field"><label>Kişinin adı</label><input class="input" id="bk-ad" placeholder="Örn. Ahmet Yılmaz" value="${lst.length ? '' : esc(c.yetkili || '')}"></div>
+        <div class="field"><label>Kullanıcı adı</label><input class="input" id="bk-k" autocapitalize="off" value="${lst.length ? '' : esc(kAd(c.yetkili || c.unvan.split(' ')[0] || ''))}"></div>
+        <div class="field"><label>Şifre</label><input class="input" id="bk-s" value="${rastSifre()}${rastSifre().slice(0, 2)}"></div></div>
+        ${b2bYetkiFormu(null)}
+        <button class="btn primary" id="bk-yeni" style="margin-top:8px">Kullanıcı oluştur</button></div>`,
+    foot: '<button class="btn" data-close>Kapat</button>',
+    onMount: (m) => {
+      $('#bk-ad', m.el).addEventListener('input', (e) => { const k = $('#bk-k', m.el); if (!k.dataset.elle) k.value = kAd(e.target.value); });
+      $('#bk-k', m.el).addEventListener('input', (e) => { e.target.dataset.elle = '1'; });
+      $('#bk-yeni', m.el).onclick = (e) => busy(e.currentTarget, async () => {
+        const ad = $('#bk-ad', m.el).value.trim(), k = $('#bk-k', m.el).value.trim(), s = $('#bk-s', m.el).value;
+        if (!ad) throw new Error('Kişinin adını yazın'); if (!k) throw new Error('Kullanıcı adı girin'); if (s.length < 6) throw new Error('Şifre en az 6 karakter olmalı');
+        const [u] = await api.req('POST', 'b2b_kullanicilari?select=id,cari_id,ad,kullanici,aktif,yetkiler', { body: { cari_id: c.id, ad, yetkiler: b2bYetkiOku($('#bk-form', m.el)) }, prefer: 'return=representation' });
+        try { await api.rpc('b2b_kullanici_ayarla', { p_id: u.id, p_kullanici: k, p_sifre: s }); }
+        catch (err) { await api.req('DELETE', `b2b_kullanicilari?id=eq.${u.id}`, { prefer: 'return=minimal' }).catch(() => {}); throw err; }
+        $('#modal-root').innerHTML = ''; kurulum({ ...u, kullanici: k.toLocaleLowerCase('tr-TR') }, s);
+      }).catch(fail);
+      $('#bk-lst', m.el).addEventListener('click', async (e) => {
+        const b = e.target.closest('button'); if (!b) return;
+        const id = +(b.dataset.yt || b.dataset.kur || b.dataset.sf || b.dataset.ac || b.dataset.sil), u = lst.find((x) => x.id === id); if (!u) return;
+        if (b.dataset.yt) return yetkiDuzenle(u);
+        if (b.dataset.kur) return kurulum(u, null);
+        if (b.dataset.sf) return sifreForm(u);
+        if (b.dataset.sil) {
+          if (!(await confirmBox('Kullanıcı silinsin mi?', `${esc(u.ad)} portala bir daha giremez. Verdiği siparişler programda kalır.`, 'Sil', true))) return;
+          try { await api.req('DELETE', `b2b_kullanicilari?id=eq.${u.id}`, { prefer: 'return=minimal' }); yeniden(); } catch (err) { fail(err); }
+          return;
+        }
+        if (u.aktif && !(await confirmBox('Kullanıcı kapatılsın mı?', `${esc(u.ad)} portala artık giremez. İstediğiniz zaman tekrar açabilirsiniz.`, 'Kapat', true))) return;
+        try { await api.req('PATCH', `b2b_kullanicilari?id=eq.${u.id}`, { body: { aktif: !u.aktif }, prefer: 'return=minimal' }); yeniden(); } catch (err) { fail(err); }
+      });
+    }
+  });
+}
+// Portal siparisi: kalemleri goster, istenirse miktar / fiyat duzeltip onayla ya da reddet
+async function b2bTalep(t, sonra) {
+  const [c] = await api.get('v_cariler', `select=id,unvan,bakiye,risk_limiti,risk_toplam&id=eq.${t.cari_id}`);
+  const urun = await cache.urunler().catch(() => []);
+  const stokU = (id) => urun.find((u) => u.id === id);
+  const bek = t.durum === 'Onay bekliyor';
+  const kal = (t.kalemler || []).map((k) => ({ ...k }));
+  const risk = c && c.risk_limiti !== null && num(c.risk_toplam) + num(t.genel_toplam) > num(c.risk_limiti);
+  modal({
+    title: `Bayi siparişi #${t.id} · ${c?.unvan || ''}`,
+    wide: true,
+    body: `<div style="margin-bottom:10px"><span class="badge ${{ 'Onay bekliyor': 'b-orange', Onaylandı: 'b-green', Reddedildi: 'b-red' }[t.durum] || ''}">${esc(t.durum)}</span> ${tipBadge(t.fatura_tipi)} ${t.gonderim_sekli ? `<span class="badge">${esc(t.gonderim_sekli)}</span>` : ''}
+        <span class="tiny">· ${esc(t.kullanici_ad || '')} · ${new Date(t.olusturma).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>
+      ${t.aciklama ? `<div class="card" style="padding:10px 14px;margin-bottom:10px"><b>Müşteri notu:</b> ${esc(t.aciklama)}</div>` : ''}
+      ${t.red_nedeni ? `<div class="card" style="padding:10px 14px;margin-bottom:10px;border-left:4px solid var(--red)"><b>Ret nedeni:</b> ${esc(t.red_nedeni)}</div>` : ''}
+      ${bek && risk ? riskAlarm(c, num(t.genel_toplam), 'BU SİPARİŞLE RİSK LİMİTİ AŞILIYOR') : ''}
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>Ürün</th><th class="r">Stok</th><th class="r">Miktar</th><th class="r">Birim fiyat (KDV hariç)</th><th class="r">Tutar</th></tr></thead>
+        <tbody>${kal.map((k, i) => { const u = stokU(k.urun_id); return `<tr><td><a href="#/urun/${k.urun_id}"><b>${esc(k.ad)}</b></a><div class="tiny">${esc(k.kod || '')}${k.pb && k.pb !== 'TRY' ? ` · ${fmtPB(k.doviz_fiyat, k.pb)} × ${fmtN(k.kur)}` : ''}</div></td>
+          <td class="r small ${u && num(u.sevk_sonrasi_stok) < num(k.miktar) ? 'neg' : ''}">${u ? fmtN(u.sevk_sonrasi_stok) : ''}</td>
+          <td class="r">${bek ? `<input class="input" data-m="${i}" inputmode="decimal" value="${fmtN(k.miktar)}" style="width:80px;text-align:right">` : fmtN(k.miktar)}</td>
+          <td class="r">${bek ? `<input class="input" data-f="${i}" inputmode="decimal" value="${fmtN(k.birim_fiyat)}" style="width:110px;text-align:right">` : fmtTL(k.birim_fiyat)}</td>
+          <td class="r" data-tt="${i}">${fmtTL(num(k.miktar) * num(k.birim_fiyat))}</td></tr>`; }).join('')}</tbody></table></div>
+      <div id="bt-top" class="small" style="text-align:right;margin-top:8px"></div>
+      ${bek ? `<p class="tiny">Fiyatlar müşteriye özel fiyatlardan geldi. Burada değiştirirseniz sipariş yeni fiyatla açılır (müşterinin kayıtlı fiyatı değişmez). Onaylayınca sipariş “Beklemede” olarak açılır ve cariye işlenir; stoktan sevk edince düşer.</p>
+        <div class="field"><label>Reddederseniz nedeni (müşteri görür)</label><input class="input" id="bt-red" placeholder="Örn. Ürün stokta yok, telefonla görüşelim"></div>` : ''}`,
+    foot: bek ? '<button class="btn" data-close>Kapat</button><button class="btn red" id="bt-r">Reddet</button><button class="btn green" id="bt-ok">Onayla, siparişi aç</button>'
+      : `<button class="btn" data-close>Kapat</button>${t.siparis_id ? `<button class="btn primary" id="bt-sip">Siparişi aç</button>` : ''}`,
+    onMount: (m) => {
+      const kdvO = t.fatura_tipi === 'R' ? num(t.kdv_orani) : 0;
+      const top = () => { const a = kal.reduce((s, k) => s + Math.round(num(k.miktar) * num(k.birim_fiyat) * 100) / 100, 0); $('#bt-top', m.el).innerHTML = `Ara toplam <b>${fmtTL(a)}</b>${kdvO ? ` · KDV ${fmtTL(a * kdvO)}` : ''} · Genel toplam <b>${fmtTL(a + Math.round(a * kdvO * 100) / 100)}</b>`; };
+      top();
+      $$('[data-m],[data-f]', m.el).forEach((inp) => inp.addEventListener('input', () => {
+        const i = +(inp.dataset.m ?? inp.dataset.f); kal[i][inp.dataset.m !== undefined ? 'miktar' : 'birim_fiyat'] = parseNum(inp.value);
+        $(`[data-tt="${i}"]`, m.el).textContent = fmtTL(num(kal[i].miktar) * num(kal[i].birim_fiyat)); top();
+      }));
+      $('#bt-sip', m.el)?.addEventListener('click', () => { m.close(); go(`#/siparis/${t.siparis_id}`); });
+      $('#bt-r', m.el)?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
+        if (!(await confirmBox('Sipariş reddedilsin mi?', 'Müşteri portalda “Reddedildi” olarak görür.', 'Reddet', true))) return;
+        await api.rpc('b2b_talep_reddet', { p_id: t.id, p_neden: $('#bt-red', m.el).value });
+        m.close(); toast('Reddedildi', 'ok'); sonra && sonra();
+      }).catch(fail));
+      $('#bt-ok', m.el)?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
+        if (kal.some((k) => !(num(k.miktar) > 0) || !(num(k.birim_fiyat) >= 0))) throw new Error('Miktar ve fiyatları kontrol edin');
+        const degisti = kal.some((k, i) => num(k.miktar) !== num(t.kalemler[i].miktar) || num(k.birim_fiyat) !== num(t.kalemler[i].birim_fiyat));
+        const r = await api.rpc('b2b_talep_onayla', { p_id: t.id, p_kalemler: degisti ? kal.map((k) => ({ urun_id: k.urun_id, miktar: num(k.miktar), birim_fiyat: num(k.birim_fiyat) })) : null });
+        cache.dirty('cariler'); m.close(); toast(`Sipariş açıldı · Fiş ${r.fis_no}`, 'ok'); go(`#/siparis/${r.id}`);
+      }).catch(fail));
+    }
+  });
+}
+async function viewB2B() {
+  const ui = state.ui.b2b ||= { tab: 'bekleyen' };
+  topbar('Bayi portalı', { back: !wideScr() });
+  const [tal, kul] = await Promise.all([
+    api.get('b2b_talepler', `select=*,cariler(unvan)${ui.tab === 'bekleyen' ? `&durum=eq.${encodeURIComponent('Onay bekliyor')}` : ''}&order=olusturma.desc&limit=300`),
+    isAdmin() ? api.get('b2b_kullanicilari', 'select=id,cari_id,ad,kullanici,aktif,yetkiler,son_giris,cariler(unvan)&order=id.desc&limit=500').catch(() => []) : []
+  ]);
+  const zaman = (iso) => new Date(iso).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const D = { 'Onay bekliyor': 'b-orange', Onaylandı: 'b-green', Reddedildi: 'b-red', 'İptal': '' };
+  $('#view').innerHTML = `
+    <div class="chips" id="b2-tab">${[['bekleyen', 'Onay bekleyenler'], ['tum', 'Tüm portal siparişleri'], ...(isAdmin() ? [['kul', `Kullanıcılar · ${kul.length}`]] : [])].map(([k, t]) => `<button class="chip ${ui.tab === k ? 'on' : ''}" data-t="${k}">${t}</button>`).join('')}</div>
+    ${ui.tab === 'kul' ? `<p class="tiny" style="margin:0 4px 8px">Yeni kullanıcı açmak için cariye girin → <b>Bayi portalı</b>. Portal adresi: <b>${esc(bayiUrl())}</b></p>
+      <div class="list">${kul.length ? kul.map((u) => `<div class="row" data-c="${u.cari_id}"><div class="main-col"><div class="t">${esc(u.cariler?.unvan || '')} · ${esc(u.ad)} <span class="badge">${esc(u.kullanici || '')}</span> ${u.aktif ? '' : '<span class="badge b-red">Kapalı</span>'}</div>
+        <div class="st">${esc(b2bYetkiOzet(u.yetkiler))} · ${u.son_giris ? `son giriş ${zaman(u.son_giris)}` : 'henüz giriş yok'}</div></div></div>`).join('') : '<div class="empty">Henüz portal kullanıcısı yok. Bir cariye girip “Bayi portalı” düğmesiyle kullanıcı açın.</div>'}</div>`
+    : `<div class="list" id="b2-l">${tal.length ? tal.map((t) => `<div class="row" data-id="${t.id}"><div class="main-col"><div class="t">${esc(t.cariler?.unvan || '')} <span class="badge ${D[t.durum] || ''}">${esc(t.durum)}</span> ${tipBadge(t.fatura_tipi)}</div>
+        <div class="st">#${t.id} · ${zaman(t.olusturma)} · ${esc(t.kullanici_ad || '')} · ${(t.kalemler || []).length} kalem: ${esc((t.kalemler || []).slice(0, 3).map((k) => `${fmtN(k.miktar)} × ${k.ad}`).join(', '))}${t.aciklama ? ` · 📝 ${esc(t.aciklama.slice(0, 60))}` : ''}</div></div>
+        <div class="end"><div class="amt">${fmtTL(t.genel_toplam)}</div></div></div>`).join('') : `<div class="empty">${ui.tab === 'bekleyen' ? 'Onay bekleyen portal siparişi yok.' : 'Henüz portal siparişi yok.'}</div>`}</div>`}`;
+  $('#b2-tab').onclick = (e) => { const b = e.target.closest('[data-t]'); if (!b) return; ui.tab = b.dataset.t; render(); };
+  $$('#b2-l [data-id]').forEach((r) => (r.onclick = () => b2bTalep(tal.find((t) => t.id === +r.dataset.id), render)));
+  $$('[data-c]').forEach((r) => (r.onclick = () => go(`#/cari/${r.dataset.c}`)));
+}
+
+const APP_V = '2.68';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

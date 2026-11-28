@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Bayi Portalı</title>
+  <meta name="theme-color" content="#16213a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Bayi Portalı">
+  <link rel="manifest" href="bayi.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32-v4.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon-v4.png">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .by-giris { min-height: 100vh; display: grid; place-items: center; padding: 20px 16px; background: linear-gradient(160deg, #16213a 0%, #23365f 100%); }
+    .by-giris .card { width: 100%; max-width: 390px; padding: 24px 22px; }
+    .by-marka { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .by-marka img { width: 52px; height: 52px; border-radius: 12px; flex: none; }
+    .by-marka b { display: block; font-size: 19px; } .by-marka small { color: var(--text-2); }
+    .by-msj { margin-top: 10px; font-weight: 600; min-height: 1em; }
+    .by-msj.ok { color: var(--green); } .by-msj.err { color: var(--red); }
+    .bottomnav a { cursor: pointer; }
+    @media (min-width: 900px) { .bottomnav { display: flex !important; position: fixed; left: 0; right: 0; bottom: 0; } .view { padding-bottom: 90px; } }
+    .ur { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+    .ur:last-child { border-bottom: 0; }
+    .ur .ad { font-weight: 650; line-height: 1.25; }
+    .ur .alt { font-size: 12.5px; color: var(--text-2); margin-top: 3px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .ur .fy { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .adet { display: flex; align-items: center; gap: 4px; flex: none; }
+    .adet button { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font-size: 19px; font-weight: 700; cursor: pointer; line-height: 1; }
+    .adet input { width: 58px; text-align: center; padding: 7px 4px; font-weight: 700; }
+    .ur.secili { background: var(--accent-soft); }
+    .sepet-bar { position: sticky; bottom: calc(64px + var(--safe-bottom)); z-index: 20; margin: 10px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 12px 14px; background: var(--brand); color: #fff; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .sepet-bar .btn { flex: none; } .sepet-bar .ozet { flex: 1 1 100%; white-space: nowrap; } @media (min-width: 560px) { .sepet-bar .ozet { flex: 1 1 auto; } }
+    @media (min-width: 900px) { .sepet-bar { bottom: 76px; } }
+    .tt { display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; font-variant-numeric: tabular-nums; }
+    .tt .b { font-weight: 800; font-size: 17px; }
+    @media print {
+      .topbar, .bottomnav, .no-print, .sepet-bar { display: none !important; }
+      body, .view { background: #fff !important; padding: 0 !important; }
+      .list, .card { box-shadow: none !important; border: 1px solid #ccc; }
+      .print-only { display: block !important; }
+    }
+    .print-only { display: none; }
+    .sh-body .tbl td.r { white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="modal-root"></div>
+  <script src="config.js"></script>
+  <script src="bayi.js"></script>
+</body>
+</html>

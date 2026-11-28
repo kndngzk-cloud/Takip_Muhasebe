@@ -35,3 +35,9 @@
   from = "/harcama"
   to = "/harcama.html"
   status = 200
+
+# B2B bayi portali (musteri kullanicilari): /bayi
+[[redirects]]
+  from = "/bayi"
+  to = "/bayi.html"
+  status = 200

@@ -6,7 +6,7 @@ const URL_ = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
-const VARSAYILAN = ["platform_siparis", "platform_iade", "musteri_sorusu", "kart", "tahsilat", "cek", "platform_odeme", "vade", "ev_harcama", "ev_ihtiyac"];
+const VARSAYILAN = ["b2b_siparis", "platform_siparis", "platform_iade", "musteri_sorusu", "kart", "tahsilat", "cek", "platform_odeme", "vade", "ev_harcama", "ev_ihtiyac"];
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 async function rest(p: string, init: RequestInit = {}) { const r = await fetch(`${URL_}/rest/v1/${p}`, { ...init, headers: { ...H, ...(init.headers || {}) } }); const t = await r.text(); if (!r.ok) throw new Error(`${r.status} ${t.slice(0, 200)}`); return t ? JSON.parse(t) : null; }
 
