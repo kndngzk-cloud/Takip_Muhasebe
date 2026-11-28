@@ -7512,6 +7512,57 @@ const b2bYetkiOku = (el) => {
   $$('[data-yv]', el).forEach((s) => { y[s.dataset.yv] = s.dataset.yv === 'max_taksit' ? +s.value : s.value; });
   return y;
 };
+// Bayi portalinda bu carinin siparis verebilecegi urunler: yonetici tek tek secer (b2b_urun_secimi).
+async function b2bUrunSecimi(c) {
+  const [urunler, mf, secR] = await Promise.all([cache.urunler(), api.get('musteri_fiyatlari', `select=urun_id,fiyat,para_birimi&cari_id=eq.${c.id}`), api.get('b2b_urun_secimi', `select=*&cari_id=eq.${c.id}`)]);
+  const M = Object.fromEntries(mf.map((x) => [x.urun_id, x]));
+  const ls = urunler.filter((u) => u.aktif !== false);
+  const ilk = secR[0];
+  let aktif = ilk ? ilk.aktif : true;
+  // ilk kez aciliyorsa: musteriye ozel fiyati olan urunler secili gelir (portalda bugun gorunenler)
+  const sec = new Set(ilk ? (ilk.urunler || []).map(Number) : ls.filter((u) => num(M[u.id]?.fiyat) > 0).map((u) => u.id));
+  const kats = [...new Set(ls.map((u) => u.kategori || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
+  let ara = '', kat = '', sadeceSecili = false;
+  const fiyatYazi = (u) => { const m = M[u.id]; return num(m?.fiyat) > 0 ? `<span class="badge b-green">özel ${fmtPB(m.fiyat, m.para_birimi || 'TRY')}</span>` : num(u.satis_fiyati) > 0 ? `<span class="badge">liste ${fmtTL(u.satis_fiyati)}</span>` : '<span class="badge b-red">fiyatı yok</span>'; };
+  const norm = (x) => String(x || '').toLocaleLowerCase('tr-TR');
+  modal({
+    title: `${c.unvan} · portalda görünecek ürünler`,
+    wide: true,
+    body: `<label class="check" style="display:flex;gap:10px;align-items:flex-start;margin:0 0 10px"><input type="checkbox" id="us-aktif" ${aktif ? 'checked' : ''} style="margin-top:3px"><span><b>Sadece seçtiğim ürünler görünsün</b><div class="tiny">Açıkken müşteri portalda yalnızca aşağıda işaretlediğiniz ürünleri görür ve sipariş verebilir. Fiyat: müşteriye özel fiyatı varsa o, yoksa ürünün liste (satış) fiyatı. Fiyatı olmayan ürün işaretli olsa da görünmez. Kapalıyken eskisi gibi müşteriye özel fiyatı olan ürünler görünür.</div></span></label>
+      <div id="us-govde">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><input class="input" id="us-ara" placeholder="Ürün ara (ad, kod)" style="flex:1 1 200px">
+        <select class="input" id="us-kat" style="flex:0 1 200px"><option value="">Tüm kategoriler</option>${kats.map((k) => `<option>${esc(k)}</option>`).join('')}</select></div>
+      <div class="btn-row" style="margin:0 0 8px;align-items:center"><button class="btn sm" id="us-hepsi">Görünenleri seç</button><button class="btn sm" id="us-hic">Görünenleri kaldır</button><button class="btn sm" id="us-ozel">Özel fiyatlıları seç</button>
+        <label class="check" style="margin-left:auto"><input type="checkbox" id="us-sec"> <span class="tiny">Sadece seçilenleri göster</span></label></div>
+      <div class="tiny" id="us-say" style="margin-bottom:6px"></div>
+      <div class="list" id="us-lst" style="max-height:52vh;overflow:auto"></div></div>`,
+    foot: '<button class="btn" data-close>Vazgeç</button><button class="btn primary" id="us-ok">Kaydet</button>',
+    onMount: (m) => {
+      const gor = () => ls.filter((u) => (!kat || (u.kategori || '') === kat) && (!sadeceSecili || sec.has(u.id)) && (!ara || norm(`${u.ad} ${u.kod}`).includes(ara)));
+      const ciz = () => {
+        $('#us-govde', m.el).style.opacity = aktif ? '' : '.45';
+        const g = gor();
+        $('#us-say', m.el).innerHTML = `<b>${sec.size}</b> ürün seçili · listede ${g.length} ürün${[...sec].some((id) => { const u = ls.find((x) => x.id === id); return u && !(num(M[id]?.fiyat) > 0) && !(num(u.satis_fiyati) > 0); }) ? ' · <span style="color:var(--red)">fiyatı olmayan seçili ürünler portalda görünmez</span>' : ''}`;
+        $('#us-lst', m.el).innerHTML = g.slice(0, 600).map((u) => `<label class="row" style="gap:10px;cursor:pointer;align-items:center"><input type="checkbox" data-u="${u.id}" ${sec.has(u.id) ? 'checked' : ''}>
+          <div class="main-col"><div class="t">${esc(u.ad)}</div><div class="st">${esc([u.kod, u.kategori].filter(Boolean).join(' · '))}</div></div><div>${fiyatYazi(u)}</div></label>`).join('') + (g.length > 600 ? `<div class="empty">İlk 600 ürün gösteriliyor, aramayı daraltın</div>` : '') || '<div class="empty">Ürün bulunamadı</div>';
+      };
+      $('#us-lst', m.el).onchange = (e) => { const c2 = e.target.closest('[data-u]'); if (!c2) return; c2.checked ? sec.add(+c2.dataset.u) : sec.delete(+c2.dataset.u); ciz(); };
+      $('#us-aktif', m.el).onchange = (e) => { aktif = e.target.checked; ciz(); };
+      $('#us-ara', m.el).oninput = (e) => { ara = norm(e.target.value.trim()); ciz(); };
+      $('#us-kat', m.el).onchange = (e) => { kat = e.target.value; ciz(); };
+      $('#us-sec', m.el).onchange = (e) => { sadeceSecili = e.target.checked; ciz(); };
+      $('#us-hepsi', m.el).onclick = () => { gor().forEach((u) => sec.add(u.id)); ciz(); };
+      $('#us-hic', m.el).onclick = () => { gor().forEach((u) => sec.delete(u.id)); ciz(); };
+      $('#us-ozel', m.el).onclick = () => { ls.forEach((u) => { if (num(M[u.id]?.fiyat) > 0) sec.add(u.id); }); ciz(); };
+      $('#us-ok', m.el).onclick = (e) => busy(e.currentTarget, async () => {
+        await api.insert('b2b_urun_secimi', [{ cari_id: c.id, aktif, urunler: [...sec], guncelleme: new Date().toISOString() }], { upsert: true, onConflict: 'cari_id' });
+        toast(aktif ? `Portalda ${sec.size} ürün görünecek` : 'Ürün seçimi kapatıldı; özel fiyatlı ürünler görünür', 'ok'); m.close();
+        const o = $('#bk-us-ozet'); if (o) o.textContent = aktif ? `Sadece seçilen ${sec.size} ürün görünüyor` : 'Seçim yapılmadı: müşteriye özel fiyatı olan ürünler görünüyor';
+      }).catch(fail);
+      ciz();
+    }
+  });
+}
 async function b2bKullanicilar(c) {
   if (!isAdmin()) return toast('Bayi portalı kullanıcılarını sadece yönetici düzenleyebilir', 'err');
   const lst = await api.get('b2b_kullanicilari', `select=id,cari_id,ad,kullanici,aktif,yetkiler,son_giris,olusturma&cari_id=eq.${c.id}&order=id.asc`);
@@ -7550,6 +7601,7 @@ async function b2bKullanicilar(c) {
     title: `${c.unvan} · Bayi portalı`,
     wide: true,
     body: `<p class="small" style="margin:0 0 12px">Müşteri <b>${esc(bayiUrl().replace(/^https?:\/\//, ''))}</b> adresinden kendi kullanıcı adı ve şifresiyle girer. <b>Sadece bu carinin</b> bilgilerini görür; neleri yapabileceğini aşağıdaki yetkilerle siz seçersiniz. Sipariş fiyatları bu carinin <b>müşteriye özel fiyatlarından</b> gelir, müşteri değiştiremez. Portaldan gelen siparişler onayınıza düşer (menü: Bayi portalı).</p>
+      <div class="card" style="margin:0 0 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px"><div style="flex:1 1 220px"><b>Sipariş verebileceği ürünler</b><div class="tiny" id="bk-us-ozet">yükleniyor…</div></div><button class="btn" id="bk-us">${icon('box')}Ürünleri seç</button></div>
       <div class="list" id="bk-lst" style="margin-bottom:14px">${lst.length ? lst.map((u) => `<div class="row" style="align-items:flex-start;gap:10px;cursor:default">
         <div class="main-col"><div class="t"><b>${esc(u.ad)}</b> ${u.kullanici ? `<span class="badge">${esc(u.kullanici)}</span>` : ''} ${u.aktif ? '<span class="badge b-green">Açık</span>' : '<span class="badge b-red">Kapalı</span>'}</div>
           <div class="st">${esc(b2bYetkiOzet(u.yetkiler))}</div><div class="tiny">${u.son_giris ? `Son giriş ${new Date(u.son_giris).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'Henüz giriş yapmadı'}</div></div>
@@ -7566,6 +7618,8 @@ async function b2bKullanicilar(c) {
         <button class="btn primary" id="bk-yeni" style="margin-top:8px">Kullanıcı oluştur</button></div>`,
     foot: '<button class="btn" data-close>Kapat</button>',
     onMount: (m) => {
+      api.get('b2b_urun_secimi', `select=aktif,urunler&cari_id=eq.${c.id}`).then(([x]) => { const o = $('#bk-us-ozet', m.el); if (o) o.textContent = x?.aktif ? `Sadece seçilen ${x.urunler?.length || 0} ürün görünüyor` : 'Seçim yapılmadı: müşteriye özel fiyatı olan ürünler görünüyor'; }).catch(() => {});
+      $('#bk-us', m.el).onclick = () => b2bUrunSecimi(c).catch(fail);
       $('#bk-ad', m.el).addEventListener('input', (e) => { const k = $('#bk-k', m.el); if (!k.dataset.elle) k.value = kAd(e.target.value); });
       $('#bk-k', m.el).addEventListener('input', (e) => { e.target.dataset.elle = '1'; });
       $('#bk-yeni', m.el).onclick = (e) => busy(e.currentTarget, async () => {
@@ -7665,7 +7719,7 @@ async function viewB2B() {
   $$('[data-c]').forEach((r) => (r.onclick = () => go(`#/cari/${r.dataset.c}`)));
 }
 
-const APP_V = '2.71';
+const APP_V = '2.72';
 // elle yenileme: yeni surum varsa uygulamayi yeniler, yoksa verileri bastan ceker
 async function yenile(btn) {
   btn?.classList.add('donuyor');

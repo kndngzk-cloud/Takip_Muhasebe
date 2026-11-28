@@ -47,21 +47,25 @@ async function ayar() {
   const [a] = await rest("ayarlar?select=firma_adi,kdv_orani,gonderim_sekilleri,doviz_kur,odeme_link&id=eq.1").catch(() => [null]);
   return a || {};
 }
-// Musteriye fiyat: musteriye ozel fiyat (doviz ise guncel kurla TL), yetki varsa diger urunler icin liste fiyati
+// Musteriye fiyat: musteriye ozel fiyat (doviz ise guncel kurla TL), yetki varsa diger urunler icin liste fiyati.
+// Yonetici bu cari icin urun secimi yaptiysa (b2b_urun_secimi.aktif) SADECE secilen urunler gorunur; ozel fiyati yoksa liste fiyatiyla.
 async function katalog(cariId: number, y: Yetki, a: Record<string, any>) {
   const mf = await rest(`musteri_fiyatlari?select=urun_id,fiyat,para_birimi,odeme_kosulu&cari_id=eq.${cariId}`);
+  const [sec] = await rest(`b2b_urun_secimi?select=aktif,urunler&cari_id=eq.${cariId}`).catch(() => []);
+  const secili: Set<number> | null = sec?.aktif ? new Set((sec.urunler || []).map(Number)) : null;
   const urun = await rest(`v_stok?select=id,kod,ad,kategori,birim,satis_fiyati,min_stok,sevk_sonrasi_stok,yolda,stok_takibi&aktif=is.true&order=ad.asc&limit=5000`);
   const kur = (pb: string) => (pb === "TRY" ? 1 : n(a.doviz_kur?.[pb]));
   const M = new Map(mf.map((x: Record<string, any>) => [x.urun_id, x]));
   const liste: Record<string, any>[] = [];
   for (const u of urun) {
+    if (secili && !secili.has(u.id)) continue;
     const m = M.get(u.id) as Record<string, any> | undefined;
     let fiyat: number | null = null, pb = "TRY", doviz: number | null = null, k = 1, ozel = false;
     if (m && n(m.fiyat) > 0) {
       pb = m.para_birimi || "TRY"; k = kur(pb);
       if (!(k > 0)) continue; // kur yoksa fiyat verilemez
       doviz = pb === "TRY" ? null : n(m.fiyat); fiyat = r2(n(m.fiyat) * k); ozel = true;
-    } else if (y.tum_urunler && n(u.satis_fiyati) > 0) fiyat = r2(n(u.satis_fiyati));
+    } else if ((secili || y.tum_urunler) && n(u.satis_fiyati) > 0) fiyat = r2(n(u.satis_fiyati));
     if (fiyat === null) continue;
     const s = n(u.sevk_sonrasi_stok);
     const stok = !y.stok || u.stok_takibi === false ? null : s > Math.max(0, n(u.min_stok)) ? "Var" : s > 0 ? "Az" : n(u.yolda) > 0 ? "Yolda" : "Yok";

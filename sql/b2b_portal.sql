@@ -146,3 +146,12 @@ begin
 end $$;
 drop trigger if exists bld_b2b on public.b2b_talepler;
 create trigger bld_b2b after insert or update of durum, oto on public.b2b_talepler for each row execute function private.tg_bld_b2b();
+
+-- (28.11.2026, b2b_urun_secimi migration'i ile uygulandi) Carinin portalda siparis verebilecegi urunler: yonetici tek tek secer.
+-- aktif=true iken portalda SADECE urunler[] gorunur (fiyat: musteriye ozel fiyat, yoksa urunun satis fiyati). RLS: sadece yonetici.
+create table if not exists public.b2b_urun_secimi (
+  cari_id bigint primary key references public.cariler(id) on delete cascade,
+  aktif boolean not null default true,
+  urunler bigint[] not null default '{}',
+  guncelleme timestamptz not null default now()
+);
